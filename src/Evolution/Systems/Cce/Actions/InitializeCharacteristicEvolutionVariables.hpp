@@ -96,6 +96,8 @@ struct InitializeCharacteristicEvolutionVariables {
       ::Tags::Variables<tmpl::list<typename Metavariables::evolved_swsh_tag>>;
   using evolved_swsh_dt_variables_tag =
       db::add_tag_prefix<::Tags::dt, evolved_swsh_variables_tag>;
+  using tensor_scalar_tag =
+      ::Tags::Variables<tmpl::list<Tags::BDPsi,Tags::Dy<Tags::BDPsi>>>;
 
   using simple_tags_for_evolution = tmpl::list<
       boundary_value_variables_tag, coordinate_variables_tag,
@@ -105,7 +107,8 @@ struct InitializeCharacteristicEvolutionVariables {
       pre_swsh_derivatives_variables_tag, transform_buffer_variables_tag,
       swsh_derivative_variables_tag,
       Spectral::Swsh::Tags::SwshInterpolator<Tags::CauchyAngularCoords>,
-      Spectral::Swsh::Tags::SwshInterpolator<Tags::PartiallyFlatAngularCoords>>;
+      Spectral::Swsh::Tags::SwshInterpolator<Tags::PartiallyFlatAngularCoords>,
+      tensor_scalar_tag>;
   using simple_tags =
       tmpl::append<StepChoosers::step_chooser_simple_tags<Metavariables, true>,
                    simple_tags_for_evolution>;
@@ -146,7 +149,8 @@ struct InitializeCharacteristicEvolutionVariables {
         typename transform_buffer_variables_tag::type{transform_buffer_size,
                                                       0.0},
         typename swsh_derivative_variables_tag::type{volume_size, 0.0},
-        Spectral::Swsh::SwshInterpolator{}, Spectral::Swsh::SwshInterpolator{});
+        Spectral::Swsh::SwshInterpolator{}, Spectral::Swsh::SwshInterpolator{},
+        typename tensor_scalar_tag::type{volume_size, 0.0});
 
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
