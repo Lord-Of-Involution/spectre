@@ -97,7 +97,9 @@ struct InitializeCharacteristicEvolutionVariables {
   using evolved_swsh_dt_variables_tag =
       db::add_tag_prefix<::Tags::dt, evolved_swsh_variables_tag>;
   using tensor_scalar_tag =
-      ::Tags::Variables<tmpl::list<Tags::BDPsi,Tags::Dy<Tags::BDPsi>>>;
+      ::Tags::Variables<tmpl::list<Tags::Psi,Tags::Dy<Tags::Psi>,
+        Tags::Du<Tags::Psi>,Spectral::Swsh::Tags::Derivative<Tags::Psi,
+       Spectral::Swsh::Tags::Eth>>>;
 
   using simple_tags_for_evolution = tmpl::list<
       boundary_value_variables_tag, coordinate_variables_tag,

@@ -38,9 +38,9 @@ struct BondiJ : db::SimpleTag {
 };
 
 
-struct BDPsi : db::SimpleTag {
+struct Psi : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
-  static std::string name() { return "TSPsi"; }
+  static std::string name() { return "Psi"; }
 };
 
 }  // namespace Tags
@@ -55,10 +55,10 @@ struct dt<Cce::Tags::BondiJ> : db::PrefixTag, db::SimpleTag {
   using tag = Cce::Tags::BondiJ;
 };
 template <>
-struct dt<Cce::Tags::BDPsi> : db::PrefixTag, db::SimpleTag {
+struct dt<Cce::Tags::Psi> : db::PrefixTag, db::SimpleTag {
   static std::string name() { return "Psidt"; }
   using type = Scalar<::SpinWeighted<ComplexDataVector, 0>>;
-  using tag = Cce::Tags::BDPsi;
+  using tag = Cce::Tags::Psi;
 };
 /// \endcond
 }  // namespace Tags
@@ -364,6 +364,16 @@ struct JbarQMinus2EthBeta : db::SimpleTag {
 struct BondiR : db::SimpleTag {
   using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
   static std::string name() { return "R"; }
+};
+
+struct EthPsi : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 1>>;
+  using derivative_kind = Spectral::Swsh::Tags::Eth;
+  static constexpr int spin = 1;
+};
+
+struct DuPsi : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
 };
 
 struct EndTime : db::BaseTag {};
