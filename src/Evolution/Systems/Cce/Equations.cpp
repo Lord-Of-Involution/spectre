@@ -97,10 +97,14 @@ void ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>>::apply_impl(
     const gsl::not_null<SpinWeighted<ComplexDataVector, 0>*>
         regular_integrand_for_w,
     const gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> script_av,
+    const SpinWeighted<ComplexDataVector, 0>& du_psi,
+    const SpinWeighted<ComplexDataVector, 0>& dy_psi,
     const SpinWeighted<ComplexDataVector, 1>& dy_u,
+    const SpinWeighted<ComplexDataVector, 1>& u,
     const SpinWeighted<ComplexDataVector, 0>& exp_2_beta,
     const SpinWeighted<ComplexDataVector, 2>& j,
     const SpinWeighted<ComplexDataVector, 1>& q,
+    const SpinWeighted<ComplexDataVector, 0>& w,
     const SpinWeighted<ComplexDataVector, 1>& eth_beta,
     const SpinWeighted<ComplexDataVector, 2>& eth_eth_beta,
     const SpinWeighted<ComplexDataVector, 0>& eth_ethbar_beta,
@@ -110,8 +114,11 @@ void ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>>::apply_impl(
     const SpinWeighted<ComplexDataVector, 0>& ethbar_dy_u,
     const SpinWeighted<ComplexDataVector, 0>& ethbar_ethbar_j,
     const SpinWeighted<ComplexDataVector, 1>& ethbar_j,
+    const SpinWeighted<ComplexDataVector, 1>& eth_psi,
+    const SpinWeighted<ComplexDataVector, 0>& du_r_divided_by_r,
     const SpinWeighted<ComplexDataVector, 1>& eth_r_divided_by_r,
     const SpinWeighted<ComplexDataVector, 0>& k,
+    const SpinWeighted<ComplexDataVector, 0>& one_minus_y,
     const SpinWeighted<ComplexDataVector, 0>& r) {
   // this computation is split over two lines because GCC-10 on release mode
   // optimizes the long expression templates in such a way to cause segfaults.
@@ -131,7 +138,12 @@ void ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>>::apply_impl(
       0.5 * (0.5 * (ethbar_dy_u + conj(ethbar_dy_u) +
                     conj(dy_u) * eth_r_divided_by_r +
                     dy_u * conj(eth_r_divided_by_r)) -
-             1.0 / r + 0.5 * exp_2_beta * (*script_av + conj(*script_av)) / r);
+             1.0 / r + 0.5 * exp_2_beta * (*script_av + conj(*script_av)) / r -
+     one_minus_y * 4.0* M_PI * dy_psi * (2.0 * du_psi + u * conj(eth_psi) +
+     conj(u) * eth_psi))+
+     square(one_minus_y)* 4.0 *M_PI * square(dy_psi) * (2.0 * du_r_divided_by_r
+     + w) +
+     cube(one_minus_y)* 2.0 *M_PI * square(dy_psi) /r;
 }
 
 void ComputeBondiIntegrand<Tags::PoleOfIntegrand<Tags::BondiH>>::apply_impl(

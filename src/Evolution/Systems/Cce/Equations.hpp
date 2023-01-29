@@ -492,8 +492,9 @@ template <>
 struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>> {
  public:
   using pre_swsh_derivative_tags =
-      tmpl::list<Tags::Dy<Tags::BondiU>, Tags::Exp2Beta, Tags::BondiJ,
-                 Tags::BondiQ>;
+      tmpl::list<Tags::Du<Tags::Psi>,Tags::Dy<Tags::Psi>,
+      Tags::Dy<Tags::BondiU>,
+      Tags::BondiU,Tags::Exp2Beta,Tags::BondiJ, Tags::BondiQ,Tags::BondiW>;
   using swsh_derivative_tags = tmpl::list<
       Spectral::Swsh::Tags::Derivative<Tags::BondiBeta,
                                        Spectral::Swsh::Tags::Eth>,
@@ -516,9 +517,13 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>> {
       Spectral::Swsh::Tags::Derivative<Tags::BondiJ,
                                        Spectral::Swsh::Tags::EthbarEthbar>,
       Spectral::Swsh::Tags::Derivative<Tags::BondiJ,
-                                       Spectral::Swsh::Tags::Ethbar>>;
+                                       Spectral::Swsh::Tags::Ethbar>,
+      Spectral::Swsh::Tags::Derivative<Tags::Psi,
+                                       Spectral::Swsh::Tags::Eth>>;
   using integration_independent_tags =
-      tmpl::list<Tags::EthRDividedByR, Tags::BondiK, Tags::BondiR>;
+      tmpl::list<Tags::DuRDividedByR,Tags::EthRDividedByR,
+       Tags::BondiK,Tags::OneMinusY, Tags::BondiR>;
+
   using temporary_tags =
       tmpl::list<::Tags::SpinWeighted<::Tags::TempScalar<0, ComplexDataVector>,
                                       std::integral_constant<int, 0>>>;
@@ -546,10 +551,14 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>> {
       gsl::not_null<SpinWeighted<ComplexDataVector, 0>*>
           regular_integrand_for_w,
       gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> script_av,
+      const SpinWeighted<ComplexDataVector, 0>& du_psi,
+      const SpinWeighted<ComplexDataVector, 0>& dy_psi,
       const SpinWeighted<ComplexDataVector, 1>& dy_u,
+      const SpinWeighted<ComplexDataVector, 1>& u,
       const SpinWeighted<ComplexDataVector, 0>& exp_2_beta,
       const SpinWeighted<ComplexDataVector, 2>& j,
       const SpinWeighted<ComplexDataVector, 1>& q,
+      const SpinWeighted<ComplexDataVector, 0>& w,
       const SpinWeighted<ComplexDataVector, 1>& eth_beta,
       const SpinWeighted<ComplexDataVector, 2>& eth_eth_beta,
       const SpinWeighted<ComplexDataVector, 0>& eth_ethbar_beta,
@@ -559,8 +568,11 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiW>> {
       const SpinWeighted<ComplexDataVector, 0>& ethbar_dy_u,
       const SpinWeighted<ComplexDataVector, 0>& ethbar_ethbar_j,
       const SpinWeighted<ComplexDataVector, 1>& ethbar_j,
+      const SpinWeighted<ComplexDataVector, 1>& eth_psi,
+      const SpinWeighted<ComplexDataVector, 0>& du_r_divided_by_r,
       const SpinWeighted<ComplexDataVector, 1>& eth_r_divided_by_r,
       const SpinWeighted<ComplexDataVector, 0>& k,
+      const SpinWeighted<ComplexDataVector, 0>& one_minus_y,
       const SpinWeighted<ComplexDataVector, 0>& r);
 };
 
