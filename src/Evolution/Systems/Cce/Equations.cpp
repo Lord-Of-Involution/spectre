@@ -28,13 +28,15 @@ namespace Cce {
 
 void ComputeBondiIntegrand<Tags::Integrand<Tags::BondiBeta>>::apply_impl(
     const gsl::not_null<SpinWeighted<ComplexDataVector, 0>*> integrand_for_beta,
+    const SpinWeighted<ComplexDataVector, 0>& dy_psi,
     const SpinWeighted<ComplexDataVector, 2>& dy_j,
     const SpinWeighted<ComplexDataVector, 2>& j,
     const SpinWeighted<ComplexDataVector, 0>& one_minus_y) {
   *integrand_for_beta =
       0.125 * one_minus_y *
       (dy_j * conj(dy_j) -
-       0.25 * square(j * conj(dy_j) + conj(j) * dy_j) / (1.0 + j * conj(j)));
+       0.25 * square(j * conj(dy_j) + conj(j) * dy_j) / (1.0 + j * conj(j)) +
+       + 16.0 * M_PI * square(dy_psi));
 }
 
 void ComputeBondiIntegrand<Tags::PoleOfIntegrand<Tags::BondiQ>>::apply_impl(
