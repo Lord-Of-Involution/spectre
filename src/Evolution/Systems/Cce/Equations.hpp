@@ -276,8 +276,8 @@ template <>
 struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiQ>> {
  public:
   using pre_swsh_derivative_tags =
-      tmpl::list<Tags::Dy<Tags::BondiBeta>, Tags::Dy<Tags::BondiJ>,
-                 Tags::BondiJ>;
+      tmpl::list<Tags::Dy<Tags::Psi>,Tags::Dy<Tags::BondiBeta>,
+      Tags::Dy<Tags::BondiJ>,Tags::BondiJ>;
   using swsh_derivative_tags = tmpl::list<
       Spectral::Swsh::Tags::Derivative<Tags::Dy<Tags::BondiBeta>,
                                        Spectral::Swsh::Tags::Eth>,
@@ -290,7 +290,9 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiQ>> {
       Spectral::Swsh::Tags::Derivative<Tags::Dy<Tags::BondiJ>,
                                        Spectral::Swsh::Tags::Ethbar>,
       Spectral::Swsh::Tags::Derivative<Tags::BondiJ,
-                                       Spectral::Swsh::Tags::Ethbar>>;
+                                       Spectral::Swsh::Tags::Ethbar>,
+      Spectral::Swsh::Tags::Derivative<Tags::Psi,
+                                       Spectral::Swsh::Tags::Eth>>;
   using integration_independent_tags =
       tmpl::list<Tags::EthRDividedByR, Tags::BondiK>;
   using temporary_tags =
@@ -320,6 +322,7 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiQ>> {
       gsl::not_null<SpinWeighted<ComplexDataVector, 1>*>
           regular_integrand_for_q,
       gsl::not_null<SpinWeighted<ComplexDataVector, 1>*> script_aq,
+      const SpinWeighted<ComplexDataVector, 0>& dy_psi,
       const SpinWeighted<ComplexDataVector, 0>& dy_beta,
       const SpinWeighted<ComplexDataVector, 2>& dy_j,
       const SpinWeighted<ComplexDataVector, 2>& j,
@@ -328,6 +331,7 @@ struct ComputeBondiIntegrand<Tags::RegularIntegrand<Tags::BondiQ>> {
       const SpinWeighted<ComplexDataVector, 1>& eth_jbar_dy_j,
       const SpinWeighted<ComplexDataVector, 1>& ethbar_dy_j,
       const SpinWeighted<ComplexDataVector, 1>& ethbar_j,
+      const SpinWeighted<ComplexDataVector, 1>& eth_psi,
       const SpinWeighted<ComplexDataVector, 1>& eth_r_divided_by_r,
       const SpinWeighted<ComplexDataVector, 0>& k);
 };
