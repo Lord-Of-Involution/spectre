@@ -74,7 +74,7 @@ struct CharacteristicSpeedsCompute : Tags::CharacteristicSpeeds<SpatialDim>,
   using return_type = typename base::type;
   using argument_tags = tmpl::list<
       Tags::ConstraintGamma1, gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<SpatialDim, Frame::Inertial, DataVector>,
+      gr::Tags::Shift<DataVector, SpatialDim>,
       ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<SpatialDim>>>;
 
   static constexpr void function(
@@ -141,26 +141,38 @@ template <size_t SpatialDim>
 Variables<
     tmpl::list<Tags::VPsi, Tags::VZero<SpatialDim>, Tags::VPlus, Tags::VMinus>>
 characteristic_fields(
-    const Scalar<DataVector>& gamma_2,
-    const tnsr::II<DataVector, SpatialDim, Frame::Inertial>&
-        inverse_spatial_metric,
-    const Scalar<DataVector>& psi, const Scalar<DataVector>& pi,
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& psi,
+    const Scalar<DataVector>& pi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>&
-        unit_normal_one_form);
+        unit_normal_one_form,
+    const tnsr::I<DataVector, SpatialDim, Frame::Inertial>& unit_normal_vector);
 
 template <size_t SpatialDim>
 void characteristic_fields(
     gsl::not_null<Variables<tmpl::list<Tags::VPsi, Tags::VZero<SpatialDim>,
                                        Tags::VPlus, Tags::VMinus>>*>
         char_fields,
-    const Scalar<DataVector>& gamma_2,
-    const tnsr::II<DataVector, SpatialDim, Frame::Inertial>&
-        inverse_spatial_metric,
-    const Scalar<DataVector>& psi, const Scalar<DataVector>& pi,
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& psi,
+    const Scalar<DataVector>& pi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>&
-        unit_normal_one_form);
+        unit_normal_one_form,
+    const tnsr::I<DataVector, SpatialDim, Frame::Inertial>& unit_normal_vector);
+
+template <size_t SpatialDim>
+void characteristic_fields(
+    const gsl::not_null<Scalar<DataVector>*>& v_psi,
+    const gsl::not_null<tnsr::i<DataVector, SpatialDim, Frame::Inertial>*>&
+        v_zero,
+    const gsl::not_null<Scalar<DataVector>*>& v_plus,
+    const gsl::not_null<Scalar<DataVector>*>& v_minus,
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& psi,
+    const Scalar<DataVector>& pi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>&
+        unit_normal_one_form,
+    const tnsr::I<DataVector, SpatialDim, Frame::Inertial>& unit_normal_vector);
 
 template <size_t SpatialDim>
 struct CharacteristicFieldsCompute : Tags::CharacteristicFields<SpatialDim>,
@@ -169,8 +181,8 @@ struct CharacteristicFieldsCompute : Tags::CharacteristicFields<SpatialDim>,
   using return_type = typename base::type;
   using argument_tags = tmpl::list<
       Tags::ConstraintGamma2,
-      gr::Tags::InverseSpatialMetric<SpatialDim, Frame::Inertial, DataVector>,
-      Tags::Psi, Tags::Pi, Tags::Phi<SpatialDim>,
+      gr::Tags::InverseSpatialMetric<DataVector, SpatialDim>, Tags::Psi,
+      Tags::Pi, Tags::Phi<SpatialDim>,
       ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<SpatialDim>>>;
 
   static constexpr void function(
@@ -181,8 +193,10 @@ struct CharacteristicFieldsCompute : Tags::CharacteristicFields<SpatialDim>,
       const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
       const tnsr::i<DataVector, SpatialDim, Frame::Inertial>&
           unit_normal_one_form) {
-    characteristic_fields<SpatialDim>(result, gamma_2, inverse_spatial_metric,
-                                      psi, pi, phi, unit_normal_one_form);
+    const auto unit_normal_vector = tenex::evaluate<ti::I>(
+        inverse_spatial_metric(ti::I, ti::J) * unit_normal_one_form(ti::j));
+    characteristic_fields<SpatialDim>(result, gamma_2, psi, pi, phi,
+                                      unit_normal_one_form, unit_normal_vector);
   }
 };
 /// @}
@@ -206,6 +220,17 @@ void evolved_fields_from_characteristic_fields(
     gsl::not_null<
         Variables<tmpl::list<Tags::Psi, Tags::Pi, Tags::Phi<SpatialDim>>>*>
         evolved_fields,
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& v_psi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& v_zero,
+    const Scalar<DataVector>& v_plus, const Scalar<DataVector>& v_minus,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>&
+        unit_normal_one_form);
+
+template <size_t SpatialDim>
+void evolved_fields_from_characteristic_fields(
+    gsl::not_null<Scalar<DataVector>*> psi,
+    gsl::not_null<Scalar<DataVector>*> pi,
+    gsl::not_null<tnsr::i<DataVector, SpatialDim, Frame::Inertial>*> phi,
     const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& v_psi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& v_zero,
     const Scalar<DataVector>& v_plus, const Scalar<DataVector>& v_minus,
@@ -255,10 +280,10 @@ namespace Tags {
 template <size_t SpatialDim>
 struct ComputeLargestCharacteristicSpeed : LargestCharacteristicSpeed,
                                            db::ComputeTag {
-  using argument_tags = tmpl::list<
-      Tags::ConstraintGamma1, gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialMetric<SpatialDim, Frame::Inertial, DataVector>>;
+  using argument_tags =
+      tmpl::list<Tags::ConstraintGamma1, gr::Tags::Lapse<DataVector>,
+                 gr::Tags::Shift<DataVector, SpatialDim>,
+                 gr::Tags::SpatialMetric<DataVector, SpatialDim>>;
   using return_type = double;
   using base = LargestCharacteristicSpeed;
   static void function(

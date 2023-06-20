@@ -32,7 +32,6 @@
 #include "PointwiseFunctions/Hydro/SpecificEnthalpy.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "Utilities/Gsl.hpp"
-
 namespace {
 enum class TestThis {
   AllGood,
@@ -51,9 +50,11 @@ enum class TestThis {
   RdmpMagnitudeTildeB
 };
 
-void test(const TestThis test_this, const int expected_tci_status) {
+void test(const TestThis test_this, const int expected_tci_status,
+          const bool element_stays_on_dg) {
   CAPTURE(test_this);
   CAPTURE(expected_tci_status);
+  CAPTURE(element_stays_on_dg);
   const EquationsOfState::PolytropicFluid<true> eos{100.0, 2.0};
   const Mesh<3> mesh{6, Spectral::Basis::Legendre,
                      Spectral::Quadrature::GaussLobatto};
@@ -85,7 +86,8 @@ void test(const TestThis test_this, const int expected_tci_status) {
     get<hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>>(prim_vars)
         .get(i) = 1.0e-50;
   }
-
+  // Tracking max field for check later
+  double max_B_field = 1.0e-50;
   // Just use flat space since none of the TCI checks really depend on the
   // spacetime variables.
   tnsr::ii<DataVector, 3, Frame::Inertial> spatial_metric{
@@ -115,7 +117,10 @@ void test(const TestThis test_this, const int expected_tci_status) {
       persson_exponent,
       persson_exponent,
       false,
-      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim};
+      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim,
+      false,
+      std::nullopt,
+      fd::DerivativeOrder::Two};
 
   auto box = db::create<db::AddSimpleTags<
       ::Tags::Variables<typename ConsVars::tags_list>,
@@ -123,10 +128,11 @@ void test(const TestThis test_this, const int expected_tci_status) {
       ::evolution::dg::subcell::Tags::Mesh<3>,
       hydro::Tags::EquationOfState<
           std::unique_ptr<EquationsOfState::EquationOfState<true, 1>>>,
-      gr::Tags::SqrtDetSpatialMetric<>, gr::Tags::SpatialMetric<3>,
-      gr::Tags::InverseSpatialMetric<3>,
+      gr::Tags::SqrtDetSpatialMetric<DataVector>,
+      gr::Tags::SpatialMetric<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>,
       grmhd::ValenciaDivClean::subcell::Tags::TciOptions,
-      evolution::dg::subcell::Tags::SubcellOptions,
+      evolution::dg::subcell::Tags::SubcellOptions<3>,
       evolution::dg::subcell::Tags::DataForRdmpTci>>(
       ConsVars{mesh.number_of_grid_points()}, prim_vars, mesh, subcell_mesh,
       std::unique_ptr<EquationsOfState::EquationOfState<true, 1>>{
@@ -137,76 +143,107 @@ void test(const TestThis test_this, const int expected_tci_status) {
   db::mutate_apply<grmhd::ValenciaDivClean::ConservativeFromPrimitive>(
       make_not_null(&box));
 
-  // set B and Phi to NaN since they should be set by recovery
+  const auto original_rest_mass_density =
+      get<hydro::Tags::RestMassDensity<DataVector>>(prim_vars);
+
+  // set B and Phi to 0 since they should be set by recovery
   db::mutate<hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>,
              hydro::Tags::DivergenceCleaningField<DataVector>>(
-      make_not_null(&box), [](const auto mag_field_ptr, const auto phi_ptr) {
+      [](const auto mag_field_ptr, const auto phi_ptr) {
         for (size_t i = 0; i < 3; ++i) {
-          mag_field_ptr->get(i) = std::numeric_limits<double>::signaling_NaN();
+          mag_field_ptr->get(i) = 0;
         }
-        get(*phi_ptr) = std::numeric_limits<double>::signaling_NaN();
-      });
+        get(*phi_ptr) = 0;
+      },
+      make_not_null(&box));
 
   const size_t point_to_change = mesh.number_of_grid_points() / 2;
+
+  if (test_this == TestThis::AllGood) {
+    // slightly modify D to ensure that after the con2prim, the original density
+    // does not match the new density
+    db::mutate<grmhd::ValenciaDivClean::Tags::TildeD>(
+        [point_to_change](const auto tilde_d_ptr) {
+          get(*tilde_d_ptr)[point_to_change] *= 1.001;
+        },
+        make_not_null(&box));
+  }
   if (test_this == TestThis::SmallTildeD) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeD>(
-        make_not_null(&box), [point_to_change](const auto tilde_d_ptr) {
+        [point_to_change](const auto tilde_d_ptr) {
           get(*tilde_d_ptr)[point_to_change] = 1.0e-30;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::InAtmosphere) {
     // Make sure the PerssonTCI would trigger in the atmosphere to verify that
     // the reason we didn't mark the cell as troubled is because we're in
     // atmosphere.
     db::mutate<hydro::Tags::Pressure<DataVector>>(
-        make_not_null(&box), [point_to_change](const auto pressure_ptr) {
+        [point_to_change](const auto pressure_ptr) {
           get(*pressure_ptr)[point_to_change] *= 1.5;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::TildeB2TooBig) {
+    const double large_B_field_magnitude = 1.0e4;
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeB<Frame::Inertial>>(
-        make_not_null(&box), [point_to_change](const auto tilde_b_ptr) {
-          get<0>(*tilde_b_ptr)[point_to_change] = 1.0e4;
-          get<1>(*tilde_b_ptr)[point_to_change] = 1.0e4;
-          get<2>(*tilde_b_ptr)[point_to_change] = 1.0e4;
-        });
+
+        [&large_B_field_magnitude, point_to_change](const auto tilde_b_ptr) {
+          get<0>(*tilde_b_ptr)[point_to_change] = large_B_field_magnitude;
+          get<1>(*tilde_b_ptr)[point_to_change] = large_B_field_magnitude;
+          get<2>(*tilde_b_ptr)[point_to_change] = large_B_field_magnitude;
+        },
+        make_not_null(&box));
+    max_B_field = std::max(max_B_field, large_B_field_magnitude);
+
   } else if (test_this == TestThis::PrimRecoveryFailed) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeS<Frame::Inertial>>(
-        make_not_null(&box), [point_to_change](const auto tilde_s_ptr) {
+        [point_to_change](const auto tilde_s_ptr) {
           // Manipulate one of the conserved variable in an (very) inconsistent
           // way so that primitive recovery fails.
           get<0>(*tilde_s_ptr)[point_to_change] = 1e3;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::PerssonPressure) {
     db::mutate<hydro::Tags::Pressure<DataVector>>(
-        make_not_null(&box), [point_to_change](const auto pressure_ptr) {
+        [point_to_change](const auto pressure_ptr) {
           get(*pressure_ptr)[point_to_change] *= 2.0;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::PerssonTildeD) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeD>(
-        make_not_null(&box), [point_to_change](const auto tilde_d_ptr) {
+        [point_to_change](const auto tilde_d_ptr) {
           get(*tilde_d_ptr)[point_to_change] *= 2.0;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::PerssonTildeB) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeB<>>(
-        make_not_null(&box), [point_to_change](const auto tilde_b_ptr) {
+
+        [&max_B_field, point_to_change](const auto tilde_b_ptr) {
           for (size_t i = 0; i < 3; ++i) {
             tilde_b_ptr->get(i)[point_to_change] = 6.0;
+            max_B_field =
+                std::max(max_B_field, tilde_b_ptr->get(i)[point_to_change]);
           }
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::NegativeTildeDSubcell) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeD>(
-        make_not_null(&box), [point_to_change](const auto tilde_d_ptr) {
+        [point_to_change](const auto tilde_d_ptr) {
           get(*tilde_d_ptr)[point_to_change] = 1.0e-200;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::NegativeTildeTauSubcell) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeTau>(
-        make_not_null(&box), [point_to_change](const auto tilde_d_ptr) {
+        [point_to_change](const auto tilde_d_ptr) {
           get(*tilde_d_ptr)[point_to_change] = 1.0e-200;
-        });
+        },
+        make_not_null(&box));
   } else if (test_this == TestThis::NegativeTildeTau) {
     db::mutate<grmhd::ValenciaDivClean::Tags::TildeTau>(
-        make_not_null(&box), [point_to_change](const auto tilde_d_ptr) {
+        [point_to_change](const auto tilde_d_ptr) {
           get(*tilde_d_ptr)[point_to_change] = -1.0e-20;
-        });
+        },
+        make_not_null(&box));
   }
 
   // Set the RDMP TCI past data.
@@ -216,7 +253,7 @@ void test(const TestThis test_this, const int expected_tci_status) {
   const auto magnitude_tilde_b =
       magnitude(db::get<grmhd::ValenciaDivClean::Tags::TildeB<>>(box));
 
-  past_rdmp_tci_data.max_variables_values = std::vector<double>{
+  past_rdmp_tci_data.max_variables_values = DataVector{
       max(max(get(db::get<grmhd::ValenciaDivClean::Tags::TildeD>(box))),
           max(evolution::dg::subcell::fd::project(
               get(db::get<grmhd::ValenciaDivClean::Tags::TildeD>(box)), mesh,
@@ -232,7 +269,7 @@ void test(const TestThis test_this, const int expected_tci_status) {
       max(max(get(magnitude_tilde_b)),
           max(evolution::dg::subcell::fd::project(get(magnitude_tilde_b), mesh,
                                                   subcell_mesh.extents())))};
-  past_rdmp_tci_data.min_variables_values = std::vector<double>{
+  past_rdmp_tci_data.min_variables_values = DataVector{
       min(min(get(db::get<grmhd::ValenciaDivClean::Tags::TildeD>(box))),
           min(evolution::dg::subcell::fd::project(
               get(db::get<grmhd::ValenciaDivClean::Tags::TildeD>(box)), mesh,
@@ -252,9 +289,8 @@ void test(const TestThis test_this, const int expected_tci_status) {
   const evolution::dg::subcell::RdmpTciData expected_rdmp_tci_data =
       past_rdmp_tci_data;
 
-  // Modify past data if we are expected an RDMP TCI failure.
+  // Modify past data if we are expecting an RDMP TCI failure.
   db::mutate<evolution::dg::subcell::Tags::DataForRdmpTci>(
-      make_not_null(&box),
       [&past_rdmp_tci_data, &test_this](const auto rdmp_tci_data_ptr) {
         *rdmp_tci_data_ptr = past_rdmp_tci_data;
         if (test_this == TestThis::RdmpTildeD) {
@@ -267,12 +303,14 @@ void test(const TestThis test_this, const int expected_tci_status) {
           // Assumes min is positive, increase it so we fail the TCI
           rdmp_tci_data_ptr->min_variables_values[2] *= 1.01;
         }
-      });
+      },
+      make_not_null(&box));
 
   const std::tuple<int, evolution::dg::subcell::RdmpTciData> result =
       db::mutate_apply<grmhd::ValenciaDivClean::subcell::TciOnDgGrid<
           grmhd::ValenciaDivClean::PrimitiveRecoverySchemes::NewmanHamlin>>(
-          make_not_null(&box), persson_exponent);
+          make_not_null(&box), persson_exponent, element_stays_on_dg);
+
   CHECK(get<1>(result) == expected_rdmp_tci_data);
 
   if (test_this == TestThis::AllGood or test_this == TestThis::InAtmosphere) {
@@ -283,26 +321,52 @@ void test(const TestThis test_this, const int expected_tci_status) {
               prim_vars));
     CHECK(db::get<hydro::Tags::DivergenceCleaningField<DataVector>>(box) ==
           get<hydro::Tags::DivergenceCleaningField<DataVector>>(prim_vars));
+    if (test_this == TestThis::AllGood) {
+      // Density should not be the same for an updated Dtilde
+      CHECK_FALSE(db::get<hydro::Tags::RestMassDensity<DataVector>>(box) ==
+                  original_rest_mass_density);
+    }
   } else {
     CHECK(get<0>(result) == expected_tci_status);
+    // Ensure data before does not equal data after, if TCI is in trouble
+    // box is output from tciondggrid, prim_vars are initial value
+    if (element_stays_on_dg) {
+      // The updated box primitive variables should have a maximum that match
+      // the original primvars magnetic field x component: 1e-50 for non
+      // B field TCI test cases, 6 for PerssonTildeB, or 1.0e4 for TildeB2TooBig
+      CHECK(max(get<0>(
+                db::get<
+                    hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>>(
+                    box))) == max_B_field);
+    } else {
+      // If element_stays_on_dg is false, then
+      // the primitives will not update, causing a mismatch between
+      // the updated box values and the original primvars.
+      CHECK(db::get<hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>>(
+                box) !=
+            get<hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>>(
+                prim_vars));
+    }
   }
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Evolution.Systems.ValenciaDivClean.Subcell.TciOnDgGrid",
                   "[Unit][Evolution]") {
-  test(TestThis::AllGood, 0);
-  test(TestThis::InAtmosphere, 0);
-  test(TestThis::SmallTildeD, -1);
-  test(TestThis::NegativeTildeDSubcell, -1);
-  test(TestThis::NegativeTildeTau, -2);
-  test(TestThis::NegativeTildeTauSubcell, -2);
-  test(TestThis::TildeB2TooBig, -3);
-  test(TestThis::PrimRecoveryFailed, -4);
-  test(TestThis::PerssonTildeD, -5);
-  test(TestThis::PerssonPressure, -5);
-  test(TestThis::PerssonTildeB, -6);
-  test(TestThis::RdmpTildeD, -7);
-  test(TestThis::RdmpTildeTau, -8);
-  test(TestThis::RdmpMagnitudeTildeB, -9);
+  for (const auto& element_stays_on_dg : make_array(false, true)) {
+    test(TestThis::AllGood, 0, element_stays_on_dg);
+    test(TestThis::InAtmosphere, 0, element_stays_on_dg);
+    test(TestThis::SmallTildeD, -1, element_stays_on_dg);
+    test(TestThis::NegativeTildeDSubcell, -1, element_stays_on_dg);
+    test(TestThis::NegativeTildeTau, -2, element_stays_on_dg);
+    test(TestThis::NegativeTildeTauSubcell, -2, element_stays_on_dg);
+    test(TestThis::TildeB2TooBig, -3, element_stays_on_dg);
+    test(TestThis::PrimRecoveryFailed, -4, element_stays_on_dg);
+    test(TestThis::PerssonTildeD, -5, element_stays_on_dg);
+    test(TestThis::PerssonPressure, -7, element_stays_on_dg);
+    test(TestThis::PerssonTildeB, -8, element_stays_on_dg);
+    test(TestThis::RdmpTildeD, -9, element_stays_on_dg);
+    test(TestThis::RdmpTildeTau, -10, element_stays_on_dg);
+    test(TestThis::RdmpMagnitudeTildeB, -11, element_stays_on_dg);
+  }  // end for loop over element_stays_on_dg
 }

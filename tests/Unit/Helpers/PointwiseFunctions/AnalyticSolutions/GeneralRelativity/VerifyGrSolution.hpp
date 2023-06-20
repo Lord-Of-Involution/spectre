@@ -74,16 +74,14 @@ void verify_time_independent_einstein_solution(
   static_assert(is_analytic_solution_v<Solution>,
                 "Solution was not derived from AnalyticSolution");
   // Shorter names for tags.
-  using SpacetimeMetric = gr::Tags::SpacetimeMetric<3, Frame::Inertial>;
-  using Pi = ::GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>;
-  using Phi = ::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>;
+  using SpacetimeMetric = gr::Tags::SpacetimeMetric<DataVector, 3>;
+  using Pi = ::gh::Tags::Pi<DataVector, 3>;
+  using Phi = ::gh::Tags::Phi<DataVector, 3>;
   using VariablesTags = tmpl::list<SpacetimeMetric, Pi, Phi>;
-  const GeneralizedHarmonic::Solutions::WrappedGr<Solution> gh_solution{
-      solution};
-  const std::unique_ptr<GeneralizedHarmonic::gauges::GaugeCondition>
-      gauge_condition =
-          std::make_unique<GeneralizedHarmonic::gauges::AnalyticChristoffel>(
-              gh_solution.get_clone());
+  const gh::Solutions::WrappedGr<Solution> gh_solution{solution};
+  const std::unique_ptr<gh::gauges::GaugeCondition> gauge_condition =
+      std::make_unique<gh::gauges::AnalyticChristoffel>(
+          gh_solution.get_clone());
 
   // Set up grid
   const size_t data_size = pow<3>(grid_size_each_dimension);
@@ -110,18 +108,18 @@ void verify_time_independent_einstein_solution(
   // Evaluate analytic solution
   const auto vars = gh_solution.variables(
       x, time, typename Solution::template tags<DataVector>{});
-  const auto& lapse = get<gr::Tags::Lapse<>>(vars);
-  const auto& dt_lapse = get<Tags::dt<gr::Tags::Lapse<>>>(vars);
-  const auto& shift = get<gr::Tags::Shift<3>>(vars);
+  const auto& lapse = get<gr::Tags::Lapse<DataVector>>(vars);
+  const auto& dt_lapse = get<Tags::dt<gr::Tags::Lapse<DataVector>>>(vars);
+  const auto& shift = get<gr::Tags::Shift<DataVector, 3>>(vars);
   const auto& d_shift =
-      get<::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(vars);
-  const auto& dt_shift = get<Tags::dt<gr::Tags::Shift<3>>>(vars);
-  const auto& g = get<gr::Tags::SpatialMetric<3>>(vars);
-  const auto& dt_g = get<Tags::dt<gr::Tags::SpatialMetric<3>>>(vars);
-  const auto& d_g =
-      get<::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(vars);
+      get<::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(vars);
+  const auto& dt_shift = get<Tags::dt<gr::Tags::Shift<DataVector, 3>>>(vars);
+  const auto& g = get<gr::Tags::SpatialMetric<DataVector, 3>>(vars);
+  const auto& dt_g =
+      get<Tags::dt<gr::Tags::SpatialMetric<DataVector, 3>>>(vars);
+  const auto& d_g = get<::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>,
+                                      tmpl::size_t<3>, Frame::Inertial>>(vars);
 
   // Check those quantities that should vanish identically.
   CHECK(get(dt_lapse) == make_with_value<DataVector>(x, 0.));
@@ -184,7 +182,7 @@ void verify_time_independent_einstein_solution(
   const auto trace_christoffel_first_kind =
       trace_last_indices(christoffel_first_kind, upper_spacetime_metric);
   const auto normal_one_form =
-      gr::spacetime_normal_one_form<3, Frame::Inertial>(lapse);
+      gr::spacetime_normal_one_form<DataVector, 3, Frame::Inertial>(lapse);
   const auto normal_vector = gr::spacetime_normal_vector(lapse, shift);
 
   // Test ADM evolution equation gives zero
@@ -220,126 +218,94 @@ void verify_time_independent_einstein_solution(
   auto dt_phi =
       make_with_value<tnsr::iaa<DataVector, 3, Frame::Inertial>>(x, 0.0);
   Variables<tmpl::list<
-      GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-      GeneralizedHarmonic::Tags::GaugeH<3>,
-      GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<3>,
-      GeneralizedHarmonic::Tags::Gamma1Gamma2,
-      GeneralizedHarmonic::Tags::HalfPiTwoNormals,
-      GeneralizedHarmonic::Tags::NormalDotOneIndexConstraint,
-      GeneralizedHarmonic::Tags::Gamma1Plus1,
-      GeneralizedHarmonic::Tags::PiOneNormal<3>,
-      GeneralizedHarmonic::Tags::GaugeConstraint<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::HalfPhiTwoNormals<3>,
-      GeneralizedHarmonic::Tags::ShiftDotThreeIndexConstraint<3>,
-      GeneralizedHarmonic::Tags::MeshVelocityDotThreeIndexConstraint<3>,
-      GeneralizedHarmonic::Tags::PhiOneNormal<3>,
-      GeneralizedHarmonic::Tags::PiSecondIndexUp<3>,
-      GeneralizedHarmonic::Tags::ThreeIndexConstraint<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::PhiFirstIndexUp<3>,
-      GeneralizedHarmonic::Tags::PhiThirdIndexUp<3>,
-      GeneralizedHarmonic::Tags::SpacetimeChristoffelFirstKindThirdIndexUp<3>,
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
+      gh::ConstraintDamping::Tags::ConstraintGamma1,
+      gh::ConstraintDamping::Tags::ConstraintGamma2,
+      gh::Tags::GaugeH<DataVector, 3>,
+      gh::Tags::SpacetimeDerivGaugeH<DataVector, 3>, gh::Tags::Gamma1Gamma2,
+      gh::Tags::HalfPiTwoNormals, gh::Tags::NormalDotOneIndexConstraint,
+      gh::Tags::Gamma1Plus1, gh::Tags::PiOneNormal<3>,
+      gh::Tags::GaugeConstraint<DataVector, 3>, gh::Tags::HalfPhiTwoNormals<3>,
+      gh::Tags::ShiftDotThreeIndexConstraint<3>,
+      gh::Tags::MeshVelocityDotThreeIndexConstraint<3>,
+      gh::Tags::PhiOneNormal<3>, gh::Tags::PiSecondIndexUp<3>,
+      gh::Tags::ThreeIndexConstraint<DataVector, 3>,
+      gh::Tags::PhiFirstIndexUp<3>, gh::Tags::PhiThirdIndexUp<3>,
+      gh::Tags::SpacetimeChristoffelFirstKindThirdIndexUp<3>,
+      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+      gr::Tags::SpatialMetric<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>,
       gr::Tags::DetSpatialMetric<DataVector>,
       gr::Tags::SqrtDetSpatialMetric<DataVector>,
-      gr::Tags::InverseSpacetimeMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeChristoffelFirstKind<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeChristoffelSecondKind<3, Frame::Inertial, DataVector>,
-      gr::Tags::TraceSpacetimeChristoffelFirstKind<3, Frame::Inertial,
-                                                   DataVector>,
-      gr::Tags::SpacetimeNormalVector<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalOneForm<3, Frame::Inertial, DataVector>,
-      gr::Tags::DerivativesOfSpacetimeMetric<3, Frame::Inertial, DataVector>>>
+      gr::Tags::InverseSpacetimeMetric<DataVector, 3>,
+      gr::Tags::SpacetimeChristoffelFirstKind<DataVector, 3>,
+      gr::Tags::SpacetimeChristoffelSecondKind<DataVector, 3>,
+      gr::Tags::TraceSpacetimeChristoffelFirstKind<DataVector, 3>,
+      gr::Tags::SpacetimeNormalVector<DataVector, 3>,
+      gr::Tags::SpacetimeNormalOneForm<DataVector, 3>,
+      gr::Tags::DerivativesOfSpacetimeMetric<DataVector, 3>>>
       buffer(mesh.number_of_grid_points());
 
-  GeneralizedHarmonic::TimeDerivative<3>::apply(
+  gh::TimeDerivative<3>::apply(
       make_not_null(&dt_spacetime_metric), make_not_null(&dt_pi),
       make_not_null(&dt_phi),
       make_not_null(
-          &get<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1>(
-              buffer)),
+          &get<gh::ConstraintDamping::Tags::ConstraintGamma1>(buffer)),
       make_not_null(
-          &get<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>(
-              buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::GaugeH<3>>(buffer)),
+          &get<gh::ConstraintDamping::Tags::ConstraintGamma2>(buffer)),
+      make_not_null(&get<gh::Tags::GaugeH<DataVector, 3>>(buffer)),
       make_not_null(
-          &get<GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<3>>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::Gamma1Gamma2>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::HalfPiTwoNormals>(buffer)),
+          &get<gh::Tags::SpacetimeDerivGaugeH<DataVector, 3>>(buffer)),
+      make_not_null(&get<gh::Tags::Gamma1Gamma2>(buffer)),
+      make_not_null(&get<gh::Tags::HalfPiTwoNormals>(buffer)),
+      make_not_null(&get<gh::Tags::NormalDotOneIndexConstraint>(buffer)),
+      make_not_null(&get<gh::Tags::Gamma1Plus1>(buffer)),
+      make_not_null(&get<gh::Tags::PiOneNormal<3>>(buffer)),
+      make_not_null(&get<gh::Tags::GaugeConstraint<DataVector, 3>>(buffer)),
+      make_not_null(&get<gh::Tags::HalfPhiTwoNormals<3>>(buffer)),
+      make_not_null(&get<gh::Tags::ShiftDotThreeIndexConstraint<3>>(buffer)),
       make_not_null(
-          &get<GeneralizedHarmonic::Tags::NormalDotOneIndexConstraint>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::Gamma1Plus1>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::PiOneNormal<3>>(buffer)),
+          &get<gh::Tags::MeshVelocityDotThreeIndexConstraint<3>>(buffer)),
+      make_not_null(&get<gh::Tags::PhiOneNormal<3>>(buffer)),
+      make_not_null(&get<gh::Tags::PiSecondIndexUp<3>>(buffer)),
       make_not_null(
-          &get<GeneralizedHarmonic::Tags::GaugeConstraint<3, Frame::Inertial>>(
-              buffer)),
+          &get<gh::Tags::ThreeIndexConstraint<DataVector, 3>>(buffer)),
+      make_not_null(&get<gh::Tags::PhiFirstIndexUp<3>>(buffer)),
+      make_not_null(&get<gh::Tags::PhiThirdIndexUp<3>>(buffer)),
       make_not_null(
-          &get<GeneralizedHarmonic::Tags::HalfPhiTwoNormals<3>>(buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::ShiftDotThreeIndexConstraint<3>>(
-              buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::MeshVelocityDotThreeIndexConstraint<
-              3>>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::PhiOneNormal<3>>(buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::PiSecondIndexUp<3>>(buffer)),
-      make_not_null(&get<GeneralizedHarmonic::Tags::ThreeIndexConstraint<
-                        3, Frame::Inertial>>(buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::PhiFirstIndexUp<3>>(buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::PhiThirdIndexUp<3>>(buffer)),
-      make_not_null(
-          &get<GeneralizedHarmonic::Tags::
-                   SpacetimeChristoffelFirstKindThirdIndexUp<3>>(buffer)),
+          &get<gh::Tags::SpacetimeChristoffelFirstKindThirdIndexUp<3>>(buffer)),
       make_not_null(&get<gr::Tags::Lapse<DataVector>>(buffer)),
+      make_not_null(&get<gr::Tags::Shift<DataVector, 3>>(buffer)),
+      make_not_null(&get<gr::Tags::SpatialMetric<DataVector, 3>>(buffer)),
       make_not_null(
-          &get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(buffer)),
-      make_not_null(
-          &get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(
-              buffer)),
-      make_not_null(
-          &get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-              buffer)),
+          &get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(buffer)),
       make_not_null(&get<gr::Tags::DetSpatialMetric<DataVector>>(buffer)),
       make_not_null(&get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(buffer)),
-      make_not_null(&get<gr::Tags::InverseSpacetimeMetric<3, Frame::Inertial,
-                                                          DataVector>>(buffer)),
       make_not_null(
-          &get<gr::Tags::SpacetimeChristoffelFirstKind<3, Frame::Inertial,
-                                                       DataVector>>(buffer)),
+          &get<gr::Tags::InverseSpacetimeMetric<DataVector, 3>>(buffer)),
       make_not_null(
-          &get<gr::Tags::SpacetimeChristoffelSecondKind<3, Frame::Inertial,
-                                                        DataVector>>(buffer)),
-      make_not_null(&get<gr::Tags::TraceSpacetimeChristoffelFirstKind<
-                        3, Frame::Inertial, DataVector>>(buffer)),
+          &get<gr::Tags::SpacetimeChristoffelFirstKind<DataVector, 3>>(buffer)),
       make_not_null(
-          &get<gr::Tags::SpacetimeNormalVector<3, Frame::Inertial, DataVector>>(
+          &get<gr::Tags::SpacetimeChristoffelSecondKind<DataVector, 3>>(
               buffer)),
-      make_not_null(&get<gr::Tags::SpacetimeNormalOneForm<3, Frame::Inertial,
-                                                          DataVector>>(buffer)),
       make_not_null(
-          &get<gr::Tags::DerivativesOfSpacetimeMetric<3, Frame::Inertial,
-                                                      DataVector>>(buffer)),
+          &get<gr::Tags::TraceSpacetimeChristoffelFirstKind<DataVector, 3>>(
+              buffer)),
+      make_not_null(
+          &get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(buffer)),
+      make_not_null(
+          &get<gr::Tags::SpacetimeNormalOneForm<DataVector, 3>>(buffer)),
+      make_not_null(
+          &get<gr::Tags::DerivativesOfSpacetimeMetric<DataVector, 3>>(buffer)),
       d_spacetime_metric, d_pi, d_phi, spacetime_metric, pi, phi, gamma0,
       gamma1, gamma2, *gauge_condition, mesh, time, x, inverse_jacobian,
       std::nullopt);
 
-  const auto gauge_constraint = GeneralizedHarmonic::gauge_constraint(
-      get<GeneralizedHarmonic::Tags::GaugeH<3>>(buffer),
-      get<gr::Tags::SpacetimeNormalOneForm<3, Frame::Inertial, DataVector>>(
-          buffer),
-      get<gr::Tags::SpacetimeNormalVector<3, Frame::Inertial, DataVector>>(
-          buffer),
-      get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-          buffer),
-      get<gr::Tags::InverseSpacetimeMetric<3, Frame::Inertial, DataVector>>(
-          buffer),
-      pi, phi);
+  const auto gauge_constraint = gh::gauge_constraint(
+      get<gh::Tags::GaugeH<DataVector, 3>>(buffer),
+      get<gr::Tags::SpacetimeNormalOneForm<DataVector, 3>>(buffer),
+      get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(buffer),
+      get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(buffer),
+      get<gr::Tags::InverseSpacetimeMetric<DataVector, 3>>(buffer), pi, phi);
   CHECK_ITERABLE_CUSTOM_APPROX(
       gauge_constraint, make_with_value<decltype(gauge_constraint)>(x, 0.0),
       numerical_approx);
@@ -407,11 +373,11 @@ void verify_consistency(const Solution& solution, const double time,
                         const double derivative_delta,
                         const double derivative_tolerance) {
   using Lapse = gr::Tags::Lapse<double>;
-  using Shift = gr::Tags::Shift<3, Frame, double>;
-  using SpatialMetric = gr::Tags::SpatialMetric<3, Frame, double>;
+  using Shift = gr::Tags::Shift<double, 3, Frame>;
+  using SpatialMetric = gr::Tags::SpatialMetric<double, 3, Frame>;
   using SqrtDetSpatialMetric = gr::Tags::SqrtDetSpatialMetric<double>;
-  using InverseSpatialMetric = gr::Tags::InverseSpatialMetric<3, Frame, double>;
-  using ExtrinsicCurvature = gr::Tags::ExtrinsicCurvature<3, Frame, double>;
+  using InverseSpatialMetric = gr::Tags::InverseSpatialMetric<double, 3, Frame>;
+  using ExtrinsicCurvature = gr::Tags::ExtrinsicCurvature<double, 3, Frame>;
   using tags =
       tmpl::list<SpatialMetric, SqrtDetSpatialMetric, InverseSpatialMetric,
                  ExtrinsicCurvature, Lapse, Shift, detail::deriv<Shift, Frame>,

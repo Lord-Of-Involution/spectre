@@ -9,9 +9,9 @@
 #include <string>
 
 #include "Evolution/EventsAndDenseTriggers/DenseTrigger.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Trigger.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond

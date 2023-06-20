@@ -8,7 +8,8 @@
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/RelativisticEuler/Valencia/TagsDeclarations.hpp"
-#include "Options/Options.hpp"
+#include "Options/Context.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/TagsDeclarations.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
@@ -102,8 +103,9 @@ class FixConservatives {
                  RelativisticEuler::Valencia::Tags::TildeTau,
                  RelativisticEuler::Valencia::Tags::TildeS<Dim>>;
 
-  using argument_tags = tmpl::list<gr::Tags::InverseSpatialMetric<Dim>,
-                                   gr::Tags::SqrtDetSpatialMetric<>>;
+  using argument_tags =
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, Dim>,
+                 gr::Tags::SqrtDetSpatialMetric<DataVector>>;
 
   void operator()(
       gsl::not_null<Scalar<DataVector>*> tilde_d,

@@ -72,12 +72,12 @@ struct ConservativeFromPrimitive {
       tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
                  hydro::Tags::ElectronFraction<DataVector>,
                  hydro::Tags::SpecificInternalEnergy<DataVector>,
-                 hydro::Tags::SpecificEnthalpy<DataVector>,
                  hydro::Tags::Pressure<DataVector>,
                  hydro::Tags::SpatialVelocity<DataVector, 3>,
                  hydro::Tags::LorentzFactor<DataVector>,
                  hydro::Tags::MagneticField<DataVector, 3>,
-                 gr::Tags::SqrtDetSpatialMetric<>, gr::Tags::SpatialMetric<3>,
+                 gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                 gr::Tags::SpatialMetric<DataVector, 3>,
                  hydro::Tags::DivergenceCleaningField<DataVector>>;
 
   static void apply(
@@ -90,7 +90,6 @@ struct ConservativeFromPrimitive {
       const Scalar<DataVector>& rest_mass_density,
       const Scalar<DataVector>& electron_fraction,
       const Scalar<DataVector>& specific_internal_energy,
-      const Scalar<DataVector>& specific_enthalpy,
       const Scalar<DataVector>& pressure,
       const tnsr::I<DataVector, 3, Frame::Inertial>& spatial_velocity,
       const Scalar<DataVector>& lorentz_factor,

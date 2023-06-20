@@ -13,6 +13,9 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/Creators/Interval.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/Actions/InitializeBackgroundFields.hpp"
@@ -80,8 +83,8 @@ SPECTRE_TEST_CASE("Unit.Elliptic.Actions.InitializeBackgroundFields",
   domain::creators::register_derived_with_charm();
   // Which element we work with does not matter for this test
   const ElementId<1> element_id{0, {{SegmentId{2, 1}}}};
-  const domain::creators::Interval domain_creator{{{-0.5}}, {{1.5}},   {{2}},
-                                                  {{4}},    {{false}}, nullptr};
+  const domain::creators::Interval domain_creator{
+      {{-0.5}}, {{1.5}}, {{2}}, {{4}}};
 
   using element_array = ElementArray<Metavariables>;
   ActionTesting::MockRuntimeSystem<Metavariables> runner{

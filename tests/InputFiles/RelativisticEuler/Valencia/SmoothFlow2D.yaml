@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveValenciaSmoothFlow2D
-# Check: parse;execute
+Executable: EvolveValenciaSmoothFlow2D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -59,16 +62,20 @@ VariableFixing:
     MaxVelocityMagnitude: 1.0e-4
 
 EventsAndTriggers:
-  # - - Slabs:
+  # - Trigger:
+  #     Slabs:
   #       EvenlySpaced:
   #         Interval: 100
   #         Offset: 0
-  #   - - ObserveFields:
+  #   Events:
+  #     - ObserveFields:
   #         VariablesToObserve: [RestMassDensity]
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

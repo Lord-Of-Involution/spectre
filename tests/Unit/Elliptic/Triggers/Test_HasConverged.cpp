@@ -13,11 +13,11 @@
 #include "Framework/TestHelpers.hpp"
 #include "NumericalAlgorithms/Convergence/Tags.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Trigger.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -34,8 +34,7 @@ struct Metavariables {
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Elliptic.Triggers.HasConverged", "[Unit][Elliptic]") {
-  Parallel::register_classes_with_charm<
-      elliptic::Triggers::HasConverged<OptionsGroup>>();
+  register_classes_with_charm<elliptic::Triggers::HasConverged<OptionsGroup>>();
 
   const auto created =
       TestHelpers::test_creation<std::unique_ptr<Trigger>, Metavariables>(
@@ -49,9 +48,9 @@ SPECTRE_TEST_CASE("Unit.Elliptic.Triggers.HasConverged", "[Unit][Elliptic]") {
       Metavariables{}, Convergence::HasConverged{});
   CHECK_FALSE(trigger.is_triggered(box));
   db::mutate<Convergence::Tags::HasConverged<OptionsGroup>>(
-      make_not_null(&box),
       [](const gsl::not_null<Convergence::HasConverged*> has_converged) {
         *has_converged = Convergence::HasConverged{0, 0};
-      });
+      },
+      make_not_null(&box));
   CHECK(trigger.is_triggered(box));
 }

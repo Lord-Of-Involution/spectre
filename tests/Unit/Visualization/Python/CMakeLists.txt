@@ -13,11 +13,22 @@ spectre_add_python_bindings_test(
   "unit;visualization;python"
   None)
 
+spectre_add_python_bindings_test(
+  "Unit.Visualization.Python.PlotPowerMonitors"
+  Test_PlotPowerMonitors.py
+  "unit;visualization;python"
+  None)
+
 if(${BUILD_PYTHON_BINDINGS})
   # Test is a bit slow because it writes a bunch of plot files to verify
   # the argument handling works.
   set_tests_properties(
     "Unit.Visualization.Python.PlotDatFile"
+    PROPERTIES
+    TIMEOUT 10
+    )
+  set_tests_properties(
+    "Unit.Visualization.Python.PlotPowerMonitors"
     PROPERTIES
     TIMEOUT 10
     )
@@ -29,7 +40,13 @@ spectre_add_python_bindings_test(
   "unit;visualization;python"
   None)
 
-spectre_add_python_test(
+spectre_add_python_bindings_test(
+  "Unit.Visualization.Python.ReadInputFile"
+  Test_ReadInputFile.py
+  "unit;visualization;python"
+  None)
+
+spectre_add_python_bindings_test(
   "Unit.Visualization.Python.Render1D"
   Test_Render1D.py
   "unit;visualization;python"
@@ -44,5 +61,11 @@ spectre_add_python_bindings_test(
 spectre_add_python_bindings_test(
   "Unit.Visualization.Python.InterpolateToMesh"
   Test_InterpolateToMesh.py
+  "unit;visualization;python"
+  None)
+
+spectre_add_python_bindings_test(
+  "Unit.Visualization.Python.TransformVolumeData"
+  Test_TransformVolumeData.py
   "unit;visualization;python"
   None)

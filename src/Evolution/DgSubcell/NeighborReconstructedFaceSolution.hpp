@@ -12,14 +12,16 @@
 #include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/FixedHashMap.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/RdmpTciData.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -33,7 +35,7 @@ namespace evolution::dg::subcell {
  *
  *
  * The data needed for reconstruction is copied over into
- * `subcell::Tags::NeighborDataForReconstruction`.
+ * `subcell::Tags::GhostDataForReconstruction`.
  * Additionally, the max/min of the evolved variables from neighboring elements
  * that is used for the relaxed discrete maximum principle troubled-cell
  * indicator is combined with the data from the local element and stored in
@@ -50,12 +52,12 @@ namespace evolution::dg::subcell {
  *  FixedHashMap<
  *      maximum_number_of_neighbors(volume_dim),
  *      std::pair<Direction<volume_dim>, ElementId<volume_dim>>,
- *      std::vector<double>,
+ *      DataVector,
  *      boost::hash<std::pair<Direction<volume_dim>, ElementId<volume_dim>>>>
  * \endcode
  *
  * which holds the reconstructed `dg_packaged_data` on the face (stored in the
- * `std::vector<double>`) for the boundary correction. A
+ * `DataVector`) for the boundary correction. A
  * `std::vector<std::pair<Direction<volume_dim>, ElementId<volume_dim>>>`
  * holding the list of mortars that need to be reconstructed to is passed in as
  * the last argument to
@@ -72,16 +74,15 @@ void neighbor_reconstructed_face_solution(
                       ElementId<Metavariables::volume_dim>>,
             std::tuple<Mesh<Metavariables::volume_dim>,
                        Mesh<Metavariables::volume_dim - 1>,
-                       std::optional<std::vector<double>>,
-                       std::optional<std::vector<double>>, ::TimeStepId>,
+                       std::optional<DataVector>, std::optional<DataVector>,
+                       ::TimeStepId, int>,
             boost::hash<std::pair<Direction<Metavariables::volume_dim>,
                                   ElementId<Metavariables::volume_dim>>>>>*>
         received_temporal_id_and_data) {
   constexpr size_t volume_dim = Metavariables::volume_dim;
-  db::mutate<subcell::Tags::NeighborDataForReconstruction<volume_dim>,
+  db::mutate<subcell::Tags::GhostDataForReconstruction<volume_dim>,
              subcell::Tags::DataForRdmpTci>(
-      box,
-      [&received_temporal_id_and_data](const auto subcell_neighbor_data_ptr,
+      [&received_temporal_id_and_data](const auto subcell_ghost_data_ptr,
                                        const auto rdmp_tci_data_ptr) {
         const size_t number_of_evolved_vars =
             rdmp_tci_data_ptr->max_variables_values.size();
@@ -93,7 +94,7 @@ void neighbor_reconstructed_face_solution(
                      << received_temporal_id_and_data->first
                      << " with mortar id (" << mortar_id.first << ','
                      << mortar_id.second << ")");
-          const std::vector<double>& neighbor_ghost_and_subcell_data =
+          const DataVector& neighbor_ghost_and_subcell_data =
               *std::get<2>(received_mortar_data.second);
           // Compute min and max over neighbors
           const size_t offset_for_min =
@@ -109,26 +110,34 @@ void neighbor_reconstructed_face_solution(
                 neighbor_ghost_and_subcell_data[offset_for_min + var_index]);
           }
 
-          ASSERT(subcell_neighbor_data_ptr->find(mortar_id) ==
-                     subcell_neighbor_data_ptr->end(),
+          ASSERT(subcell_ghost_data_ptr->find(mortar_id) ==
+                     subcell_ghost_data_ptr->end(),
                  "The subcell neighbor data is already inserted. Direction: "
                      << mortar_id.first
                      << " with ElementId: " << mortar_id.second);
+
+          (*subcell_ghost_data_ptr)[mortar_id] = GhostData{1};
+          GhostData& all_ghost_data = subcell_ghost_data_ptr->at(mortar_id);
+          DataVector& neighbor_data =
+              all_ghost_data.neighbor_ghost_data_for_reconstruction();
+          neighbor_data.destructive_resize(
+              neighbor_ghost_and_subcell_data.size() -
+              2 * number_of_evolved_vars);
+
           // Copy over the neighbor data for reconstruction. We need this
           // since we might be doing a step unwind and the DG algorithm deletes
           // the inbox data after lifting the fluxes to the volume.
-          std::vector<double> neighbor_data{};
           // The std::prev avoids copying over the data for the RDMP TCI, which
           // is both the maximum and minimum of each evolved variable, so
           // `2*number_of_evolved_vars` components.
-          neighbor_data.insert(
-              neighbor_data.end(), neighbor_ghost_and_subcell_data.begin(),
-              std::prev(
-                  neighbor_ghost_and_subcell_data.end(),
-                  2 * static_cast<std::ptrdiff_t>(number_of_evolved_vars)));
-          (*subcell_neighbor_data_ptr)[mortar_id] = std::move(neighbor_data);
+          std::copy(neighbor_ghost_and_subcell_data.begin(),
+                    std::prev(neighbor_ghost_and_subcell_data.end(),
+                              2 * static_cast<std::ptrdiff_t>(
+                                      number_of_evolved_vars)),
+                    neighbor_data.begin());
         }
-      });
+      },
+      box);
   std::vector<std::pair<Direction<volume_dim>, ElementId<volume_dim>>>
       mortars_to_reconstruct_to{};
   for (auto& received_mortar_data : received_temporal_id_and_data->second) {
@@ -139,8 +148,7 @@ void neighbor_reconstructed_face_solution(
   }
   FixedHashMap<
       maximum_number_of_neighbors(volume_dim),
-      std::pair<Direction<volume_dim>, ElementId<volume_dim>>,
-      std::vector<double>,
+      std::pair<Direction<volume_dim>, ElementId<volume_dim>>, DataVector,
       boost::hash<std::pair<Direction<volume_dim>, ElementId<volume_dim>>>>
       neighbor_reconstructed_evolved_vars =
           Metavariables::SubcellOptions::DgComputeSubcellNeighborPackagedData::

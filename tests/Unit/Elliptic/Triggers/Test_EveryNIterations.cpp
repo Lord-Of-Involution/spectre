@@ -16,11 +16,11 @@
 #include "Framework/TestHelpers.hpp"
 #include "NumericalAlgorithms/Convergence/Tags.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Trigger.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -39,7 +39,7 @@ struct Metavariables {
 
 SPECTRE_TEST_CASE("Unit.Elliptic.Triggers.EveryNIterations",
                   "[Unit][Elliptic]") {
-  Parallel::register_classes_with_charm<
+  register_classes_with_charm<
       elliptic::Triggers::EveryNIterations<OptionsGroup>>();
 
   const auto trigger =
@@ -58,7 +58,7 @@ SPECTRE_TEST_CASE("Unit.Elliptic.Triggers.EveryNIterations",
        {false, false, false, false, false, true, false, false, true, false}) {
     CHECK(sent_trigger->is_triggered(box) == expected);
     db::mutate<Convergence::Tags::IterationId<OptionsGroup>>(
-        make_not_null(&box),
-        [](const gsl::not_null<size_t*> iteration_id) { (*iteration_id)++; });
+        [](const gsl::not_null<size_t*> iteration_id) { (*iteration_id)++; },
+        make_not_null(&box));
   }
 }

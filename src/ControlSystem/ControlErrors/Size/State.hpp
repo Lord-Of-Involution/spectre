@@ -6,8 +6,8 @@
 #include <memory>
 #include <pup.h>
 
-#include "Parallel/CharmPupable.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 
 /// \cond
 namespace control_system::size {
@@ -33,10 +33,10 @@ struct StateUpdateArgs {
   double control_error_delta_r;
 };
 
-/// Packages some of the inputs to the State::control_signal, so
-/// that State::control_signal doesn't need a large number of
+/// Packages some of the inputs to the State::control_error, so
+/// that State::control_error doesn't need a large number of
 /// arguments.
-struct ControlSignalArgs {
+struct ControlErrorArgs {
   double min_char_speed;
   double control_error_delta_r;
   /// avg_distorted_normal_dot_unit_coord_vector is the average of
@@ -117,6 +117,12 @@ class State : public PUP::able {
   State& operator=(State&& /*rhs*/) = default;
   virtual ~State() override = default;
 
+  /// Name of this state
+  virtual std::string name() const = 0;
+
+  /// Return a size_t that corresponds to the state number in SpEC
+  virtual size_t number() const = 0;
+
   virtual std::unique_ptr<State> get_clone() const = 0;
   /// Updates the Info in `info`.  Notice that `info`
   /// includes a state, which might be different than the current
@@ -127,8 +133,8 @@ class State : public PUP::able {
                       const CrossingTimeInfo& crossing_time_info) const = 0;
   /// Returns the control signal, but does not modify the state or any
   /// parameters.
-  virtual double control_signal(
-      const Info& info, const ControlSignalArgs& control_signal_args) const = 0;
+  virtual double control_error(
+      const Info& info, const ControlErrorArgs& control_error_args) const = 0;
 
   WRAPPED_PUPable_abstract(State);  // NOLINT
   explicit State(CkMigrateMessage* msg) : PUP::able(msg) {}

@@ -24,12 +24,7 @@ using BoundaryHistoryType =
 
 Time make_time(const double t) { return Slab(t, t + 0.5).start(); }
 
-TimeStepId make_time_id(const double t) {
-  constexpr size_t substeps = 2;
-  return {true, 0, make_time(substeps * std::floor(t / substeps)),
-          static_cast<size_t>(std::fmod(t, substeps) + substeps) % substeps,
-          make_time(t)};
-}
+TimeStepId make_time_id(const double t) { return {true, 0, make_time(t)}; }
 
 // Requires `it` to point at 0. in the sequence of times -1., 0., 1., 2.
 template <typename Iterator>
@@ -224,6 +219,31 @@ void test_boundary_history() {
   history.remote_insert(make_time_id(3.), std::vector<int>{3});
 
   CHECK(check_boundary_state<EvaluatorOwnsCoupling>(history) == 2);
+
+  std::string expected_output = MakeString{} << "Integration order: 2\n"
+                                             << "Local Data:\n"
+                                             << "Time: Slab[-1,-0.5]:0/1\n"
+                                             << "Data: -1\n"
+                                             << "Time: Slab[0,0.5]:0/1\n"
+                                             << "Data: 0\n"
+                                             << "Time: Slab[1,1.5]:0/1\n"
+                                             << "Data: 1\n"
+                                             << "Time: Slab[2,2.5]:0/1\n"
+                                             << "Data: 2\n"
+                                             << "Remote Data:\n"
+                                             << "Time: Slab[-2,-1.5]:0/1\n"
+                                             << "Data: (-2)\n"
+                                             << "Time: Slab[-1,-0.5]:0/1\n"
+                                             << "Data: (-1)\n"
+                                             << "Time: Slab[0,0.5]:0/1\n"
+                                             << "Data: (0)\n"
+                                             << "Time: Slab[1,1.5]:0/1\n"
+                                             << "Data: (1)\n"
+                                             << "Time: Slab[2,2.5]:0/1\n"
+                                             << "Data: (2)\n"
+                                             << "Time: Slab[3,3.5]:0/1\n"
+                                             << "Data: (3)\n";
+  CHECK(get_output(history) == expected_output);
 
   // We check this later, to make sure we don't somehow depend on the
   // original object.

@@ -16,9 +16,12 @@
 #include "Domain/Creators/Interval.hpp"
 #include "Domain/Creators/Rectangle.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/FaceNormal.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Elliptic/Actions/InitializeAnalyticSolution.hpp"
 #include "Elliptic/Actions/InitializeFixedSources.hpp"
 #include "Elliptic/BoundaryConditions/AnalyticSolution.hpp"
@@ -37,7 +40,6 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/Goto.hpp"
 #include "ParallelAlgorithms/Actions/SetData.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
@@ -45,6 +47,7 @@
 #include "PointwiseFunctions/AnalyticSolutions/Tags.hpp"
 #include "Utilities/Literals.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace {
 
@@ -83,8 +86,8 @@ struct IncrementTemporalId {
       const Parallel::GlobalCache<Metavariables>& /*cache*/,
       const ArrayIndex& /*array_index*/, const ActionList /*meta*/,
       const ParallelComponent* const /*meta*/) {
-    db::mutate<TemporalIdTag>(make_not_null(&box),
-                              [](const auto temporal_id) { (*temporal_id)++; });
+    db::mutate<TemporalIdTag>([](const auto temporal_id) { (*temporal_id)++; },
+                              make_not_null(&box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -196,7 +199,7 @@ void test_dg_operator(
   using PrimalFluxesVars = typename primal_fluxes_vars_tag::type;
   using OperatorAppliedToVars = typename operator_applied_to_vars_tag::type;
 
-  Parallel::register_factory_classes_with_charm<Metavars>();
+  register_factory_classes_with_charm<Metavars>();
 
   // Get a list of all elements in the domain
   auto domain = domain_creator.create_domain();
@@ -442,8 +445,7 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.Operator", "[Unit][Elliptic]") {
               elliptic::BoundaryConditionType::Dirichlet),
           std::make_unique<
               elliptic::BoundaryConditions::AnalyticSolution<system>>(
-              elliptic::BoundaryConditionType::Neumann),
-          nullptr};
+              elliptic::BoundaryConditionType::Neumann)};
       const ElementId<1> left_id{0, {{{2, 0}}}};
       const ElementId<1> midleft_id{0, {{{2, 1}}}};
       const ElementId<1> midright_id{0, {{{2, 2}}}};
@@ -524,8 +526,7 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.Operator", "[Unit][Elliptic]") {
               elliptic::BoundaryConditionType::Dirichlet),
           std::make_unique<
               elliptic::BoundaryConditions::AnalyticSolution<system>>(
-              elliptic::BoundaryConditionType::Neumann),
-          nullptr};
+              elliptic::BoundaryConditionType::Neumann)};
       Approx analytic_solution_aux_approx =
           Approx::custom().epsilon(1.e-8).scale(M_PI);
       Approx analytic_solution_operator_approx =
@@ -656,6 +657,12 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.Operator", "[Unit][Elliptic]") {
           std::make_unique<
               elliptic::BoundaryConditions::AnalyticSolution<system>>(
               elliptic::BoundaryConditionType::Dirichlet),
+          std::make_unique<
+              elliptic::BoundaryConditions::AnalyticSolution<system>>(
+              elliptic::BoundaryConditionType::Dirichlet),
+          std::make_unique<
+              elliptic::BoundaryConditions::AnalyticSolution<system>>(
+              elliptic::BoundaryConditionType::Dirichlet),
           nullptr};
       const ElementId<3> self_id{0, {{{1, 0}, {1, 0}, {1, 0}}}};
       const ElementId<3> neighbor_id_xi{0, {{{1, 1}, {1, 0}, {1, 0}}}};
@@ -741,6 +748,12 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.Operator", "[Unit][Elliptic]") {
           {{1.5, 1., 3.}},
           {{1, 1, 1}},
           {{12, 12, 12}},
+          std::make_unique<
+              elliptic::BoundaryConditions::AnalyticSolution<system>>(
+              elliptic::BoundaryConditionType::Dirichlet),
+          std::make_unique<
+              elliptic::BoundaryConditions::AnalyticSolution<system>>(
+              elliptic::BoundaryConditionType::Dirichlet),
           std::make_unique<
               elliptic::BoundaryConditions::AnalyticSolution<system>>(
               elliptic::BoundaryConditionType::Dirichlet),

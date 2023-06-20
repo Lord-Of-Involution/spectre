@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveValenciaDivCleanBlastWave
-# Check: parse;execute
+Executable: EvolveValenciaDivCleanBlastWave
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -13,12 +16,14 @@ Evolution:
   TimeStepper: Rk3HesthavenSsp
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
        EvenlySpaced:
          # Current implementation checks wallclock at these global syncs
          Interval: 100
          Offset: 0
-    - - CheckpointAndExitAfterWallclock:
+    PhaseChanges:
+      - CheckpointAndExitAfterWallclock:
           WallclockHours: None
 
 DomainCreator:
@@ -28,7 +33,9 @@ DomainCreator:
     InitialRefinement: [2, 2, 0]
     InitialGridPoints: [3, 3, 3]
     TimeDependence: None
-    BoundaryCondition: Periodic
+    BoundaryConditionInX: Periodic
+    BoundaryConditionInY: Periodic
+    BoundaryConditionInZ: Periodic
 
 SpatialDiscretization:
   BoundaryCorrection:
@@ -46,6 +53,9 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
     TciOptions:
       MinimumValueOfD: 1.0e-20
       MinimumValueOfYe: 1.0e-20
@@ -99,9 +109,13 @@ Interpolator:
   DumpVolumeDataOnFailure: false
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [2]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
+
+EventsRunAtCleanup:

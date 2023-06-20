@@ -23,6 +23,10 @@
 #include "Domain/CoordinateMaps/ProductMaps.hpp"
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
 #include "Domain/CoordinateMaps/TimeDependent/Translation.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
@@ -116,8 +120,8 @@ struct IncrementTime {
       const ArrayIndex& /*array_index*/, const ActionList /*meta*/,
       const ParallelComponent* const /*meta*/) {
     db::mutate<Tags::Time>(
-        make_not_null(&box),
-        [](const gsl::not_null<double*> time) { *time += 1.2; });
+        [](const gsl::not_null<double*> time) { *time += 1.2; },
+        make_not_null(&box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };

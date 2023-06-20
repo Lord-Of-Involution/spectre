@@ -10,12 +10,15 @@
 #include <unordered_map>
 
 #include "ControlSystem/ExpirationTimes.hpp"
-#include "ControlSystem/Tags.hpp"
+#include "ControlSystem/Tags/IsActive.hpp"
+#include "ControlSystem/Tags/OptionTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataBox/DataBox.hpp"
+#include "Domain/Creators/OptionTags.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/ReadSpecPiecewisePolynomial.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
-#include "Domain/OptionTags.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
@@ -32,7 +35,7 @@ namespace control_system::Tags {
 namespace detail {
 
 template <typename Metavariables, bool NeedDomainCreator,
-          bool HasOverrideCubicFunctionsOfTime>
+          bool NeedInitialTimeStep, bool HasOverrideCubicFunctionsOfTime>
 struct OptionList {
   using option_holders = control_system::inputs<
       tmpl::transform<tmpl::filter<typename Metavariables::component_list,
@@ -55,13 +58,18 @@ struct OptionList {
           tmpl::list<>>,
       tmpl::conditional_t<
           metavars_has_control_systems,
-          tmpl::list<::OptionTags::InitialTime, ::OptionTags::InitialTimeStep,
-                     option_holders>,
+          tmpl::list<
+              ::OptionTags::InitialTime,
+              tmpl::conditional_t<NeedInitialTimeStep,
+                                  ::OptionTags::InitialTimeStep, tmpl::list<>>,
+              option_holders>,
           tmpl::list<>>>>;
 };
 
-template <typename Metavariables, bool NeedDomainCreator>
-struct OptionList<Metavariables, NeedDomainCreator, false> {
+template <typename Metavariables, bool NeedDomainCreator,
+          bool NeedInitialTimeStep>
+struct OptionList<Metavariables, NeedDomainCreator, NeedInitialTimeStep,
+                  false> {
   using option_holders = control_system::inputs<
       tmpl::transform<tmpl::filter<typename Metavariables::component_list,
                                    tt::is_a<ControlComponent, tmpl::_1>>,
@@ -77,8 +85,11 @@ struct OptionList<Metavariables, NeedDomainCreator, false> {
                           tmpl::list<>>,
       tmpl::conditional_t<
           metavars_has_control_systems,
-          tmpl::list<::OptionTags::InitialTime, ::OptionTags::InitialTimeStep,
-                     option_holders>,
+          tmpl::list<
+              ::OptionTags::InitialTime,
+              tmpl::conditional_t<NeedInitialTimeStep,
+                                  ::OptionTags::InitialTimeStep, tmpl::list<>>,
+              option_holders>,
           tmpl::list<>>>>;
 };
 
@@ -89,14 +100,36 @@ struct OptionList<Metavariables, NeedDomainCreator, false> {
 // continue.
 void check_expiration_time_consistency(
     const std::unordered_map<std::string, double>& initial_expiration_times,
+    const std::unordered_map<std::string, bool>& is_active_map,
     const std::unordered_map<
         std::string, std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>>&
         functions_of_time);
+
+template <typename... OptionHolders>
+std::unordered_map<std::string, bool> create_is_active_map(
+    const std::optional<std::string>& function_of_time_file,
+    const std::map<std::string, std::string>& function_of_time_name_map,
+    const OptionHolders&... option_holders) {
+  std::unordered_map<std::string, bool> result{};
+
+  [[maybe_unused]] const auto add_to_result =
+      [&result, &function_of_time_file,
+       &function_of_time_name_map](const auto& option_holder) {
+        using control_system =
+            typename std::decay_t<decltype(option_holder)>::control_system;
+        result[control_system::name()] = is_control_system_active(
+            option_holder, function_of_time_file, function_of_time_name_map);
+      };
+
+  EXPAND_PACK_LEFT_TO_RIGHT(add_to_result(option_holders));
+
+  return result;
+}
 }  // namespace detail
 
 /// \ingroup ControlSystemGroup
-/// The FunctionsOfTime initialized from a DomainCreator, initial time
-/// step, and control system OptionHolders.
+/// The FunctionsOfTime initialized from a DomainCreator, initial time, and
+/// control system OptionHolders.
 struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
                                    db::SimpleTag {
   using type = std::unordered_map<
@@ -108,7 +141,7 @@ struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
 
   template <typename Metavariables>
   using option_tags = typename detail::OptionList<
-      Metavariables, true,
+      Metavariables, true, false,
       ::detail::has_override_functions_of_time_v<Metavariables>>::type;
 
   /// This version of create_from_options is used if the metavariables defined a
@@ -121,12 +154,11 @@ struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
           domain_creator,
       const std::optional<std::string>& function_of_time_file,
       const std::map<std::string, std::string>& function_of_time_name_map,
-      const double initial_time, const double initial_time_step,
-      const OptionHolders&... option_holders) {
+      const double initial_time, const OptionHolders&... option_holders) {
     const auto initial_expiration_times =
         control_system::initial_expiration_times(
-            initial_time, initial_time_step, measurements_per_update,
-            domain_creator, option_holders...);
+            initial_time, measurements_per_update, domain_creator,
+            option_holders...);
 
     // We need to check the expiration times before we replace functions of
     // time (if we're going to do so) so we can ensure a proper domain creator
@@ -134,8 +166,11 @@ struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
     auto functions_of_time =
         domain_creator->functions_of_time(initial_expiration_times);
 
+    const auto is_active_map = detail::create_is_active_map(
+        function_of_time_file, function_of_time_name_map, option_holders...);
+
     detail::check_expiration_time_consistency(initial_expiration_times,
-                                              functions_of_time);
+                                              is_active_map, functions_of_time);
 
     if (function_of_time_file.has_value()) {
       domain::FunctionsOfTime::override_functions_of_time(
@@ -160,7 +195,7 @@ struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
     // control systems, these values won't be used anyways
     return FunctionsOfTimeInitialize::create_from_options<Metavariables>(
         measurements_per_update, domain_creator, function_of_time_file,
-        function_of_time_name_map, 0.0, 0.0);
+        function_of_time_name_map, 0.0);
   }
 
   /// This version of create_from_options is used if the metavariables did not
@@ -171,11 +206,10 @@ struct FunctionsOfTimeInitialize : domain::Tags::FunctionsOfTime,
       const int measurements_per_update,
       const std::unique_ptr<::DomainCreator<Metavariables::volume_dim>>&
           domain_creator,
-      const double initial_time, const double initial_time_step,
-      const OptionHolders&... option_holders) {
+      const double initial_time, const OptionHolders&... option_holders) {
     return FunctionsOfTimeInitialize::create_from_options<Metavariables>(
         measurements_per_update, domain_creator, std::nullopt, {}, initial_time,
-        initial_time_step, option_holders...);
+        option_holders...);
   }
 
   /// This version of create_from_options is used if the metavariables did not

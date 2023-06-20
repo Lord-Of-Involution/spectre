@@ -11,8 +11,8 @@
 #include <utility>
 
 #include "ControlSystem/Systems/Translation.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
@@ -30,7 +30,7 @@
 #include "Utilities/TMPL.hpp"
 
 namespace Frame {
-struct Grid;
+struct Distorted;
 struct Inertial;
 }  // namespace Frame
 
@@ -39,7 +39,7 @@ namespace {
 using TranslationMap = domain::CoordinateMaps::TimeDependent::Translation<3>;
 
 using CoordMap =
-    domain::CoordinateMap<Frame::Grid, Frame::Inertial, TranslationMap>;
+    domain::CoordinateMap<Frame::Distorted, Frame::Inertial, TranslationMap>;
 
 template <size_t DerivOrder>
 void test_translation_control_system() {
@@ -108,11 +108,16 @@ void test_translation_control_system() {
   const std::string translation_name =
       system_helper.template name<translation_system>();
 
+  auto grid_center_A = domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B = domain.excision_spheres().at("ExcisionSphereB").center();
+
   // Setup runner and all components
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
-  MockRuntimeSystem runner{{"DummyFileName", std::move(domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  MockRuntimeSystem runner{
+      {"DummyFileName", std::move(domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_singleton_component_and_initialize<
       translation_component>(make_not_null(&runner), ActionTesting::NodeId{0},
                              ActionTesting::LocalCoreId{0}, init_trans_tuple);
@@ -150,7 +155,7 @@ void test_translation_control_system() {
 
   // Run the actual control system test.
   system_helper.run_control_system_test(runner, final_time, make_not_null(&gen),
-                                        horizon_function, 2);
+                                        horizon_function);
 
   // Grab results
   std::array<double, 3> grid_position_of_a;
@@ -191,7 +196,8 @@ void test_translation_control_system() {
 }
 
 void test_names() {
-  using translation = control_system::Systems::Translation<2>;
+  using translation = control_system::Systems::Translation<
+      2, control_system::measurements::BothHorizons>;
 
   CHECK(pretty_type::name<translation>() == "Translation");
   CHECK(*translation::component_name(0, 3) == "x");

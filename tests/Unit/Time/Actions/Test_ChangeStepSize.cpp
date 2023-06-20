@@ -14,14 +14,14 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/Goto.hpp"
 #include "Time/Actions/ChangeStepSize.hpp"
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Slab.hpp"
 #include "Time/StepChoosers/Constant.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
@@ -29,6 +29,7 @@
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 // IWYU pragma: no_include <pup.h>
@@ -78,13 +79,13 @@ struct Component {
   using metavariables = Metavariables;
   using chare_type = ActionTesting::MockArrayChare;
   using array_index = int;
-  using const_global_cache_tags =
-      tmpl::list<Tags::TimeStepper<LtsTimeStepper>>;
-  using simple_tags = tmpl::list<Tags::TimeStepId, Tags::Next<Tags::TimeStepId>,
-                                 Tags::TimeStep, Tags::Next<Tags::TimeStep>,
-                                 ::Tags::StepChoosers, ::Tags::StepController,
-                                 Tags::IsUsingTimeSteppingErrorControl,
-                                 history_tag, typename System::variables_tag>;
+  using const_global_cache_tags = tmpl::list<Tags::TimeStepper<LtsTimeStepper>>;
+  using simple_tags =
+      tmpl::list<Tags::TimeStepId, Tags::Next<Tags::TimeStepId>, Tags::TimeStep,
+                 Tags::Next<Tags::TimeStep>, ::Tags::StepChoosers,
+                 Tags::IsUsingTimeSteppingErrorControl,
+                 Tags::AdaptiveSteppingDiagnostics, history_tag,
+                 typename System::variables_tag>;
   using phase_dependent_action_list = tmpl::list<
       Parallel::PhaseActions<
           Parallel::Phase::Initialization,
@@ -96,7 +97,7 @@ struct Component {
                      ::Actions::Label<NoOpLabel>,
                      /*UpdateU action is required to satisfy internal checks of
                        `ChangeStepSize`. It is not used in the test.*/
-                     Actions::UpdateU<>>>>;
+                     Actions::UpdateU<System>>>>;
 };
 
 template <typename StepChoosersToUse = AllStepChoosers>
@@ -149,7 +150,7 @@ void check(const bool time_runs_forward,
                  std::make_unique<Constant>(2. * request),
                  std::make_unique<Constant>(request),
                  std::make_unique<Constant>(2. * request)),
-       std::make_unique<StepControllers::BinaryFraction>(), false,
+       false, AdaptiveSteppingDiagnostics{1, 2, 3, 4, 5},
        typename history_tag::type{}, 1.});
 
   ActionTesting::set_phase(make_not_null(&runner), Parallel::Phase::Testing);
@@ -161,17 +162,20 @@ void check(const bool time_runs_forward,
   if (reject_step) {
     // if the step is rejected, it should jump to the UpdateU action
     CHECK(index == 2_st);
+    CHECK(db::get<Tags::AdaptiveSteppingDiagnostics>(box) ==
+          AdaptiveSteppingDiagnostics{1, 2, 3, 4, 6});
   } else {
     CHECK(index == 1_st);
+    CHECK(db::get<Tags::AdaptiveSteppingDiagnostics>(box) ==
+          AdaptiveSteppingDiagnostics{1, 2, 3, 4, 5});
   }
   CHECK(db::get<Tags::Next<Tags::TimeStep>>(box) == expected_step);
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Time.Actions.ChangeStepSize", "[Unit][Time][Actions]") {
-  Parallel::register_classes_with_charm<TimeSteppers::AdamsBashforth>();
-  Parallel::register_classes_with_charm<StepControllers::BinaryFraction>();
-  Parallel::register_factory_classes_with_charm<Metavariables<>>();
+  register_classes_with_charm<TimeSteppers::AdamsBashforth>();
+  register_factory_classes_with_charm<Metavariables<>>();
   const Slab slab(-5., -2.);
   const double slab_length = slab.duration().value();
   for (auto reject_step : {true, false}) {

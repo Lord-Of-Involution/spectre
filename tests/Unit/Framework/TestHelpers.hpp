@@ -21,8 +21,7 @@
 
 #include "DataStructures/DataBox/TagName.hpp"
 #include "DataStructures/Variables.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
-#include "Parallel/Serialize.hpp"
+#include "Utilities/Algorithm.hpp"
 #include "Utilities/ContainerHelpers.hpp"
 #include "Utilities/DereferenceWrapper.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -31,6 +30,8 @@
 #include "Utilities/MakeArray.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/StdArrayHelpers.hpp"  // IWYU pragma: keep
 #include "Utilities/TMPL.hpp"
 #include "Utilities/Tuple.hpp"
@@ -83,7 +84,7 @@ void test_serialization_via_base(Args&&... args) {
   static_assert(std::is_base_of_v<B, D>,
                 "passed input type is not derived from specified base");
   static_assert(tt::has_equivalence_v<D>, "No operator== for derived class");
-  Parallel::register_classes_with_charm<D>();
+  register_classes_with_charm<D>();
   std::unique_ptr<B> base = std::make_unique<D>(args...);
   std::unique_ptr<B> pupped_base = serialize_and_deserialize(base);
   CHECK_FALSE(nullptr == dynamic_cast<const D*>(pupped_base.get()));
@@ -394,6 +395,51 @@ void test_throw_exception(const ThrowingFunctor& func,
     return MakeString{} << MAKE_GENERATOR_seed << " from " __FILE__ ":" \
                         << __LINE__;                                    \
   }())
+
+/*!
+ * \ingroup TestingFrameworkGroup
+ * \brief `NumSamples` unique random elements of the `container`
+ *
+ * This function is useful to iterate over a random subset of a container, like
+ * this:
+ *
+ * \snippet Test_Wedge3D.cpp cartesian_product_loop
+ *
+ * \note This implementation copies the random elements into a `std::array` that
+ * can be iterated over. This can be changed if we need to support noncopyable
+ * types.
+ */
+template <size_t NumSamples, typename Container,
+          typename ValueType = typename Container::value_type>
+std::array<ValueType, NumSamples> random_sample(
+    const Container& container, const gsl::not_null<std::mt19937*> generator) {
+  ASSERT(NumSamples <= container.size(),
+         "Cannot take " << NumSamples << " samples from container of size "
+                        << container.size());
+  std::array<ValueType, NumSamples> result;
+  alg::sample(container, std::begin(result), NumSamples, *generator);
+  return result;
+}
+
+/*!
+ * \ingroup TestingFrameworkGroup
+ * \brief Creates a new std::vector holding `number_of_samples` unique random
+ * elements of the `container`
+ *
+ * \note If `container` has fewer elements than `number_of_samples`, this
+ * function returns a std::vector of all elements in `container`
+ */
+template <typename Container,
+          typename ValueType = typename Container::value_type>
+std::vector<ValueType> random_sample(
+    const size_t number_of_samples, const Container& container,
+    const gsl::not_null<std::mt19937*> generator) {
+  std::vector<ValueType> result{};
+  result.reserve(std::min(number_of_samples, container.size()));
+  alg::sample(container, std::back_inserter(result), number_of_samples,
+              *generator);
+  return result;
+}
 
 /*!
  * \ingroup TestingFrameworkGroup

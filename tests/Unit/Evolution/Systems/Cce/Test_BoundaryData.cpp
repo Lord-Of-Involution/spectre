@@ -358,29 +358,27 @@ void dispatch_to_gh_worldtube_computation_from_analytic(
   const auto& d_lapse = get<gr::Solutions::KerrSchild::DerivLapse<DataVector>>(
       kerr_schild_variables);
 
-  const auto& shift = get<gr::Tags::Shift<3, ::Frame::Inertial, DataVector>>(
-      kerr_schild_variables);
+  const auto& shift =
+      get<gr::Tags::Shift<DataVector, 3>>(kerr_schild_variables);
   const auto& dt_shift =
-      get<::Tags::dt<gr::Tags::Shift<3, ::Frame::Inertial, DataVector>>>(
-          kerr_schild_variables);
+      get<::Tags::dt<gr::Tags::Shift<DataVector, 3>>>(kerr_schild_variables);
   const auto& d_shift = get<gr::Solutions::KerrSchild::DerivShift<DataVector>>(
       kerr_schild_variables);
 
   const auto& spatial_metric =
-      get<gr::Tags::SpatialMetric<3, ::Frame::Inertial, DataVector>>(
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(kerr_schild_variables);
+  const auto& dt_spatial_metric =
+      get<::Tags::dt<gr::Tags::SpatialMetric<DataVector, 3>>>(
           kerr_schild_variables);
-  const auto& dt_spatial_metric = get<
-      ::Tags::dt<gr::Tags::SpatialMetric<3, ::Frame::Inertial, DataVector>>>(
-      kerr_schild_variables);
   const auto& d_spatial_metric =
       get<gr::Solutions::KerrSchild::DerivSpatialMetric<DataVector>>(
           kerr_schild_variables);
 
-  const auto phi = GeneralizedHarmonic::phi(lapse, d_lapse, shift, d_shift,
-                                            spatial_metric, d_spatial_metric);
+  const auto phi =
+      gh::phi(lapse, d_lapse, shift, d_shift, spatial_metric, d_spatial_metric);
   const auto psi = gr::spacetime_metric(lapse, shift, spatial_metric);
-  const auto pi = GeneralizedHarmonic::pi(
-      lapse, dt_lapse, shift, dt_shift, spatial_metric, dt_spatial_metric, phi);
+  const auto pi = gh::pi(lapse, dt_lapse, shift, dt_shift, spatial_metric,
+                         dt_spatial_metric, phi);
 
   create_bondi_boundary_data(variables, phi, pi, psi, extraction_radius, l_max);
 }
@@ -419,20 +417,18 @@ void dispatch_to_modal_worldtube_computation_from_analytic(
   const auto& d_lapse = get<gr::Solutions::KerrSchild::DerivLapse<DataVector>>(
       kerr_schild_variables);
 
-  const auto& shift = get<gr::Tags::Shift<3, ::Frame::Inertial, DataVector>>(
-      kerr_schild_variables);
+  const auto& shift =
+      get<gr::Tags::Shift<DataVector, 3>>(kerr_schild_variables);
   const auto& dt_shift =
-      get<::Tags::dt<gr::Tags::Shift<3, ::Frame::Inertial, DataVector>>>(
-          kerr_schild_variables);
+      get<::Tags::dt<gr::Tags::Shift<DataVector, 3>>>(kerr_schild_variables);
   const auto& d_shift = get<gr::Solutions::KerrSchild::DerivShift<DataVector>>(
       kerr_schild_variables);
 
   const auto& spatial_metric =
-      get<gr::Tags::SpatialMetric<3, ::Frame::Inertial, DataVector>>(
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(kerr_schild_variables);
+  const auto& dt_spatial_metric =
+      get<::Tags::dt<gr::Tags::SpatialMetric<DataVector, 3>>>(
           kerr_schild_variables);
-  const auto& dt_spatial_metric = get<
-      ::Tags::dt<gr::Tags::SpatialMetric<3, ::Frame::Inertial, DataVector>>>(
-      kerr_schild_variables);
   const auto& d_spatial_metric =
       get<gr::Solutions::KerrSchild::DerivSpatialMetric<DataVector>>(
           kerr_schild_variables);

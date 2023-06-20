@@ -17,14 +17,13 @@
 #include "Time/StepChoosers/Increase.hpp"
 #include "Utilities/TMPL.hpp"
 
-template <bool UsesPartiallyFlatCartesianCoordinates>
+template <bool EvolveCcm>
 struct CharacteristicExtractDefaults {
-  static constexpr bool uses_partially_flat_cartesian_coordinates =
-      UsesPartiallyFlatCartesianCoordinates;
+  static constexpr bool evolve_ccm = EvolveCcm;
   using evolved_swsh_tag = Cce::Tags::BondiJ;
   using evolved_swsh_dt_tag = Cce::Tags::BondiH;
   using evolved_coordinates_variables_tag = Tags::Variables<
-      tmpl::conditional_t<uses_partially_flat_cartesian_coordinates,
+      tmpl::conditional_t<evolve_ccm,
                           tmpl::list<Cce::Tags::CauchyCartesianCoords,
                                      Cce::Tags::PartiallyFlatCartesianCoords,
                                      Cce::Tags::InertialRetardedTime>,
@@ -54,7 +53,7 @@ struct CharacteristicExtractDefaults {
       Cce::Tags::PartiallyFlatGaugeD, Cce::Tags::PartiallyFlatGaugeOmega,
       Cce::Tags::Du<Cce::Tags::PartiallyFlatGaugeOmega>,
       tmpl::conditional_t<
-          uses_partially_flat_cartesian_coordinates,
+          evolve_ccm,
           tmpl::list<
               Cce::Tags::CauchyGaugeC, Cce::Tags::CauchyGaugeD,
               Cce::Tags::CauchyGaugeOmega,
@@ -88,8 +87,18 @@ struct CharacteristicExtractDefaults {
       Cce::bondi_hypersurface_step_tags,
       tmpl::bind<Cce::integrand_terms_to_compute_for_bondi_variable,
                  tmpl::_1>>>;
-  using cce_integration_independent_tags =
-      tmpl::push_back<Cce::pre_computation_tags, Cce::Tags::DuRDividedByR>;
+  using ccm_matching_tags = tmpl::list<
+      Cce::Tags::BondiJCauchyView, Cce::Tags::Psi0Match,
+      Cce::Tags::Dy<Cce::Tags::Psi0Match>,
+      Cce::Tags::Psi0, Cce::Tags::Dy<Cce::Tags::BondiJCauchyView>,
+      Cce::Tags::Dy<Cce::Tags::Dy<Cce::Tags::BondiJCauchyView>>>;
+
+  using cce_integration_independent_tags = tmpl::conditional_t<
+      evolve_ccm,
+      tmpl::append<Cce::pre_computation_tags, ccm_matching_tags,
+                   tmpl::list<Cce::Tags::DuRDividedByR>>,
+      tmpl::push_back<Cce::pre_computation_tags, Cce::Tags::DuRDividedByR>>;
+
   using cce_temporary_equations_tags = tmpl::remove_duplicates<tmpl::flatten<
       tmpl::transform<cce_integrand_tags,
                       tmpl::bind<Cce::integrand_temporary_tags, tmpl::_1>>>>;
@@ -97,7 +106,7 @@ struct CharacteristicExtractDefaults {
   using cce_transform_buffer_tags = Cce::all_transform_buffer_tags;
   using cce_swsh_derivative_tags = Cce::all_swsh_derivative_tags;
   using cce_angular_coordinate_tags =
-      tmpl::conditional_t<uses_partially_flat_cartesian_coordinates,
+      tmpl::conditional_t<evolve_ccm,
                           tmpl::list<Cce::Tags::CauchyAngularCoords,
                                      Cce::Tags::PartiallyFlatAngularCoords>,
                           tmpl::list<Cce::Tags::CauchyAngularCoords>>;
@@ -110,4 +119,8 @@ struct CharacteristicExtractDefaults {
       StepChoosers::ErrorControl<StepChooserUse::LtsStep,
                                  evolved_coordinates_variables_tag,
                                  coord_vars_selector>>;
+
+  using ccm_psi0 = tmpl::list<
+      Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+      Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 };

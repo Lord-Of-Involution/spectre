@@ -20,12 +20,13 @@
 #include "Evolution/Systems/GeneralizedHarmonic/ConstraintDamping/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/Tags.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -35,7 +36,7 @@ struct Coordinates;
 }  // namespace domain::Tags
 /// \endcond
 
-namespace GeneralizedHarmonic::BoundaryConditions::detail {
+namespace gh::BoundaryConditions::detail {
 enum class ConstraintPreservingBjorhusType {
   ConstraintPreserving,
   ConstraintPreservingPhysical
@@ -44,9 +45,9 @@ enum class ConstraintPreservingBjorhusType {
 ConstraintPreservingBjorhusType
 convert_constraint_preserving_bjorhus_type_from_yaml(
     const Options::Option& options);
-}  // namespace GeneralizedHarmonic::BoundaryConditions::detail
+}  // namespace gh::BoundaryConditions::detail
 
-namespace GeneralizedHarmonic::BoundaryConditions {
+namespace gh::BoundaryConditions {
 /*!
  * \brief Sets constraint preserving boundary conditions using the Bjorhus
  * method.
@@ -146,31 +147,30 @@ class ConstraintPreservingBjorhus final : public BoundaryCondition<Dim> {
   void pup(PUP::er& p) override;
 
   using dg_interior_evolved_variables_tags =
-      tmpl::list<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-                 Tags::Pi<Dim, Frame::Inertial>,
-                 Tags::Phi<Dim, Frame::Inertial>>;
-  using dg_interior_temporary_tags = tmpl::list<
-      domain::Tags::Coordinates<Dim, Frame::Inertial>,
-      ConstraintDamping::Tags::ConstraintGamma1,
-      ConstraintDamping::Tags::ConstraintGamma2, gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalVector<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalOneForm<Dim, Frame::Inertial, DataVector>,
-      Tags::ThreeIndexConstraint<Dim, Frame::Inertial>,
-      Tags::GaugeH<Dim, Frame::Inertial>,
-      Tags::SpacetimeDerivGaugeH<Dim, Frame::Inertial>>;
-  using dg_interior_dt_vars_tags = tmpl::list<
-      ::Tags::dt<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>,
-      ::Tags::dt<Tags::Pi<Dim, Frame::Inertial>>,
-      ::Tags::dt<Tags::Phi<Dim, Frame::Inertial>>>;
-  using dg_interior_deriv_vars_tags = tmpl::list<
-      ::Tags::deriv<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-                    tmpl::size_t<Dim>, Frame::Inertial>,
-      ::Tags::deriv<Tags::Pi<Dim, Frame::Inertial>, tmpl::size_t<Dim>,
-                    Frame::Inertial>,
-      ::Tags::deriv<Tags::Phi<Dim, Frame::Inertial>, tmpl::size_t<Dim>,
-                    Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+                 Tags::Pi<DataVector, Dim>, Tags::Phi<DataVector, Dim>>;
+  using dg_interior_temporary_tags =
+      tmpl::list<domain::Tags::Coordinates<Dim, Frame::Inertial>,
+                 ConstraintDamping::Tags::ConstraintGamma1,
+                 ConstraintDamping::Tags::ConstraintGamma2,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim>,
+                 gr::Tags::InverseSpacetimeMetric<DataVector, Dim>,
+                 gr::Tags::SpacetimeNormalVector<DataVector, Dim>,
+                 gr::Tags::SpacetimeNormalOneForm<DataVector, Dim>,
+                 Tags::ThreeIndexConstraint<DataVector, Dim>,
+                 Tags::GaugeH<DataVector, Dim>,
+                 Tags::SpacetimeDerivGaugeH<DataVector, Dim>>;
+  using dg_interior_dt_vars_tags =
+      tmpl::list<::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, Dim>>,
+                 ::Tags::dt<Tags::Pi<DataVector, Dim>>,
+                 ::Tags::dt<Tags::Phi<DataVector, Dim>>>;
+  using dg_interior_deriv_vars_tags =
+      tmpl::list<::Tags::deriv<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+                               tmpl::size_t<Dim>, Frame::Inertial>,
+                 ::Tags::deriv<Tags::Pi<DataVector, Dim>, tmpl::size_t<Dim>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<Tags::Phi<DataVector, Dim>, tmpl::size_t<Dim>,
+                               Frame::Inertial>>;
   using dg_gridless_tags = tmpl::list<>;
 
   std::optional<std::string> dg_time_derivative(
@@ -280,16 +280,16 @@ class ConstraintPreservingBjorhus final : public BoundaryCondition<Dim> {
   detail::ConstraintPreservingBjorhusType type_{
       detail::ConstraintPreservingBjorhusType::ConstraintPreservingPhysical};
 };
-}  // namespace GeneralizedHarmonic::BoundaryConditions
+}  // namespace gh::BoundaryConditions
 
 template <>
-struct Options::create_from_yaml<GeneralizedHarmonic::BoundaryConditions::
-                                     detail::ConstraintPreservingBjorhusType> {
+struct Options::create_from_yaml<
+    gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType> {
   template <typename Metavariables>
-  static typename GeneralizedHarmonic::BoundaryConditions::detail::
-      ConstraintPreservingBjorhusType
+  static
+      typename gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType
       create(const Options::Option& options) {
-    return GeneralizedHarmonic::BoundaryConditions::detail::
+    return gh::BoundaryConditions::detail::
         convert_constraint_preserving_bjorhus_type_from_yaml(options);
   }
 };

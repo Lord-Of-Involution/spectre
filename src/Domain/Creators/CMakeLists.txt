@@ -10,6 +10,7 @@ spectre_target_sources(
   PRIVATE
   AlignedLattice.cpp
   BinaryCompactObject.cpp
+  BinaryCompactObjectHelpers.cpp
   Brick.cpp
   Cylinder.cpp
   CylindricalBinaryCompactObject.cpp
@@ -22,8 +23,8 @@ spectre_target_sources(
   RotatedBricks.cpp
   RotatedIntervals.cpp
   RotatedRectangles.cpp
-  Shell.cpp
   Sphere.cpp
+  SphereTimeDependentMaps.cpp
   )
 
 spectre_target_headers(
@@ -32,6 +33,7 @@ spectre_target_headers(
   HEADERS
   AlignedLattice.hpp
   BinaryCompactObject.hpp
+  BinaryCompactObjectHelpers.hpp
   Brick.hpp
   Cylinder.hpp
   CylindricalBinaryCompactObject.hpp
@@ -44,13 +46,14 @@ spectre_target_headers(
   Factory3D.hpp
   FrustalCloak.hpp
   Interval.hpp
+  OptionTags.hpp
   Rectangle.hpp
   RegisterDerivedWithCharm.hpp
   RotatedBricks.hpp
   RotatedIntervals.hpp
   RotatedRectangles.hpp
-  Shell.hpp
   Sphere.hpp
+  SphereTimeDependentMaps.hpp
   )
 
 target_link_libraries(
@@ -60,13 +63,15 @@ target_link_libraries(
   PUBLIC
   CoordinateMaps
   DataStructures
+  Domain
   DomainBoundaryConditions
   DomainTimeDependence
+  GeneralRelativitySolutions
   INTERFACE
-  Domain
   ErrorHandling
   Options
   )
 
 add_subdirectory(Python)
+add_subdirectory(Tags)
 add_subdirectory(TimeDependence)

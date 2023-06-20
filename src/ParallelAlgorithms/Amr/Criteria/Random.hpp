@@ -8,11 +8,11 @@
 
 #include "Domain/Amr/Flag.hpp"
 #include "Domain/Structure/ElementId.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "ParallelAlgorithms/Amr/Criteria/Criterion.hpp"
 #include "Utilities/MakeArray.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace amr::Criteria {
@@ -23,9 +23,9 @@ namespace amr::Criteria {
  * `MaximumRefinementLevel`, and \f$L_d\f$ be the current refinement level
  * of an Element in a particular dimension.  In each dimension, a random
  * number \f$r_d \in [0, 1]\f$ is generated.  If \f$r_d > f\f$ the refinement
- * flag is set to amr::Domain::Flags::DoNothing.  If \f$r_d < f L_d / L_{max}\f$
- * the refinement flag is set to amr::Domain::Flags::Join.  Otherwise the
- * refinement flag is set to amr::Domain::Flag::Split.
+ * flag is set to amr::Flags::DoNothing.  If \f$r_d < f L_d / L_{max}\f$
+ * the refinement flag is set to amr::Flags::Join.  Otherwise the
+ * refinement flag is set to amr::Flag::Split.
  *
  * \note This criterion is primarily useful for testing the mechanics of
  * h-refinement
@@ -70,25 +70,25 @@ class Random : public Criterion {
 
   using argument_tags = tmpl::list<>;
 
-  template <typename ArrayIndex, typename Metavariables>
+  template <typename Metavariables>
   auto operator()(Parallel::GlobalCache<Metavariables>& /*cache*/,
-                  const ArrayIndex& array_index) const;
+                  const ElementId<Metavariables::volume_dim>& element_id) const;
 
   void pup(PUP::er& p) override;
 
  private:
-  amr::domain::Flag random_flag(size_t current_refinement_level) const;
+  amr::Flag random_flag(size_t current_refinement_level) const;
 
   double do_something_fraction_{0.0};
   size_t maximum_refinement_level_{0};
 };
 
-template <typename ArrayIndex, typename Metavariables>
-auto Random::operator()(Parallel::GlobalCache<Metavariables>& /*cache*/,
-                        const ArrayIndex& array_index) const {
+template <typename Metavariables>
+auto Random::operator()(
+    Parallel::GlobalCache<Metavariables>& /*cache*/,
+    const ElementId<Metavariables::volume_dim>& element_id) const {
   constexpr size_t volume_dim = Metavariables::volume_dim;
-  auto result = make_array<volume_dim>(amr::domain::Flag::Undefined);
-  const ElementId<volume_dim> element_id{array_index};
+  auto result = make_array<volume_dim>(amr::Flag::Undefined);
   for (size_t d = 0; d < volume_dim; ++d) {
     result[d] = random_flag(element_id.segment_ids()[d].refinement_level());
   }

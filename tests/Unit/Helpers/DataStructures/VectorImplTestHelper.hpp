@@ -460,6 +460,15 @@ void vector_test_construct_and_assign(
 
     move_constructed.clear();
     CHECK(move_constructed == VectorType{});
+
+    {
+      VectorType source{size};
+      const auto* const source_data = source.data();
+      auto dest = std::move(source);
+      CHECK(contains_allocations(dest) == (source_data == dest.data()));
+      const VectorType reference(dest.data(), dest.size());
+      CHECK(not contains_allocations(reference));
+    }
   }
 }
 
@@ -617,7 +626,7 @@ enum RefSizeErrorTestKind { Copy, ExpressionAssign, Move };
 /// appropriately generates an error.
 ///
 /// \details a calling function should be an `ASSERTION_TEST()` and check for
-/// the string "Must copy into same size".
+/// the string "Must copy/move/assign into same size".
 /// Three types of tests are provided and one must be provided as the first
 /// function argument:
 /// - `RefSizeErrorTestKind::Copy`: Checks that copy-assigning to a non-owning

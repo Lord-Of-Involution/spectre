@@ -13,14 +13,14 @@
 #include <unordered_map>
 #include <vector>
 
-#include "ApparentHorizons/ObjectLabel.hpp"
 #include "ControlSystem/Averager.hpp"
 #include "ControlSystem/Component.hpp"
 #include "ControlSystem/ControlErrors/Shape.hpp"
 #include "ControlSystem/Controller.hpp"
 #include "ControlSystem/Systems/Shape.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/TimescaleTuner.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/LinkedMessageQueue.hpp"
@@ -31,6 +31,7 @@
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Helpers/ControlSystem/SystemHelpers.hpp"
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
@@ -39,19 +40,20 @@
 #include "Parallel/Phase.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/MakeArray.hpp"
 #include "Utilities/StdArrayHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
 namespace Frame {
-struct Grid;
+struct Distorted;
 }  // namespace Frame
 
 namespace control_system {
 namespace {
 using FoTMap = std::unordered_map<
     std::string, std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>>;
-using Strahlkorper = Strahlkorper<Frame::Grid>;
+using Strahlkorper = Strahlkorper<Frame::Distorted>;
 
 void test_shape_control_error() {
   constexpr size_t deriv_order = 2;
@@ -64,10 +66,10 @@ void test_shape_control_error() {
   MAKE_GENERATOR(generator);
   domain::FunctionsOfTime::register_derived_with_charm();
 
-  const std::array<double, 3> origin{{0.0, 0.0, 0.0}};
+  const tnsr::I<double, 3, Frame::Grid> origin{0.0};
   const double ah_radius = 1.5;
   const double initial_time = 0.0;
-  Strahlkorper fake_ah{10, 10, origin};
+  Strahlkorper fake_ah{10, 10, make_array<double, 3>(origin)};
   auto& fake_ah_coefs = fake_ah.coefficients();
 
   // Setup initial shape map coefficients. In the map the coefficients are
@@ -99,12 +101,13 @@ void test_shape_control_error() {
   initial_size_func[0][0] = ah_radius;
 
   // Setup control system stuff
-  const std::string shape_name =
-      Systems::Shape<::ah::ObjectLabel::A, deriv_order>::name();
+  const std::string shape_name = system::name();
   const std::string size_name =
-      ControlErrors::detail::size_name<::ah::ObjectLabel::A>();
+      ControlErrors::detail::size_name<::domain::ObjectLabel::A>();
   const std::string excision_sphere_A_name =
-      ControlErrors::detail::excision_sphere_name<::ah::ObjectLabel::A>();
+      ControlErrors::detail::excision_sphere_name<::domain::ObjectLabel::A>();
+  const std::string excision_sphere_B_name =
+      ControlErrors::detail::excision_sphere_name<::domain::ObjectLabel::B>();
 
   // Since the map for A/B are independent of each other, we only need to test
   // one of them
@@ -128,12 +131,29 @@ void test_shape_control_error() {
                            {2, Direction<3>::lower_zeta()},
                            {3, Direction<3>::lower_zeta()},
                            {4, Direction<3>::lower_zeta()},
+                           {5, Direction<3>::lower_zeta()}}}},
+       {excision_sphere_B_name,
+        ExcisionSphere<3>{excision_radius,
+                          origin,
+                          {{0, Direction<3>::lower_zeta()},
+                           {1, Direction<3>::lower_zeta()},
+                           {2, Direction<3>::lower_zeta()},
+                           {3, Direction<3>::lower_zeta()},
+                           {4, Direction<3>::lower_zeta()},
                            {5, Direction<3>::lower_zeta()}}}}}};
 
+  auto grid_center_A =
+      fake_domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B =
+      fake_domain.excision_spheres().at("ExcisionSphereA").center();
+
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
-  MockRuntimeSystem runner{{"DummyFilename", std::move(fake_domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  // Excision centers aren't used so their values can be anything
+  MockRuntimeSystem runner{
+      {"DummyFilename", std::move(fake_domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_array_component<element_component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, 0);
@@ -149,7 +169,7 @@ void test_shape_control_error() {
   fake_ah_coefs = measurement_coefs;
 
   using QueueTuple =
-      tuples::TaggedTuple<control_system::QueueTags::Strahlkorper<Frame::Grid>>;
+      tuples::TaggedTuple<control_system::QueueTags::Horizon<Frame::Distorted>>;
   QueueTuple fake_measurement_tuple{fake_ah};
 
   const DataVector control_error =
@@ -162,8 +182,9 @@ void test_shape_control_error() {
       functions_of_time.at(shape_name)->func(check_time)[0];
 
   DataVector expected_control_error =
-      -(sqrt(0.5 * M_PI) * excision_radius / Y00 - lambda_00_coef) /
-          measurement_coefs[iter.set(0, 0)()] * measurement_coefs -
+      -(excision_radius / Y00 - lambda_00_coef) /
+          (sqrt(0.5 * M_PI) * measurement_coefs[iter.set(0, 0)()]) *
+          measurement_coefs -
       lambda_lm_coefs;
   // We don't control l=0 or l=1 modes
   for (iter.reset(); iter; ++iter) {
@@ -172,7 +193,7 @@ void test_shape_control_error() {
     }
   }
 
-  CHECK(control_error == expected_control_error);
+  CHECK_ITERABLE_APPROX(control_error, expected_control_error);
 }
 
 SPECTRE_TEST_CASE("Unit.ControlSystem.ControlErrors.Shape",

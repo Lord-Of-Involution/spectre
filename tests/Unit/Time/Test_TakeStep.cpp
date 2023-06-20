@@ -17,13 +17,14 @@
 #include "Helpers/Time/TimeSteppers/TimeStepperTestUtils.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
+#include "Time/ChooseLtsStepSize.hpp"
 #include "Time/Slab.hpp"
 #include "Time/StepChoosers/Cfl.hpp"
 #include "Time/StepChoosers/Increase.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/TakeStep.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
@@ -98,21 +99,21 @@ void test_gts() {
       Tags::Next<Tags::TimeStepId>, Tags::TimeStep, Tags::Next<Tags::TimeStep>,
       EvolvedVariable, Tags::dt<EvolvedVariable>,
       Tags::HistoryEvolvedVariables<EvolvedVariable>,
-      Tags::TimeStepper<LtsTimeStepper>,
+      Tags::TimeStepper<TimeStepper>,
       ::Tags::IsUsingTimeSteppingErrorControl>>(
       Metavariables{}, TimeStepId{true, 0_st, slab.start()},
       TimeStepId{true, 0_st, Time{slab, {1, 4}}}, time_step, time_step,
       initial_values, DataVector{5, 0.0}, std::move(history),
-      static_cast<std::unique_ptr<LtsTimeStepper>>(
+      static_cast<std::unique_ptr<TimeStepper>>(
           std::make_unique<TimeSteppers::AdamsBashforth>(5)),
       false);
   // update the rhs
-  db::mutate<Tags::dt<EvolvedVariable>>(make_not_null(&box), update_rhs,
+  db::mutate<Tags::dt<EvolvedVariable>>(update_rhs, make_not_null(&box),
                                         db::get<EvolvedVariable>(box));
   take_step<typename Metavariables::system, false>(make_not_null(&box));
   // check that the state is as expected
-  CHECK(db::get<Tags::TimeStepId>(box).substep_time().value() == 0.0);
-  CHECK(db::get<Tags::Next<Tags::TimeStepId>>(box).substep_time().value() ==
+  CHECK(db::get<Tags::TimeStepId>(box).substep_time() == 0.0);
+  CHECK(db::get<Tags::Next<Tags::TimeStepId>>(box).substep_time() ==
         approx(0.25));
   CHECK(db::get<Tags::Next<Tags::TimeStep>>(box) == TimeDelta{slab, {1, 4}});
   CHECK_ITERABLE_APPROX(db::get<EvolvedVariable>(box),
@@ -158,46 +159,44 @@ void test_lts() {
           Parallel::Tags::MetavariablesImpl<Metavariables>, Tags::TimeStepId,
           Tags::Next<Tags::TimeStepId>, Tags::TimeStep,
           Tags::Next<Tags::TimeStep>, EvolvedVariable,
-          Tags::RollbackValue<EvolvedVariable>, Tags::dt<EvolvedVariable>,
-          Tags::StepperError<EvolvedVariable>,
+          Tags::dt<EvolvedVariable>, Tags::StepperError<EvolvedVariable>,
           Tags::PreviousStepperError<EvolvedVariable>,
           Tags::HistoryEvolvedVariables<EvolvedVariable>,
           Tags::TimeStepper<LtsTimeStepper>, Tags::StepChoosers,
           domain::Tags::MinimumGridSpacing<1, Frame::Inertial>,
-          Tags::StepController, ::Tags::IsUsingTimeSteppingErrorControl,
-          Tags::StepperErrorUpdated>,
+          ::Tags::IsUsingTimeSteppingErrorControl, Tags::StepperErrorUpdated,
+          Tags::AdaptiveSteppingDiagnostics>,
       db::AddComputeTags<typename Metavariables::system::
                              compute_largest_characteristic_speed>>(
       Metavariables{}, TimeStepId{true, 0_st, slab.start()},
       TimeStepId{true, 0_st, Time{slab, {1, 4}}}, time_step, time_step,
-      initial_values, initial_values, DataVector{5, 0.0}, DataVector{},
-      DataVector{}, std::move(history),
+      initial_values, DataVector{5, 0.0}, DataVector{}, DataVector{},
+      std::move(history),
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<TimeSteppers::AdamsBashforth>(5)),
       std::move(step_choosers),
-      1.0 / TimeSteppers::AdamsBashforth{5}.stable_step(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
-      true, false);
+      1.0 / TimeSteppers::AdamsBashforth{5}.stable_step(), true, false,
+      AdaptiveSteppingDiagnostics{1, 2, 3, 4, 5});
 
   // update the rhs
-  db::mutate<Tags::dt<EvolvedVariable>>(make_not_null(&box), update_rhs,
-                                         db::get<EvolvedVariable>(box));
+  db::mutate<Tags::dt<EvolvedVariable>>(update_rhs, make_not_null(&box),
+                                        db::get<EvolvedVariable>(box));
   take_step<typename Metavariables::system, true>(make_not_null(&box));
   // check that the state is as expected
-  CHECK(db::get<Tags::TimeStepId>(box).substep_time().value() == 0.0);
-  CHECK(db::get<Tags::Next<Tags::TimeStepId>>(box).substep_time().value() ==
+  CHECK(db::get<Tags::TimeStepId>(box).substep_time() == 0.0);
+  CHECK(db::get<Tags::Next<Tags::TimeStepId>>(box).substep_time() ==
         approx(0.25));
   CHECK(db::get<Tags::Next<Tags::TimeStep>>(box) == TimeDelta{slab, {1, 4}});
   CHECK_ITERABLE_APPROX(db::get<EvolvedVariable>(box),
                         initial_values * exp(0.0025));
   CHECK_ITERABLE_APPROX(db::get<Tags::dt<EvolvedVariable>>(box),
                         1.0e-2 * initial_values);
+  CHECK(db::get<Tags::AdaptiveSteppingDiagnostics>(box) ==
+        AdaptiveSteppingDiagnostics{1, 2, 3, 4, 5});
 
   // advance time
   db::mutate<Tags::TimeStepId, Tags::Next<Tags::TimeStepId>, Tags::TimeStep,
              Tags::Next<Tags::TimeStep>>(
-      make_not_null(&box),
       [](const gsl::not_null<TimeStepId*> time_id,
          const gsl::not_null<TimeStepId*> next_time_id,
          const gsl::not_null<TimeDelta*> local_time_step,
@@ -212,24 +211,27 @@ void test_lts() {
         *next_time_step =
             local_time_step->with_slab(next_time_id->step_time().slab());
       },
-      db::get<Tags::TimeStepper<>>(box));
+      make_not_null(&box), db::get<Tags::TimeStepper<>>(box));
 
-  db::mutate<Tags::dt<EvolvedVariable>>(make_not_null(&box), update_rhs,
+  db::mutate<Tags::dt<EvolvedVariable>>(update_rhs, make_not_null(&box),
                                         db::get<EvolvedVariable>(box));
   // alter the grid spacing so that the CFL condition will cause rejection.
   db::mutate<domain::Tags::MinimumGridSpacing<1, Frame::Inertial>>(
-      make_not_null(&box), [](const gsl::not_null<double*> grid_spacing) {
+      [](const gsl::not_null<double*> grid_spacing) {
         *grid_spacing = 0.15 / TimeSteppers::AdamsBashforth{5}.stable_step();
-      });
+      },
+      make_not_null(&box));
   take_step<typename Metavariables::system, true>(make_not_null(&box));
   // check that the state is as expected
-  CHECK(db::get<Tags::TimeStepId>(box).substep_time().value() == approx(0.25));
+  CHECK(db::get<Tags::TimeStepId>(box).substep_time() == approx(0.25));
   CHECK(db::get<Tags::TimeStep>(box) == TimeDelta{slab, {1, 8}});
   CHECK(db::get<Tags::Next<Tags::TimeStep>>(box) == TimeDelta{slab, {1, 8}});
   CHECK_ITERABLE_APPROX(db::get<EvolvedVariable>(box),
                         initial_values * exp(0.00375));
   CHECK_ITERABLE_APPROX(db::get<Tags::dt<EvolvedVariable>>(box),
                         1.0e-2 * initial_values * exp(0.0025));
+  CHECK(db::get<Tags::AdaptiveSteppingDiagnostics>(box) ==
+        AdaptiveSteppingDiagnostics{1, 2, 3, 5, 6});
 }
 }  // namespace
 

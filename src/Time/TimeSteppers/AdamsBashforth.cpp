@@ -4,175 +4,65 @@
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 
 #include <algorithm>
-#include <boost/container/static_vector.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <cstddef>
 #include <iterator>
 #include <limits>
-#include <map>
-#include <ostream>
 #include <pup.h>
-#include <tuple>
+#include <utility>
 
 #include "NumericalAlgorithms/Interpolation/LagrangePolynomial.hpp"
+#include "Time/ApproximateTime.hpp"
 #include "Time/BoundaryHistory.hpp"
 #include "Time/EvolutionOrdering.hpp"
 #include "Time/History.hpp"
 #include "Time/SelfStart.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
-#include "Utilities/CachedFunction.hpp"
-#include "Utilities/EqualWithinRoundoff.hpp"
+#include "Time/TimeSteppers/AdamsCoefficients.hpp"
+#include "Utilities/Algorithm.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
-#include "Utilities/Math.hpp"
-#include "Utilities/Overloader.hpp"
 
 namespace TimeSteppers {
 
+// Don't include AdamsCoefficients.hpp in the header just to get one
+// constant.
+static_assert(adams_coefficients::maximum_order ==
+              AdamsBashforth::maximum_order);
+
 namespace {
-// TimeDelta-like interface to a double used for dense output
-struct ApproximateTimeDelta {
-  double delta = std::numeric_limits<double>::signaling_NaN();
-  double value() const { return delta; }
-  bool is_positive() const { return delta > 0.; }
+template <typename T>
+using OrderVector = adams_coefficients::OrderVector<T>;
 
-  // Only the operators that are actually used are defined.
-  friend bool operator<(const ApproximateTimeDelta& a,
-                        const ApproximateTimeDelta& b) {
-    return a.value() < b.value();
+template <typename Iter>
+struct TimeFromRecord {
+  Time operator()(typename std::iterator_traits<Iter>::reference record) const {
+    return record.time_step_id.step_time();
   }
 };
 
-// Time-like interface to a double used for dense output
-struct ApproximateTime {
-  double time = std::numeric_limits<double>::signaling_NaN();
-  double value() const { return time; }
-
-  // Only the operators that are actually used are defined.
-  friend ApproximateTimeDelta operator-(const ApproximateTime& a,
-                                        const Time& b) {
-    return {a.value() - b.value()};
-  }
-
-  friend bool operator<(const Time& a, const ApproximateTime& b) {
-    return a.value() < b.value();
-  }
-
-  friend bool operator<(const ApproximateTime& a, const Time& b) {
-    return a.value() < b.value();
-  }
-
-  friend std::ostream& operator<<(std::ostream& s, const ApproximateTime& t) {
-    return s << t.value();
-  }
-};
-
-// A vector holding one entry per order of integration.
-template <typename T>
-using OrderVector =
-    boost::container::static_vector<T, AdamsBashforth::maximum_order>;
-
-OrderVector<double> constant_coefficients(const size_t order) {
-  switch (order) {
-    case 0: return {};
-    case 1: return {1.};
-    case 2: return {1.5, -0.5};
-    case 3: return {23.0 / 12.0, -4.0 / 3.0, 5.0 / 12.0};
-    case 4: return {55.0 / 24.0, -59.0 / 24.0, 37.0 / 24.0, -3.0 / 8.0};
-    case 5: return {1901.0 / 720.0, -1387.0 / 360.0, 109.0 / 30.0,
-          -637.0 / 360.0, 251.0 / 720.0};
-    case 6: return {4277.0 / 1440.0, -2641.0 / 480.0, 4991.0 / 720.0,
-          -3649.0 / 720.0, 959.0 / 480.0, -95.0 / 288.0};
-    case 7: return {198721.0 / 60480.0, -18637.0 / 2520.0, 235183.0 / 20160.0,
-          -10754.0 / 945.0, 135713.0 / 20160.0, -5603.0 / 2520.0,
-          19087.0 / 60480.0};
-    case 8: return {16083.0 / 4480.0, -1152169.0 / 120960.0, 242653.0 / 13440.0,
-          -296053.0 / 13440.0, 2102243.0 / 120960.0, -115747.0 / 13440.0,
-          32863.0 / 13440.0, -5257.0 / 17280.0};
-    default:
-      ERROR("Bad order: " << order);
-  }
+// This must be templated on the iterator type rather than the math
+// wrapper type because of quirks in the template deduction rules.
+template <typename Iter>
+auto history_time_iterator(const Iter& it) {
+  return boost::transform_iterator(it, TimeFromRecord<Iter>{});
 }
 
-// Only T=double is used, but this can be used with T=Rational to
-// generate coefficient tables.
 template <typename T>
-OrderVector<T> variable_coefficients(const OrderVector<T>& control_times) {
-  // The argument vector contains the control times for a step from
-  // the last time in the list to t=0.
-
-  // The coefficients are, for each j,
-  // 1/step \int_0^{step} dt ell_j(t; -control_times),
-  // where the step size is step=-control_times.back().
-
-  const size_t order = control_times.size();
-  OrderVector<T> result;
-  for (size_t j = 0; j < order; ++j) {
-    // Calculate coefficients of the Lagrange interpolating polynomials,
-    // in the standard a_0 + a_1 t + a_2 t^2 + ... form.
-    OrderVector<T> poly(order, 0);
-
-    poly[0] = 1;
-
-    for (size_t m = 0; m < order; ++m) {
-      if (m == j) {
-        continue;
-      }
-      const T denom =
-          1 / (control_times[order - m - 1] - control_times[order - j - 1]);
-      for (size_t i = m < j ? m + 1 : m; i > 0; --i) {
-        poly[i] =
-            (poly[i - 1] + poly[i] * control_times[order - m - 1]) * denom;
-      }
-      poly[0] *= control_times[order - m - 1] * denom;
-    }
-
-    // Integrate p(t), term by term.  We choose the constant of
-    // integration so the indefinite integral is zero at t=0.  We do
-    // not adjust the indexing, so the t^n term in the integral is in
-    // the (n-1)th entry of the vector (as opposed to the nth entry
-    // before integrating).  This is convenient because we want to
-    // divide by the step size in the end, which is equivalent to this
-    // shift.
-    for (size_t m = 0; m < order; ++m) {
-      poly[m] /= m + 1;
-    }
-    result.push_back(evaluate_polynomial(poly, -control_times.back()));
+void clean_history(const MutableUntypedHistory<T>& history) {
+  ASSERT(history.size() >= history.integration_order(),
+         "Insufficient data to take an order-" << history.integration_order()
+         << " step.  Have " << history.size() << " times, need "
+         << history.integration_order());
+  while (history.size() > history.integration_order()) {
+    history.pop_front();
   }
-  return result;
-}
-
-// Get coefficients for a time step.  Arguments are an iterator
-// pair to past times, oldest to newest, and the time step to take.
-template <typename Iterator, typename Delta>
-OrderVector<double> get_coefficients(const Iterator& times_begin,
-                                     const Iterator& times_end,
-                                     const Delta& step) {
-  bool constant_step_size = true;
-  OrderVector<double> control_times;
-  for (auto t = times_begin; t != times_end; ++t) {
-    // Ideally we would also include the slab size in the scale of the
-    // roundoff comparison, but there's no good way to get it here,
-    // and it should only matter for slabs near time zero.
-    if (constant_step_size and not control_times.empty() and
-        not equal_within_roundoff(
-            t->value() - control_times.back(), step.value(),
-            100.0 * std::numeric_limits<double>::epsilon(), abs(t->value()))) {
-      constant_step_size = false;
-    }
-    control_times.push_back(t->value());
+  if (history.size() > 1) {
+    history.discard_value(history[history.size() - 2].time_step_id);
   }
-  if (constant_step_size) {
-    return constant_coefficients(control_times.size());
-  }
-
-  const double goal_time = control_times.back() + step.value();
-  for (auto& t : control_times) {
-    t -= goal_time;
-  }
-
-  return variable_coefficients(control_times);
 }
 }  // namespace
 
@@ -196,13 +86,13 @@ double AdamsBashforth::stable_step() const {
 
   // This is the condition that the characteristic polynomial of the
   // recurrence relation defined by the method has the correct sign at
-  // -1.  It is not clear whether this is actually sufficient.
-  const auto& coefficients = constant_coefficients(order_);
+  // -1.  It is not clear whether this is sufficient for all orders,
+  // but it is for the ones we support.
+  const auto& coefficients =
+      adams_coefficients::constant_adams_bashforth_coefficients(order_);
   double invstep = 0.;
-  double sign = 1.;
   for (const auto coef : coefficients) {
-    invstep += sign * coef;
-    sign = -sign;
+    invstep = coef - invstep;
   }
   return 1. / invstep;
 }
@@ -210,8 +100,7 @@ double AdamsBashforth::stable_step() const {
 TimeStepId AdamsBashforth::next_time_id(const TimeStepId& current_id,
                                         const TimeDelta& time_step) const {
   ASSERT(current_id.substep() == 0, "Adams-Bashforth should not have substeps");
-  return {current_id.time_runs_forward(), current_id.slab_number(),
-          current_id.step_time() + time_step};
+  return current_id.next_step(time_step);
 }
 
 void AdamsBashforth::pup(PUP::er& p) {
@@ -221,54 +110,38 @@ void AdamsBashforth::pup(PUP::er& p) {
 
 template <typename T>
 void AdamsBashforth::update_u_impl(
-    const gsl::not_null<T*> u, const gsl::not_null<UntypedHistory<T>*> history,
+    const gsl::not_null<T*> u, const MutableUntypedHistory<T>& history,
     const TimeDelta& time_step) const {
-  ASSERT(history->size() >= history->integration_order(),
-         "Insufficient data to take an order-" << history->integration_order()
-         << " step.  Have " << history->size() << " times, need "
-         << history->integration_order());
-  history->mark_unneeded(
-      history->end() -
-      static_cast<typename decltype(history->end())::difference_type>(
-          history->integration_order()));
-  update_u_common(u, *history, time_step, history->integration_order());
+  clean_history(history);
+  update_u_common(u, history, time_step, history.integration_order());
 }
 
 template <typename T>
 bool AdamsBashforth::update_u_impl(
     const gsl::not_null<T*> u, const gsl::not_null<T*> u_error,
-    const gsl::not_null<UntypedHistory<T>*> history,
-    const TimeDelta& time_step) const {
-  ASSERT(history->size() >= history->integration_order(),
-         "Insufficient data to take an order-" << history->integration_order()
-         << " step.  Have " << history->size() << " times, need "
-         << history->integration_order());
-  history->mark_unneeded(
-      history->end() -
-      static_cast<typename decltype(history->end())::difference_type>(
-          history->integration_order()));
-  *u_error = *u;
-  update_u_common(u, *history, time_step, history->integration_order());
+    const MutableUntypedHistory<T>& history, const TimeDelta& time_step) const {
+  clean_history(history);
+  update_u_common(u, history, time_step, history.integration_order());
   // the error estimate is only useful once the history has enough elements to
   // do more than one order of step
-  update_u_common(u_error, *history, time_step,
-                  history->integration_order() - 1);
+  update_u_common(u_error, history, time_step, history.integration_order() - 1);
   *u_error = *u - *u_error;
   return true;
 }
 
 template <typename T>
 bool AdamsBashforth::dense_update_u_impl(const gsl::not_null<T*> u,
-                                         const UntypedHistory<T>& history,
+                                         const ConstUntypedHistory<T>& history,
                                          const double time) const {
-  const ApproximateTimeDelta time_step{time - history.back().value()};
+  const ApproximateTimeDelta time_step{
+      time - history.back().time_step_id.step_time().value()};
   update_u_common(u, history, time_step, history.integration_order());
   return true;
 }
 
 template <typename T, typename Delta>
 void AdamsBashforth::update_u_common(const gsl::not_null<T*> u,
-                                     const UntypedHistory<T>& history,
+                                     const ConstUntypedHistory<T>& history,
                                      const Delta& time_step,
                                      const size_t order) const {
   ASSERT(
@@ -279,21 +152,25 @@ void AdamsBashforth::update_u_common(const gsl::not_null<T*> u,
 
   const auto history_start =
       history.end() -
-      static_cast<typename UntypedHistory<T>::difference_type>(order);
-  const auto coefficients =
-      get_coefficients(history_start, history.end(), time_step);
+      static_cast<typename ConstUntypedHistory<T>::difference_type>(order);
+  const auto coefficients = adams_coefficients::coefficients(
+      history_time_iterator(history_start),
+      history_time_iterator(history.end()),
+      history.back().time_step_id.step_time(),
+      history.back().time_step_id.step_time() + time_step);
 
-  auto coefficient = coefficients.rbegin();
+  *u = *history.back().value;
+  auto coefficient = coefficients.begin();
   for (auto history_entry = history_start;
        history_entry != history.end();
        ++history_entry, ++coefficient) {
-    *u += time_step.value() * *coefficient * *history_entry.derivative();
+    *u += *coefficient * history_entry->derivative;
   }
 }
 
 template <typename T>
 bool AdamsBashforth::can_change_step_size_impl(
-    const TimeStepId& time_id, const UntypedHistory<T>& history) const {
+    const TimeStepId& time_id, const ConstUntypedHistory<T>& history) const {
   // We need to forbid local time-stepping before initialization is
   // complete.  The self-start procedure itself should never consider
   // changing the step size, but we need to wait during the main
@@ -302,8 +179,10 @@ bool AdamsBashforth::can_change_step_size_impl(
   const evolution_less<Time> less{time_id.time_runs_forward()};
   return not ::SelfStart::is_self_starting(time_id) and
          (history.size() == 0 or
-          (less(history.back(), time_id.step_time()) and
-           std::is_sorted(history.begin(), history.end(), less)));
+          (less(history.back().time_step_id.step_time(),
+                time_id.step_time()) and
+           std::is_sorted(history_time_iterator(history.begin()),
+                          history_time_iterator(history.end()), less)));
 }
 
 template <typename T>
@@ -351,8 +230,158 @@ void AdamsBashforth::boundary_dense_output_impl(
     const gsl::not_null<T*> result,
     const TimeSteppers::BoundaryHistoryEvaluator<T>& coupling,
     const double time) const {
+  if ((coupling.local_end() - 1)->value() == time) {
+    // Nothing to do.  The requested time is the start of the step,
+    // which is the input value of `result`.
+    return;
+  }
   return boundary_impl(result, coupling, ApproximateTime{time});
 }
+
+namespace {
+template <typename T>
+class SmallStepIterator {
+ public:
+  using iterator_category = std::forward_iterator_tag;
+  using value_type = Time;
+  using pointer = const Time*;
+  using reference = const Time&;
+  using difference_type = std::ptrdiff_t;
+
+  enum class Side { Local, Remote, Both };
+
+  SmallStepIterator() = default;
+
+  SmallStepIterator(const bool time_runs_forward,
+                    typename BoundaryHistoryEvaluator<T>::iterator local_begin,
+                    typename BoundaryHistoryEvaluator<T>::iterator remote_begin,
+                    typename BoundaryHistoryEvaluator<T>::iterator local_end,
+                    typename BoundaryHistoryEvaluator<T>::iterator remote_end)
+      : before_{time_runs_forward},
+        local_time_(std::move(local_begin)),
+        remote_time_(std::move(remote_begin)),
+        local_end_(std::move(local_end)),
+        remote_end_(std::move(remote_end)) {}
+
+  reference operator*() const {
+    return std::max(*local_time_, *remote_time_, before_);
+  }
+  pointer operator->() const { return &**this; }
+
+  Side side() const {
+    if (before_(*local_time_, *remote_time_)) {
+      return Side::Remote;
+    } else if (before_(*remote_time_, *local_time_)) {
+      return Side::Local;
+    } else {
+      return Side::Both;
+    }
+  }
+
+  // These are the m^s(n) in the paper.
+  const typename BoundaryHistoryEvaluator<T>::iterator& local_iterator() const {
+    return local_time_;
+  }
+  const typename BoundaryHistoryEvaluator<T>::iterator& remote_iterator()
+      const {
+    return remote_time_;
+  }
+
+  SmallStepIterator& operator++() {
+    ASSERT(local_time_ != local_end_ and remote_time_ != remote_end_,
+           "Overran iterator");
+    auto local_candidate = std::next(local_time_);
+    auto remote_candidate = std::next(remote_time_);
+
+    // NOLINTNEXTLINE(bugprone-branch-clone)
+    if (local_candidate == local_end_ and remote_candidate == remote_end_) {
+      local_time_ = std::move(local_candidate);
+      remote_time_ = std::move(remote_candidate);
+    // NOLINTNEXTLINE(bugprone-branch-clone)
+    } else if (local_candidate == local_end_) {
+      remote_time_ = std::move(remote_candidate);
+    // NOLINTNEXTLINE(bugprone-branch-clone)
+    } else if (remote_candidate == remote_end_) {
+      local_time_ = std::move(local_candidate);
+    } else if (before_(*local_candidate, *remote_candidate)) {
+      local_time_ = std::move(local_candidate);
+    } else if (before_(*remote_candidate, *local_candidate)) {
+      remote_time_ = std::move(remote_candidate);
+    } else {
+      local_time_ = std::move(local_candidate);
+      remote_time_ = std::move(remote_candidate);
+    }
+
+    return *this;
+  }
+
+  bool done() const {
+    return local_time_ == local_end_ and remote_time_ == remote_end_;
+  }
+
+ private:
+  evolution_less<Time> before_{};
+  typename BoundaryHistoryEvaluator<T>::iterator local_time_{};
+  typename BoundaryHistoryEvaluator<T>::iterator remote_time_{};
+  typename BoundaryHistoryEvaluator<T>::iterator local_end_{};
+  typename BoundaryHistoryEvaluator<T>::iterator remote_end_{};
+};
+
+template <typename T>
+bool operator==(const SmallStepIterator<T>& a, const SmallStepIterator<T>& b) {
+  if (a.done() and b.done()) {
+    return true;
+  }
+  if (a.done() or b.done()) {
+    return false;
+  }
+  return *a == *b;
+}
+
+template <typename T>
+bool operator!=(const SmallStepIterator<T>& a, const SmallStepIterator<T>& b) {
+  return not(a == b);
+}
+
+template <typename T>
+bool operator<(const SmallStepIterator<T>& a, const SmallStepIterator<T>& b) {
+  return a.local_iterator() < b.local_iterator() or
+         a.remote_iterator() < b.remote_iterator();
+}
+
+template <typename T>
+bool operator>(const SmallStepIterator<T>& a, const SmallStepIterator<T>& b) {
+  return b < a;
+}
+
+template <typename It>
+It bounded_next_impl(std::input_iterator_tag /*meta*/, It it, const It& bound,
+                     typename std::iterator_traits<It>::difference_type n) {
+  ASSERT(n >= 0, "Can't advance an input iterator backwards.");
+  for (typename std::iterator_traits<It>::difference_type i = 0;
+       i < n and it != bound; ++i, ++it) {
+  }
+  return it;
+}
+
+template <typename It>
+It bounded_next_impl(std::random_access_iterator_tag /*meta*/, const It& it,
+                     typename std::iterator_traits<It>::difference_type n,
+                     const It& bound) {
+  if (bound - it < n) {
+    return bound;
+  } else {
+    return it + n;
+  }
+}
+
+template <typename It>
+It bounded_next(const It& it, const It& bound, const size_t n) {
+  return bounded_next_impl(
+      typename std::iterator_traits<It>::iterator_category{}, it, bound,
+      static_cast<typename std::iterator_traits<It>::difference_type>(n));
+}
+}  // namespace
 
 template <typename T, typename TimeType>
 void AdamsBashforth::boundary_impl(const gsl::not_null<T*> result,
@@ -388,16 +417,15 @@ void AdamsBashforth::boundary_impl(const gsl::not_null<T*> result,
   if (std::equal(local_begin, coupling.local_end(),
                  coupling.remote_end() - order_s)) {
     // No local time-stepping going on.
-    const auto coefficients =
-        get_coefficients(local_begin, coupling.local_end(), time_step);
+    const auto coefficients = adams_coefficients::coefficients(
+        local_begin, coupling.local_end(), start_time, end_time);
 
     auto local_it = local_begin;
     auto remote_it = coupling.remote_end() - order_s;
-    for (auto coefficients_it = coefficients.rbegin();
-         coefficients_it != coefficients.rend();
+    for (auto coefficients_it = coefficients.begin();
+         coefficients_it != coefficients.end();
          ++coefficients_it, ++local_it, ++remote_it) {
-      *result +=
-          time_step.value() * *coefficients_it * *coupling(local_it, remote_it);
+      *result += *coefficients_it * *coupling(local_it, remote_it);
     }
     return;
   }
@@ -421,175 +449,151 @@ void AdamsBashforth::boundary_impl(const gsl::not_null<T*> result,
          "Please supply only older data: " << *(coupling.remote_end() - 1)
          << " is not before " << end_time);
 
-  // Union of times of all step boundaries on any side.
-  const auto union_times = [&coupling, &local_begin, &remote_begin, &less]() {
-    std::vector<Time> ret;
-    ret.reserve(coupling.local_size() + coupling.remote_size());
-    std::set_union(local_begin, coupling.local_end(), remote_begin,
-                   coupling.remote_end(), std::back_inserter(ret), less);
-    return ret;
-  }();
+  using difference_type = std::ptrdiff_t;
 
-  using UnionIter = typename decltype(union_times)::const_iterator;
+  SmallStepIterator<T> contributing_small_step(
+      time_step.is_positive(), local_begin, remote_begin, coupling.local_end(),
+      coupling.remote_end());
+  SmallStepIterator<T> small_step_of_current_step = std::next(
+      contributing_small_step, static_cast<difference_type>(current_order - 1));
+  while (*small_step_of_current_step != start_time) {
+    ++contributing_small_step;
+    ++small_step_of_current_step;
+  }
 
-  // Find the union times iterator for a given time.
-  const auto union_step = [&union_times, &less](const Time& t) {
-    return std::lower_bound(union_times.cbegin(), union_times.cend(), t, less);
-  };
-
-  // The union time index for the step start.
-  const auto union_step_start = union_step(start_time);
-
-  // min(union_times.end(), it + order_s) except being careful not
-  // to create out-of-range iterators.
-  const auto advance_within_step = [order_s,
-                                    &union_times](const UnionIter& it) {
-    return union_times.end() - it >
-                   static_cast<typename decltype(union_times)::difference_type>(
-                       order_s)
-               ? it + static_cast<typename decltype(
-                          union_times)::difference_type>(order_s)
-               : union_times.end();
-  };
-
-  // Calculating the Adams-Bashforth coefficients is somewhat
-  // expensive, so we cache them.  ab_coefs(it, step) returns the
-  // coefficients used to step from *it to *it + step.
-  auto ab_coefs = Overloader{
-      make_cached_function<std::tuple<UnionIter, TimeDelta>, std::map>(
-          [order_s](const std::tuple<UnionIter, TimeDelta>& args) {
-            return get_coefficients(
-                std::get<0>(args) -
-                    static_cast<typename UnionIter::difference_type>(order_s -
-                                                                     1),
-                std::get<0>(args) + 1, std::get<1>(args));
-          }),
-      make_cached_function<std::tuple<UnionIter, ApproximateTimeDelta>,
-                           std::map>(
-          [order_s](const std::tuple<UnionIter, ApproximateTimeDelta>& args) {
-            return get_coefficients(
-                std::get<0>(args) -
-                    static_cast<typename UnionIter::difference_type>(order_s -
-                                                                     1),
-                std::get<0>(args) + 1, std::get<1>(args));
-          })};
-
-  // The value of the coefficient of `evaluation_step` when doing
-  // a standard Adams-Bashforth integration over the union times
-  // from `step` to `step + 1`.
-  const auto base_summand = [&ab_coefs, &end_time, &union_times](
-                                const UnionIter& step,
-                                const UnionIter& evaluation_step) {
-    if (step + 1 != union_times.end()) {
-      const TimeDelta step_size = *(step + 1) - *step;
-      return step_size.value() *
-             ab_coefs(std::make_tuple(
-                 step, step_size))[static_cast<size_t>(step - evaluation_step)];
-    } else {
-      const auto step_size = end_time - *step;
-      return step_size.value() *
-             ab_coefs(std::make_tuple(
-                 step, step_size))[static_cast<size_t>(step - evaluation_step)];
+  // The size of this vector is the number of small steps in the
+  // current step, which will almost always be 1 or 2, but could be
+  // larger if two elements decide to do 4:1 stepping or something.
+  boost::container::small_vector<OrderVector<double>, 2>
+      small_step_coefficients{};
+  {
+    auto coefficient_eval_begin = contributing_small_step;
+    auto coefficient_eval_end = small_step_of_current_step;
+    while (coefficient_eval_end != SmallStepIterator<T>{}) {
+      auto next_end = std::next(coefficient_eval_end);
+      const double next_time = next_end == SmallStepIterator<T>{}
+                                   ? end_time.value()
+                                   : next_end->value();
+      small_step_coefficients.push_back(adams_coefficients::coefficients(
+          coefficient_eval_begin, next_end, *coefficient_eval_end,
+          ApproximateTime{next_time}));
+      ++coefficient_eval_begin;
+      coefficient_eval_end = std::move(next_end);
     }
-  };
+  }
 
-  for (auto local_evaluation_step = local_begin;
-       local_evaluation_step != coupling.local_end();
-       ++local_evaluation_step) {
-    const auto union_local_evaluation_step = union_step(*local_evaluation_step);
-    for (auto remote_evaluation_step = remote_begin;
-         remote_evaluation_step != coupling.remote_end();
-         ++remote_evaluation_step) {
-      double deriv_coef = 0.;
-
-      if (*local_evaluation_step == *remote_evaluation_step) {
-        // The two elements stepped at the same time.  This gives a
-        // standard Adams-Bashforth contribution to each segment
-        // making up the current step.
-        const auto union_step_upper_bound =
-            advance_within_step(union_local_evaluation_step);
-        for (auto step = union_step_start;
-             step < union_step_upper_bound;
-             ++step) {
-          deriv_coef += base_summand(step, union_local_evaluation_step);
-        }
+  // Sum over the small steps that contribute to this step, doing the
+  // appropriate interpolation for each.
+  for (size_t contributing_step_index = 0;
+       contributing_small_step != SmallStepIterator<T>{};
+       ++contributing_small_step, ++contributing_step_index) {
+    if (contributing_small_step.side() != SmallStepIterator<T>::Side::Local) {
+      double overall_prefactor = 0.0;
+      auto small_step_within_current_step = static_cast<size_t>(
+          std::max(static_cast<difference_type>(contributing_step_index + 1 -
+                                                current_order),
+                   static_cast<difference_type>(0)));
+      const size_t small_step_within_current_step_end =
+          std::min(small_step_coefficients.size(), contributing_step_index + 1);
+      for (;
+           small_step_within_current_step < small_step_within_current_step_end;
+           ++small_step_within_current_step) {
+        overall_prefactor +=
+            small_step_coefficients[small_step_within_current_step]
+                                   [contributing_step_index -
+                                    small_step_within_current_step];
+      }
+      if (contributing_small_step.side() == SmallStepIterator<T>::Side::Both) {
+        *result += overall_prefactor *
+                   *coupling(contributing_small_step.local_iterator(),
+                             contributing_small_step.remote_iterator());
       } else {
-        // In this block we consider a coupling evaluation that is not
-        // performed at equal times on the two sides of the mortar.
-
-        // Makes an iterator with a map to give time as a double.
-        const auto make_lagrange_iterator = [](const auto& it) {
-          return boost::make_transform_iterator(
-              it, [](const Time& t) { return t.value(); });
-        };
-
-        const auto union_remote_evaluation_step =
-            union_step(*remote_evaluation_step);
-        const auto union_step_lower_bound =
-            std::max(union_step_start, union_remote_evaluation_step);
-
-        // Compute the contribution to an interpolation over the local
-        // times to `remote_evaluation_step->value()`, which we will
-        // use as the coupling value for that time.  If there is an
-        // actual evaluation at that time then skip this because the
-        // Lagrange polynomial will be zero.
-        if (not std::binary_search(local_begin, coupling.local_end(),
-                                   *remote_evaluation_step, less)) {
-          const auto union_step_upper_bound =
-              advance_within_step(union_remote_evaluation_step);
-          for (auto step = union_step_lower_bound;
-               step < union_step_upper_bound;
-               ++step) {
-            deriv_coef += base_summand(step, union_remote_evaluation_step);
-          }
-          deriv_coef *=
-              lagrange_polynomial(make_lagrange_iterator(local_evaluation_step),
-                                  remote_evaluation_step->value(),
-                                  make_lagrange_iterator(local_begin),
-                                  make_lagrange_iterator(coupling.local_end()));
-        }
-
-        // Same qualitative calculation as the previous block, but
-        // interpolating over the remote times.  This case is somewhat
-        // more complicated because the latest remote time that can be
-        // used varies for the different segments making up the step.
-        if (not std::binary_search(remote_begin, coupling.remote_end(),
-                                   *local_evaluation_step, less)) {
-          auto union_step_upper_bound =
-              advance_within_step(union_local_evaluation_step);
-          if (coupling.remote_end() - remote_evaluation_step > order_s) {
-            union_step_upper_bound = std::min(
-                union_step_upper_bound,
-                union_step(*(remote_evaluation_step + order_s)));
-          }
-
-          auto control_points = make_lagrange_iterator(
-              remote_evaluation_step - remote_begin >= order_s
-                  ? remote_evaluation_step - (order_s - 1)
-                  : remote_begin);
-          for (auto step = union_step_lower_bound;
-               step < union_step_upper_bound;
-               ++step, ++control_points) {
-            deriv_coef +=
-                base_summand(step, union_local_evaluation_step) *
-                lagrange_polynomial(
-                    make_lagrange_iterator(remote_evaluation_step),
-                    local_evaluation_step->value(), control_points,
-                    control_points +
-                        static_cast<typename decltype(
-                            control_points)::difference_type>(order_s));
-          }
+        // Side::Remote
+        OrderVector<double> past_steps(current_order);
+        std::transform(
+            coupling.local_end() - static_cast<difference_type>(current_order),
+            coupling.local_end(), past_steps.begin(),
+            [](const Time& t) { return t.value(); });
+        size_t interpolation_index = 0;
+        for (auto interpolation_time =
+                 coupling.local_end() -
+                 static_cast<difference_type>(current_order);
+             interpolation_time != coupling.local_end();
+             ++interpolation_time, ++interpolation_index) {
+          const double coefficient =
+              overall_prefactor *
+              lagrange_polynomial(interpolation_index,
+                                  contributing_small_step->value(),
+                                  past_steps.begin(), past_steps.end());
+          *result += coefficient *
+                     *coupling(interpolation_time,
+                               contributing_small_step.remote_iterator());
         }
       }
-
-      if (deriv_coef != 0.) {
-        // Skip the (potentially expensive) coupling calculation if
-        // the coefficient is zero.
-        *result += deriv_coef *
-                   *coupling(local_evaluation_step, remote_evaluation_step);
+    } else {
+      // Side::Local
+      auto interpolation_time =
+          std::max(small_step_of_current_step.remote_iterator(),
+                   contributing_small_step.remote_iterator()) -
+          static_cast<difference_type>(current_order - 1);
+      const auto interpolation_time_end =
+          bounded_next(contributing_small_step, SmallStepIterator<T>{},
+                       current_order)
+              .remote_iterator();
+      for (; interpolation_time != interpolation_time_end;
+           ++interpolation_time) {
+        double coefficient = 0.0;
+        size_t small_step_within_current_step_index = 0;
+        auto small_step_within_current_step = small_step_of_current_step;
+        while (small_step_within_current_step.remote_iterator() <
+               interpolation_time) {
+          ++small_step_within_current_step;
+          ++small_step_within_current_step_index;
+        }
+        auto small_step_within_current_step_end = contributing_small_step;
+        const auto bound_from_interpolation_time = bounded_next(
+            interpolation_time, coupling.remote_end(), current_order);
+        for (size_t i = 0;
+             i < current_order and
+             small_step_within_current_step_end != SmallStepIterator<T>{} and
+             small_step_within_current_step_end.remote_iterator() <
+                 bound_from_interpolation_time;
+             ++i) {
+          ++small_step_within_current_step_end;
+        }
+        auto remote_steps_end = coupling.remote_begin();
+        double lagrange_factor = std::numeric_limits<double>::signaling_NaN();
+        for (; small_step_within_current_step !=
+               small_step_within_current_step_end;
+             ++small_step_within_current_step,
+             ++small_step_within_current_step_index) {
+          if (remote_steps_end !=
+              small_step_within_current_step.remote_iterator() + 1) {
+            remote_steps_end =
+                small_step_within_current_step.remote_iterator() + 1;
+            OrderVector<double> past_steps(current_order);
+            std::transform(
+                remote_steps_end - static_cast<difference_type>(current_order),
+                remote_steps_end, past_steps.begin(),
+                [](const Time& t) { return t.value(); });
+            lagrange_factor = lagrange_polynomial(
+                current_order -
+                    static_cast<size_t>(remote_steps_end - interpolation_time),
+                contributing_small_step->value(), past_steps.begin(),
+                past_steps.end());
+          }
+          coefficient +=
+              lagrange_factor *
+              small_step_coefficients[small_step_within_current_step_index]
+                                     [contributing_step_index -
+                                      small_step_within_current_step_index];
+        }
+        *result +=
+            coefficient * *coupling(contributing_small_step.local_iterator(),
+                                    interpolation_time);
       }
-    }  // for remote_evaluation_step
-  }  // for local_evaluation_step
+    }
+  }
 }
 
 bool operator==(const AdamsBashforth& lhs, const AdamsBashforth& rhs) {

@@ -15,13 +15,13 @@
 #include "Framework/TestHelpers.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/GlobalCache.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSequence.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -76,8 +76,8 @@ void check_one_direction(const std::vector<double>& trigger_times,
   if (expected_is_triggered == std::optional{true}) {
     CHECK_FALSE(trigger->previous_trigger_time().has_value());
     db::mutate<::Tags::Time>(
-        make_not_null(&box),
-        [](const gsl::not_null<double*> time) { *time += 0.01; });
+        [](const gsl::not_null<double*> time) { *time += 0.01; },
+        make_not_null(&box));
     CHECK(trigger->is_triggered(box, cache, array_index, component) ==
           std::optional{false});
     REQUIRE(trigger->previous_trigger_time().has_value());
@@ -85,8 +85,8 @@ void check_one_direction(const std::vector<double>& trigger_times,
   } else {
     CHECK_FALSE(trigger->previous_trigger_time().has_value());
     db::mutate<::Tags::Time>(
-        make_not_null(&box),
-        [](const gsl::not_null<double*> time) { *time += 0.01; });
+        [](const gsl::not_null<double*> time) { *time += 0.01; },
+        make_not_null(&box));
     CHECK(trigger->is_triggered(box, cache, array_index, component) ==
           std::optional{false});
     CHECK_FALSE(trigger->previous_trigger_time().has_value());
@@ -107,7 +107,7 @@ void check_both_directions(std::vector<double> trigger_times,
 
 SPECTRE_TEST_CASE("Unit.Evolution.EventsAndDenseTriggers.DenseTriggers.Times",
                   "[Unit][Evolution]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   const auto infinity = std::numeric_limits<double>::infinity();
 

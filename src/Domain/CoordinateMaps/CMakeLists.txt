@@ -10,6 +10,7 @@ spectre_target_sources(
   PRIVATE
   Affine.cpp
   BulgedCube.cpp
+  Composition.cpp
   CylindricalEndcap.cpp
   CylindricalEndcapHelpers.cpp
   CylindricalFlatEndcap.cpp
@@ -44,6 +45,7 @@ spectre_target_headers(
   HEADERS
   Affine.hpp
   BulgedCube.hpp
+  Composition.hpp
   CoordinateMap.hpp
   CoordinateMap.tpp
   CoordinateMapHelpers.hpp
@@ -90,9 +92,10 @@ target_link_libraries(
   ErrorHandling
   FunctionsOfTime
   GSL::gsl
-  Parallel
   RootFinding
+  Serialization
   SphericalHarmonics
   )
 
+add_subdirectory(Python)
 add_subdirectory(TimeDependent)

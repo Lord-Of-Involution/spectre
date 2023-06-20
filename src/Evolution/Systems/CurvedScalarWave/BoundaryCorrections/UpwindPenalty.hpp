@@ -12,9 +12,9 @@
 #include "Evolution/Systems/CurvedScalarWave/Characteristics.hpp"
 #include "Evolution/Systems/CurvedScalarWave/Tags.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Formulation.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -116,11 +116,9 @@ class UpwindPenalty final : public BoundaryCorrection<Dim> {
                  ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<
                      Dim, Frame::Inertial>>,
                  CharSpeedsTensor>;
-  using dg_package_data_temporary_tags = tmpl::list<
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataVector>,
-      Tags::ConstraintGamma1, Tags::ConstraintGamma2>;
+  using dg_package_data_temporary_tags =
+      tmpl::list<gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim>,
+                 Tags::ConstraintGamma1, Tags::ConstraintGamma2>;
   using dg_package_data_volume_tags = tmpl::list<>;
 
   double dg_package_data(
@@ -139,7 +137,6 @@ class UpwindPenalty final : public BoundaryCorrection<Dim> {
 
       const Scalar<DataVector>& lapse,
       const tnsr::I<DataVector, Dim, Frame::Inertial>& shift,
-      const tnsr::II<DataVector, Dim, Frame::Inertial>& inverse_spatial_metric,
       const Scalar<DataVector>& constraint_gamma1,
       const Scalar<DataVector>& constraint_gamma2,
 

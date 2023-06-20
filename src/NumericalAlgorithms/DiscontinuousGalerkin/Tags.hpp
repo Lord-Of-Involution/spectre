@@ -16,21 +16,13 @@
 #include "Domain/Structure/ElementId.hpp"  // IWYU pragma: keep
 #include "NumericalAlgorithms/DiscontinuousGalerkin/SimpleMortarData.hpp"
 #include "NumericalAlgorithms/Spectral/Projection.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Utilities/PrettyType.hpp"
 
 /// Functionality related to discontinuous Galerkin schemes
 namespace dg {}
 
 namespace Tags {
-/// \ingroup DataBoxTagsGroup
-/// \ingroup DiscontinuousGalerkinGroup
-/// \brief Simple boundary communication data
-template <typename TemporalId, typename LocalData, typename RemoteData>
-struct SimpleMortarData : db::SimpleTag {
-  using type = dg::SimpleMortarData<TemporalId, LocalData, RemoteData>;
-};
-
 /// \ingroup DataBoxTagsGroup
 /// \ingroup DiscontinuousGalerkinGroup
 /// Data on mortars, indexed by (Direction, ElementId) pairs

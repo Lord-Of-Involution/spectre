@@ -5,14 +5,17 @@
 
 #include <cstddef>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
 #include "DataStructures/VariablesTag.hpp"
+#include "Domain/BoundaryConditions/BoundaryCondition.hpp"
+#include "Domain/Creators/DomainCreator.hpp"
+#include "Domain/Domain.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
 #include "Domain/Structure/Element.hpp"
@@ -24,11 +27,16 @@
 #include "Evolution/DgSubcell/PrepareNeighborData.hpp"
 #include "Evolution/DgSubcell/Projection.hpp"
 #include "Evolution/DgSubcell/RdmpTciData.hpp"
+#include "Evolution/DgSubcell/SliceData.hpp"
+#include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
+#include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
+#include "NumericalAlgorithms/FiniteDifference/DerivativeOrder.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "NumericalAlgorithms/Spectral/Spectral.hpp"
+#include "Utilities/CartesianProduct.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Literals.hpp"
 #include "Utilities/TMPL.hpp"
@@ -48,6 +56,7 @@ struct Metavariables {
 
   struct system {
     using variables_tag = ::Tags::Variables<tmpl::list<Var1>>;
+    using flux_variables = tmpl::list<Var1>;
   };
 
   struct SubcellOptions {
@@ -60,10 +69,12 @@ struct Metavariables {
       using return_tags = tmpl::list<>;
       using argument_tags = tmpl::list<typename system::variables_tag>;
       template <typename T>
-      static Variables<tmpl::list<Var1>> apply(const T& dg_vars) {
-        T subcell_vars_to_send = dg_vars;
-        get(get<Var1>(subcell_vars_to_send)) *= 2.0;
-        return subcell_vars_to_send;
+      static DataVector apply(const T& dg_vars, const size_t rdmp_size) {
+        DataVector buffer{dg_vars.size() + rdmp_size};
+        Variables<tmpl::list<Var1>> subcell_vars_to_send{buffer.data(),
+                                                         dg_vars.size()};
+        get(get<Var1>(subcell_vars_to_send)) = 2.0 * get(get<Var1>(dg_vars));
+        return buffer;
       }
     };
   };
@@ -133,9 +144,36 @@ compute_neighbor_meshes(const Element<Dim>& element, const bool all_dg,
   return result;
 }
 
+// TestCreator class needed for subcell options specified below
 template <size_t Dim>
-void test(const bool all_neighbors_are_doing_dg) {
+class TestCreator : public DomainCreator<Dim> {
+  Domain<Dim> create_domain() const override { return Domain<Dim>{}; }
+  std::vector<DirectionMap<
+      Dim, std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>>>
+  external_boundary_conditions() const override {
+    return {};
+  }
+
+  std::vector<std::string> block_names() const override {
+    return {"Block0", "Block1"};
+  }
+
+  std::vector<std::array<size_t, Dim>> initial_extents() const override {
+    return {};
+  }
+
+  std::vector<std::array<size_t, Dim>> initial_refinement_levels()
+      const override {
+    return {};
+  }
+};
+
+template <size_t Dim>
+void test(const bool all_neighbors_are_doing_dg,
+          const ::fd::DerivativeOrder fd_derivative_order) {
   CAPTURE(all_neighbors_are_doing_dg);
+  CAPTURE(fd_derivative_order);
+  CAPTURE(Dim);
   using variables_tag = ::Tags::Variables<tmpl::list<Var1>>;
   const Mesh<Dim> dg_mesh{5, Spectral::Basis::Legendre,
                           Spectral::Quadrature::GaussLobatto};
@@ -147,65 +185,112 @@ void test(const bool all_neighbors_are_doing_dg) {
 
   Variables<tmpl::list<Var1>> vars{dg_mesh.number_of_grid_points(), 0.0};
   get(get<Var1>(vars)) = get<0>(logical_coordinates(dg_mesh));
+  using flux_tag = ::Tags::Flux<Var1, tmpl::size_t<Dim>, Frame::Inertial>;
+  Variables<tmpl::list<flux_tag>> volume_fluxes{dg_mesh.number_of_grid_points(),
+                                                0.0};
+  for (size_t i = 0; i < Dim; ++i) {
+    get<flux_tag>(volume_fluxes).get(i) = logical_coordinates(dg_mesh).get(i);
+  }
 
   const size_t ghost_zone_size = 2;
-  auto box = db::create<tmpl::list<GhostZoneSize, domain::Tags::Mesh<Dim>,
-                                   evolution::dg::subcell::Tags::Mesh<Dim>,
-                                   domain::Tags::Element<Dim>, variables_tag,
-                                   evolution::dg::subcell::Tags::DataForRdmpTci,
-                                   evolution::dg::Tags::NeighborMesh<Dim>>>(
-      ghost_zone_size, dg_mesh, subcell_mesh, element, vars,
-      // Set RDMP data since it would've been calculated before already.
-      evolution::dg::subcell::RdmpTciData{{1.0}, {-1.0}}, neighbor_meshes);
+
+  const bool always_use_subcell = false;
+  const bool use_halo = false;
+
+  // set subcell options
+  const evolution::dg::subcell::SubcellOptions& subcell_options =
+      evolution::dg::subcell::SubcellOptions{
+          evolution::dg::subcell::SubcellOptions{
+              1.0e-3, 1.0e-4, 2.0e-3, 2.0e-4, 5.0, 4.0, always_use_subcell,
+              evolution::dg::subcell::fd::ReconstructionMethod::DimByDim,
+              use_halo,
+              all_neighbors_are_doing_dg
+                  ? std::optional{std::vector<std::string>{"Block1"}}
+                  : std::optional<std::vector<std::string>>{},
+              fd_derivative_order},
+          TestCreator<Dim>{}};
+
+  auto box =
+      db::create<tmpl::list<GhostZoneSize, domain::Tags::Mesh<Dim>,
+                            evolution::dg::subcell::Tags::Mesh<Dim>,
+                            domain::Tags::Element<Dim>, variables_tag,
+                            evolution::dg::subcell::Tags::DataForRdmpTci,
+                            evolution::dg::Tags::NeighborMesh<Dim>,
+                            evolution::dg::subcell::Tags::SubcellOptions<Dim>>>(
+          ghost_zone_size, dg_mesh, subcell_mesh, element, vars,
+          // Set RDMP data since it would've been calculated before already.
+          evolution::dg::subcell::RdmpTciData{{1.0}, {-1.0}}, neighbor_meshes,
+          subcell_options);
+
   Mesh<Dim> ghost_data_mesh{};
-  const auto data_for_neighbors =
-      evolution::dg::subcell::prepare_neighbor_data<Metavariables<Dim>>(
-          make_not_null(&ghost_data_mesh), make_not_null(&box));
+  DirectionMap<Dim, DataVector> data_for_neighbors{};
+  evolution::dg::subcell::prepare_neighbor_data<Metavariables<Dim>>(
+      make_not_null(&data_for_neighbors), make_not_null(&ghost_data_mesh),
+      make_not_null(&box), volume_fluxes);
 
   CHECK(ghost_data_mesh ==
         (all_neighbors_are_doing_dg ? dg_mesh : subcell_mesh));
 
   const auto& rdmp_tci_data =
       db::get<evolution::dg::subcell::Tags::DataForRdmpTci>(box);
-  CHECK_ITERABLE_APPROX(rdmp_tci_data.min_variables_values,
-                        std::vector<double>{-1.0});
-  CHECK_ITERABLE_APPROX(rdmp_tci_data.max_variables_values,
-                        std::vector<double>{1.0});
+  CHECK_ITERABLE_APPROX(rdmp_tci_data.min_variables_values, DataVector{-1.0});
+  CHECK_ITERABLE_APPROX(rdmp_tci_data.max_variables_values, DataVector{1.0});
 
   Variables<tmpl::list<Var1>> expected_vars = vars;
   get(get<Var1>(expected_vars)) *= 2.0;
 
-  DirectionMap<Dim, std::vector<double>> expected_neighbor_data{};
+  DirectionMap<Dim, DataVector> expected_neighbor_data{};
 
+  const bool need_fluxes = fd_derivative_order != ::fd::DerivativeOrder::Two;
   if (all_neighbors_are_doing_dg) {
-    const std::vector<double> data{expected_vars.data(),
-                                   expected_vars.data() + expected_vars.size()};
+    DataVector data{expected_vars.size() +
+                    (need_fluxes ? volume_fluxes.size() : 0)};
+    std::copy(get(get<Var1>(expected_vars)).begin(),
+              get(get<Var1>(expected_vars)).end(), data.begin());
+    if (need_fluxes) {
+      std::copy(volume_fluxes.data(),
+                std::next(volume_fluxes.data(),
+                          static_cast<std::ptrdiff_t>(volume_fluxes.size())),
+                std::next(data.begin(),
+                          static_cast<std::ptrdiff_t>(expected_vars.size())));
+    }
+
     for (const auto& direction : expected_neighbor_directions<Dim>()) {
       expected_neighbor_data.insert(std::pair{direction, data});
     }
   } else {
-    expected_vars = evolution::dg::subcell::fd::project(expected_vars, dg_mesh,
-                                                        subcell_mesh.extents());
-
     // Set all directions to false, enable the desired ones below
-    DirectionMap<Dim, bool> directions_to_slice{};
-    for (const auto& direction : Direction<Dim>::all_directions()) {
-      directions_to_slice[direction] = false;
-    }
+    std::unordered_set<Direction<Dim>> directions_to_slice{};
 
     REQUIRE(data_for_neighbors.size() == Dim);
     const size_t num_ghost_points =
         subcell_mesh.slice_away(0).number_of_grid_points() * ghost_zone_size;
     for (const auto& direction : expected_neighbor_directions<Dim>()) {
       REQUIRE(data_for_neighbors.contains(direction));
-      REQUIRE(data_for_neighbors.at(direction).size() == num_ghost_points + 2);
-      directions_to_slice[direction] = true;
+      REQUIRE(data_for_neighbors.at(direction).size() ==
+              num_ghost_points * (need_fluxes ? (Dim + 1) : 1) + 2);
+      directions_to_slice.emplace(direction);
     }
 
     // do same operation as GhostDataToSlice
-    expected_neighbor_data = evolution::dg::subcell::slice_data(
-        expected_vars, subcell_mesh.extents(), ghost_zone_size,
-        directions_to_slice, 0);
+    expected_neighbor_data = [&subcell_mesh, &directions_to_slice, &dg_mesh,
+                              &expected_vars, need_fluxes, &volume_fluxes]() {
+      if (need_fluxes) {
+        Variables<tmpl::list<Var1, flux_tag>> expected_var_and_flux{
+            expected_vars.number_of_grid_points()};
+        get<Var1>(expected_var_and_flux) = get<Var1>(expected_vars);
+        get<flux_tag>(expected_var_and_flux) = get<flux_tag>(volume_fluxes);
+        return evolution::dg::subcell::slice_data(
+            evolution::dg::subcell::fd::project(expected_var_and_flux, dg_mesh,
+                                                subcell_mesh.extents()),
+            subcell_mesh.extents(), ghost_zone_size, directions_to_slice, 0);
+      } else {
+        return evolution::dg::subcell::slice_data(
+            evolution::dg::subcell::fd::project(expected_vars, dg_mesh,
+                                                subcell_mesh.extents()),
+            subcell_mesh.extents(), ghost_zone_size, directions_to_slice, 0);
+      }
+    }();
     if constexpr (Dim == 3) {
       const auto direction = expected_neighbor_directions<Dim>()[1];
       Index<Dim> slice_extents = subcell_mesh.extents();
@@ -220,19 +305,23 @@ void test(const bool all_neighbors_are_doing_dg) {
     const auto& data_in_direction = data_for_neighbors.at(direction);
     CHECK_ITERABLE_APPROX(
         expected_neighbor_data.at(direction),
-        std::vector<double>(data_in_direction.begin(),
-                            std::prev(data_in_direction.end(), 2)));
+        (DataVector{const_cast<double*>(data_in_direction.data()),
+                    data_in_direction.size() - 2}));
     CHECK(*std::prev(data_in_direction.end(), 2) == approx(1.0));
     CHECK(*std::prev(data_in_direction.end(), 1) == approx(-1.0));
   }
 }
 }  // namespace
 
+// [[TimeOut, 10]]
 SPECTRE_TEST_CASE("Unit.Evolution.Subcell.PrepareNeighborData",
                   "[Evolution][Unit]") {
-  for (const bool all_neighbors_are_doing_dg : {true, false}) {
-    test<1>(all_neighbors_are_doing_dg);
-    test<2>(all_neighbors_are_doing_dg);
-    test<3>(all_neighbors_are_doing_dg);
+  for (const auto& [all_neighbors_are_doing_dg, fd_deriv_order] :
+       cartesian_product(make_array(true, false),
+                         make_array(::fd::DerivativeOrder::Two,
+                                    ::fd::DerivativeOrder::Four))) {
+    test<1>(all_neighbors_are_doing_dg, fd_deriv_order);
+    test<2>(all_neighbors_are_doing_dg, fd_deriv_order);
+    test<3>(all_neighbors_are_doing_dg, fd_deriv_order);
   }
 }

@@ -21,10 +21,10 @@
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
 #include "Helpers/NumericalAlgorithms/SphericalHarmonics/StrahlkorperTestHelpers.hpp"
 #include "Helpers/NumericalAlgorithms/SphericalHarmonics/YlmTestFunctions.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/SpherepackIterator.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Tags.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
@@ -75,17 +75,19 @@ void test_normals() {
               cos_phi * (2.0 / 3.0) *
                   (amp * (-1. + square(cos_theta)) * sin_phi - r * sin_theta) +
               cos_theta * (-10. * r - 10. * amp * sin_phi * sin_theta)) +
-         0.1 * cos_phi * (amp * (-1. + 1. * square(cos_theta)) * sin_phi -
-                          1. * r * sin_theta) *
+         0.1 * cos_phi *
+             (amp * (-1. + 1. * square(cos_theta)) * sin_phi -
+              1. * r * sin_theta) *
              (1. * amp * square(cos_phi) +
               1. * amp * square(cos_theta) * square(sin_phi) -
               1. * r * sin_phi * sin_theta +
               cos_phi * (amp * (-10. + 10. * square(cos_theta)) * sin_phi -
                          10. * r * sin_theta) +
               cos_theta * (-2. * r - 2. * amp * sin_phi * sin_theta)) +
-         2. * (amp * square(cos_phi) +
-               sin_phi *
-                   (amp * square(cos_theta) * sin_phi - 1. * r * sin_theta)) *
+         2. *
+             (amp * square(cos_phi) +
+              sin_phi *
+                  (amp * square(cos_theta) * sin_phi - 1. * r * sin_theta)) *
              (amp * square(cos_phi) +
               amp * square(cos_theta) * square(sin_phi) -
               1. * r * sin_phi * sin_theta +
@@ -166,7 +168,7 @@ void test_dimensionful_spin_vector_compute_tag() {
       db::AddComputeTags<StrahlkorperGr::Tags::DimensionfulSpinVectorCompute<
           Frame::Inertial, Frame::Inertial>>>(
       dimensionful_spin_magnitude, area_element, radius, r_hat, ricci_scalar,
-      spin_function, strahlkorper,strahlkorper_cartesian_coords);
+      spin_function, strahlkorper, strahlkorper_cartesian_coords);
   // LHS of the == in the CHECK is retrieving the computed dimensionful spin
   // vector from your DimensionfulSpinVectorCompute tag and RHS of ==
   // should be same logic as DimensionfulSpinVectorCompute::function
@@ -202,7 +204,6 @@ struct SomeType {};
 struct SomeTag : db::SimpleTag {
   using type = SomeType;
 };
-
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.ApparentHorizons.StrahlkorperDataBox",
@@ -213,6 +214,12 @@ SPECTRE_TEST_CASE("Unit.ApparentHorizons.StrahlkorperDataBox",
   test_dimensionful_spin_vector_compute_tag();
   test_dimensionless_spin_magnitude_compute_tag();
   TestHelpers::db::test_simple_tag<ah::Tags::FastFlow>("FastFlow");
+  TestHelpers::db::test_base_tag<ah::Tags::ObserveCentersBase>(
+      "ObserveCentersBase");
+  TestHelpers::db::test_simple_tag<ah::Tags::ObserveCenters>("ObserveCenters");
+  TestHelpers::db::test_simple_tag<
+      ah::Tags::TimeDerivStrahlkorper<Frame::Inertial>>(
+      "TimeDerivStrahlkorper");
   TestHelpers::db::test_simple_tag<StrahlkorperGr::Tags::Area>("Area");
   TestHelpers::db::test_simple_tag<StrahlkorperGr::Tags::IrreducibleMass>(
       "IrreducibleMass");
@@ -264,6 +271,9 @@ SPECTRE_TEST_CASE("Unit.ApparentHorizons.StrahlkorperDataBox",
       StrahlkorperGr::Tags::DimensionlessSpinMagnitude<Frame::Inertial>>(
       "DimensionlessSpinMagnitude");
   TestHelpers::db::test_compute_tag<
+      ah::Tags::TimeDerivStrahlkorperCompute<Frame::Inertial>>(
+      "TimeDerivStrahlkorper");
+  TestHelpers::db::test_compute_tag<
       StrahlkorperTags::EuclideanAreaElementCompute<Frame::Inertial>>(
       "EuclideanAreaElement");
   TestHelpers::db::test_compute_tag<
@@ -285,16 +295,16 @@ SPECTRE_TEST_CASE("Unit.ApparentHorizons.StrahlkorperDataBox",
       StrahlkorperGr::Tags::IrreducibleMassCompute<Frame::Inertial>>(
       "IrreducibleMass");
   TestHelpers::db::test_compute_tag<
-      StrahlkorperTags::OneOverOneFormMagnitudeCompute<1, Frame::Inertial,
-                                                       DataVector>>(
+      StrahlkorperTags::OneOverOneFormMagnitudeCompute<DataVector, 1,
+                                                       Frame::Inertial>>(
       "OneOverOneFormMagnitude");
   TestHelpers::db::test_compute_tag<
-      StrahlkorperTags::OneOverOneFormMagnitudeCompute<2, Frame::Inertial,
-                                                       DataVector>>(
+      StrahlkorperTags::OneOverOneFormMagnitudeCompute<DataVector, 2,
+                                                       Frame::Inertial>>(
       "OneOverOneFormMagnitude");
   TestHelpers::db::test_compute_tag<
-      StrahlkorperTags::OneOverOneFormMagnitudeCompute<3, Frame::Inertial,
-                                                       DataVector>>(
+      StrahlkorperTags::OneOverOneFormMagnitudeCompute<DataVector, 3,
+                                                       Frame::Inertial>>(
       "OneOverOneFormMagnitude");
   TestHelpers::db::test_compute_tag<
       StrahlkorperTags::UnitNormalOneFormCompute<Frame::Inertial>>(
@@ -309,8 +319,7 @@ SPECTRE_TEST_CASE("Unit.ApparentHorizons.StrahlkorperDataBox",
       StrahlkorperTags::UnitNormalVectorCompute<Frame::Inertial>>(
       "UnitNormalVector");
   TestHelpers::db::test_compute_tag<
-      StrahlkorperTags::RicciScalarCompute<Frame::Inertial>>(
-      "RicciScalar");
+      StrahlkorperTags::RicciScalarCompute<Frame::Inertial>>("RicciScalar");
   TestHelpers::db::test_compute_tag<StrahlkorperTags::MaxRicciScalarCompute>(
       "MaxRicciScalar");
   TestHelpers::db::test_compute_tag<StrahlkorperTags::MinRicciScalarCompute>(

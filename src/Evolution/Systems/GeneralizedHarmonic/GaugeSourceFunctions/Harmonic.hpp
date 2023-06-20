@@ -8,7 +8,7 @@
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/GaugeSourceFunctions/Gauges.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -19,7 +19,7 @@ class not_null;
 }  // namespace gsl
 /// \endcond
 
-namespace GeneralizedHarmonic::gauges {
+namespace gh::gauges {
 /*!
  * \brief Imposes the harmonic gauge condition, \f$H_a=0\f$.
  */
@@ -57,4 +57,4 @@ class Harmonic final : public GaugeCondition {
 
   std::unique_ptr<GaugeCondition> get_clone() const override;
 };
-}  // namespace GeneralizedHarmonic::gauges
+}  // namespace gh::gauges

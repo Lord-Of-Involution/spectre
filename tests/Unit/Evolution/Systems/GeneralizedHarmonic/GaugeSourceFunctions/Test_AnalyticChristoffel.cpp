@@ -25,7 +25,6 @@
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/GaugeWave.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/WrappedGr.hpp"
@@ -37,6 +36,7 @@
 #include "PointwiseFunctions/GeneralRelativity/SpatialMetric.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace {
 template <size_t Dim>
@@ -67,27 +67,25 @@ struct Metavariables {
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
     using factory_classes = tmpl::map<
+        tmpl::pair<gh::gauges::GaugeCondition,
+                   tmpl::list<gh::gauges::AnalyticChristoffel>>,
         tmpl::pair<
-            GeneralizedHarmonic::gauges::GaugeCondition,
-            tmpl::list<GeneralizedHarmonic::gauges::AnalyticChristoffel>>,
-        tmpl::pair<evolution::initial_data::InitialData,
-                   tmpl::list<GeneralizedHarmonic::Solutions::WrappedGr<
-                                  gr::Solutions::KerrSchild>,
-                              GeneralizedHarmonic::Solutions::WrappedGr<
-                                  gr::Solutions::GaugeWave<Dim>>>>>;
+            evolution::initial_data::InitialData,
+            tmpl::list<
+                gh::Solutions::WrappedGr<gr::Solutions::KerrSchild>,
+                gh::Solutions::WrappedGr<gr::Solutions::GaugeWave<Dim>>>>>;
   };
 };
 
 template <size_t Dim>
 void test_gauge_wave(const Mesh<Dim>& mesh) {
   const auto gauge_condition = serialize_and_deserialize(
-      TestHelpers::test_creation<
-          std::unique_ptr<GeneralizedHarmonic::gauges::GaugeCondition>,
-          Metavariables<Dim>>("AnalyticChristoffel:\n"
-                              "  AnalyticPrescription:\n"
-                              "    GaugeWave:\n"
-                              "      Amplitude: 0.0012\n"
-                              "      Wavelength: 1.4\n")
+      TestHelpers::test_creation<std::unique_ptr<gh::gauges::GaugeCondition>,
+                                 Metavariables<Dim>>("AnalyticChristoffel:\n"
+                                                     "  AnalyticPrescription:\n"
+                                                     "    GaugeWave:\n"
+                                                     "      Amplitude: 0.0012\n"
+                                                     "      Wavelength: 1.4\n")
           ->get_clone());
 
   const size_t num_points = mesh.number_of_grid_points();
@@ -103,10 +101,9 @@ void test_gauge_wave(const Mesh<Dim>& mesh) {
   tnsr::ab<DataVector, Dim, Frame::Inertial> d4_gauge_h(num_points);
   // Used dispatch with defaulted arguments that we don't need for Analytic
   // gauge.
-  GeneralizedHarmonic::gauges::dispatch(
-      make_not_null(&gauge_h), make_not_null(&d4_gauge_h), {}, {}, {}, {}, {},
-      {}, {}, {}, {}, {}, {}, {}, mesh, time, inertial_coords, inverse_jacobian,
-      *gauge_condition);
+  gh::gauges::dispatch(make_not_null(&gauge_h), make_not_null(&d4_gauge_h), {},
+                       {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, mesh, time,
+                       inertial_coords, inverse_jacobian, *gauge_condition);
 
   CHECK_ITERABLE_APPROX(
       gauge_h, (tnsr::a<DataVector, Dim, Frame::Inertial>(num_points, 0.0)));
@@ -116,14 +113,14 @@ void test_gauge_wave(const Mesh<Dim>& mesh) {
 
 void test_ks(const Mesh<3>& mesh) {
   const auto gauge_condition = serialize_and_deserialize(
-      TestHelpers::test_creation<
-          std::unique_ptr<GeneralizedHarmonic::gauges::GaugeCondition>,
-          Metavariables<3>>("AnalyticChristoffel:\n"
-                            "  AnalyticPrescription:\n"
-                            "    KerrSchild:\n"
-                            "      Mass: 1.2\n"
-                            "      Spin: [0.1, 0.2, 0.3]\n"
-                            "      Center: [-0.1, -0.2, -0.4]\n")
+      TestHelpers::test_creation<std::unique_ptr<gh::gauges::GaugeCondition>,
+                                 Metavariables<3>>(
+          "AnalyticChristoffel:\n"
+          "  AnalyticPrescription:\n"
+          "    KerrSchild:\n"
+          "      Mass: 1.2\n"
+          "      Spin: [0.1, 0.2, 0.3]\n"
+          "      Center: [-0.1, -0.2, -0.4]\n")
           ->get_clone());
 
   const size_t num_points = mesh.number_of_grid_points();
@@ -139,30 +136,28 @@ void test_ks(const Mesh<3>& mesh) {
   tnsr::ab<DataVector, 3, Frame::Inertial> d4_gauge_h(num_points);
   // Used dispatch with defaulted arguments that we don't need for Analytic
   // gauge.
-  GeneralizedHarmonic::gauges::dispatch(
-      make_not_null(&gauge_h), make_not_null(&d4_gauge_h), {}, {}, {}, {}, {},
-      {}, {}, {}, {}, {}, {}, {}, mesh, time, inertial_coords, inverse_jacobian,
-      *gauge_condition);
+  gh::gauges::dispatch(make_not_null(&gauge_h), make_not_null(&d4_gauge_h), {},
+                       {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, mesh, time,
+                       inertial_coords, inverse_jacobian, *gauge_condition);
 
-  const GeneralizedHarmonic::Solutions::WrappedGr<gr::Solutions::KerrSchild>
-      kerr_schild{1.2, {0.1, 0.2, 0.3}, {-0.1, -0.2, -0.4}};
+  const gh::Solutions::WrappedGr<gr::Solutions::KerrSchild> kerr_schild{
+      1.2, {0.1, 0.2, 0.3}, {-0.1, -0.2, -0.4}};
   const auto [pi, phi, spacetime_metric] = kerr_schild.variables(
       inertial_coords, time,
-      tmpl::list<GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                 gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>{});
+      tmpl::list<gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>,
+                 gr::Tags::SpacetimeMetric<DataVector, 3>>{});
   const auto spatial_metric = gr::spatial_metric(spacetime_metric);
   const auto inverse_spatial_metric =
       determinant_and_inverse(spatial_metric).second;
   const auto shift = gr::shift(spacetime_metric, inverse_spatial_metric);
   const auto lapse = gr::lapse(shift, spacetime_metric);
   const auto spacetime_normal_one_form =
-      gr::spacetime_normal_one_form<3, Frame::Inertial>(lapse);
+      gr::spacetime_normal_one_form<DataVector, 3, Frame::Inertial>(lapse);
   const auto spacetime_normal_vector =
       gr::spacetime_normal_vector(lapse, shift);
   const auto inverse_spacetime_metric =
       determinant_and_inverse(spacetime_metric).second;
-  auto expected_gauge_h = GeneralizedHarmonic::trace_christoffel(
+  auto expected_gauge_h = gh::trace_christoffel(
       spacetime_normal_one_form, spacetime_normal_vector,
       inverse_spatial_metric, inverse_spacetime_metric, pi, phi);
   for (auto& t : expected_gauge_h) {
@@ -192,7 +187,7 @@ void test_ks(const Mesh<3>& mesh) {
 SPECTRE_TEST_CASE(
     "Unit.Evolution.Systems.GeneralizedHarmonic.Gauge.AnalyticChristoffel",
     "[Unit][Evolution]") {
-  GeneralizedHarmonic::gauges::register_derived_with_charm();
+  gh::gauges::register_derived_with_charm();
   for (const auto& basis_and_quadrature :
        {std::pair{Spectral::Basis::Legendre,
                   Spectral::Quadrature::GaussLobatto},

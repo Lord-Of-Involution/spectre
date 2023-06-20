@@ -17,7 +17,6 @@
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "Time/Slab.hpp"
 #include "Time/StepChoosers/PreventRapidIncrease.hpp"
@@ -26,6 +25,7 @@
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/StdHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -87,17 +87,17 @@ void check_case(const Frac& expected_frac, const std::vector<Frac>& times) {
     typename history_tag::type gts_history{};
 
     const auto make_gts_time_id = [&direction, &make_time_id](const size_t i) {
-      const double time = make_time_id(i).substep_time().value();
+      const double time = make_time_id(i).substep_time();
       const double next_time =
-          i > 0 ? make_time_id(i - 1).substep_time().value() : time + direction;
+          i > 0 ? make_time_id(i - 1).substep_time() : time + direction;
       const Slab gts_slab(std::min(time, next_time), std::max(time, next_time));
       return TimeStepId(direction > 0, -static_cast<int64_t>(i),
                         direction > 0 ? gts_slab.start() : gts_slab.end());
     };
 
     for (size_t i = 1; i < times.size(); ++i) {
-      lts_history.insert_initial(make_time_id(i), 0.0);
-      gts_history.insert_initial(make_gts_time_id(i), 0.0);
+      lts_history.insert_initial(make_time_id(i), 0.0, 0.0);
+      gts_history.insert_initial(make_gts_time_id(i), 0.0, 0.0);
     }
 
     const auto check = [&expected](auto use, const auto& box,
@@ -105,8 +105,10 @@ void check_case(const Frac& expected_frac, const std::vector<Frac>& times) {
       using Use = tmpl::type_from<decltype(use)>;
       const auto& history = db::get<history_tag>(box);
       const double current_step =
-          history.size() > 0 ? abs(current_time - history.back()).value()
-                             : std::numeric_limits<double>::infinity();
+          history.size() > 0
+              ? abs(current_time - history.back().time_step_id.step_time())
+                    .value()
+              : std::numeric_limits<double>::infinity();
 
       const StepChoosers::PreventRapidIncrease<Use> relax{};
       const std::unique_ptr<StepChooser<Use>> relax_base =
@@ -128,9 +130,9 @@ void check_case(const Frac& expected_frac, const std::vector<Frac>& times) {
           Parallel::Tags::MetavariablesImpl<Metavariables>, history_tag>>(
           Metavariables{}, std::move(lts_history));
       check(tmpl::type_<StepChooserUse::LtsStep>{}, box,
-            make_time_id(0).substep_time());
+            make_time_id(0).step_time());
       check(tmpl::type_<StepChooserUse::Slab>{}, box,
-            make_time_id(0).substep_time());
+            make_time_id(0).step_time());
     }
 
     {
@@ -139,9 +141,9 @@ void check_case(const Frac& expected_frac, const std::vector<Frac>& times) {
           Parallel::Tags::MetavariablesImpl<Metavariables>, history_tag>>(
           Metavariables{}, std::move(gts_history));
       check(tmpl::type_<StepChooserUse::LtsStep>{}, box,
-            make_gts_time_id(0).substep_time());
+            make_gts_time_id(0).step_time());
       check(tmpl::type_<StepChooserUse::Slab>{}, box,
-            make_gts_time_id(0).substep_time());
+            make_gts_time_id(0).step_time());
     }
   }
 }
@@ -155,13 +157,13 @@ void check_substep_methods() {
   using history_tag = Tags::HistoryEvolvedVariables<Tag>;
   typename history_tag::type history{};
 
-  history.insert(TimeStepId(true, 0, slab.start()), 0.0);
-  history.insert(
-      TimeStepId(true, 0, slab.start(), 1, slab.start() + slab.duration() / 3),
-      0.0);
-  history.insert(
-      TimeStepId(true, 0, slab.start(), 2, slab.start() + slab.duration() / 2),
-      0.0);
+  history.insert(TimeStepId(true, 0, slab.start()), 0.0, 0.0);
+  history.insert(TimeStepId(true, 0, slab.start(), 1, slab.duration(),
+                            (slab.start() + slab.duration() / 3).value()),
+                 0.0, 0.0);
+  history.insert(TimeStepId(true, 0, slab.start(), 2, slab.duration(),
+                            (slab.start() + slab.duration() / 2).value()),
+                 0.0, 0.0);
   const StepChoosers::PreventRapidIncrease<StepChooserUse::Slab> relax{};
   CHECK(relax(history, 3.14) ==
         std::make_pair(std::numeric_limits<double>::infinity(), true));
@@ -170,7 +172,7 @@ void check_substep_methods() {
 
 SPECTRE_TEST_CASE("Unit.Time.StepChoosers.PreventRapidIncrease",
                   "[Unit][Time]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   // -1 indicates no expected restriction
   check_case(-1, {0});

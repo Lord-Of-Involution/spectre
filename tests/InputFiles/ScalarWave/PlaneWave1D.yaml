@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarWave1D
-# Check: parse;execute
+Executable: EvolveScalarWave1D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -26,7 +29,6 @@ Evolution:
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  StepController: BinaryFraction
   StepChoosers:
     - PreventRapidIncrease
     - Increase:
@@ -66,12 +68,16 @@ SpatialDiscretization:
 #   ExpFilter0:
 #     Alpha: 12
 #     HalfPower: 32
+#     Enable: false
+#     BlocksToFilter: All
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [5]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

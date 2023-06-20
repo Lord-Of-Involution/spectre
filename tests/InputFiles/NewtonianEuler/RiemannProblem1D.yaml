@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveNewtonianEulerRiemannProblem1D
-# Check: parse;execute
+Executable: EvolveNewtonianEulerRiemannProblem1D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -19,6 +22,8 @@ DomainCreator:
   Interval:
     LowerBound: [-0.25]
     UpperBound: [0.75]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [1]
     InitialGridPoints: [2]
     TimeDependence: None
@@ -42,6 +47,9 @@ SpatialDiscretization:
       PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
   SubcellSolver:
     Reconstructor:
       MonotonisedCentralPrim:
@@ -59,12 +67,16 @@ AnalyticSolution:
     PressureStarTol: 1e-9
 
 EventsAndTriggers:
-  - - TimeCompares:
+  - Trigger:
+      TimeCompares:
         Comparison: GreaterThanOrEqualTo
         Value: 0.2
-    - - Completion
-  - - Always
-    - - ChangeSlabSize:
+    Events:
+      - Completion
+  - Trigger:
+      Always
+    Events:
+      - ChangeSlabSize:
           # Smaller values for DelayChange make the error control more
           # responsive, while larger values reduce the global coupling
           # between all the elements.  Experimentally, varying this
@@ -83,10 +95,12 @@ EventsAndTriggers:
   # with a delay of 0 with no downside.  We don't want them to start
   # increasing the slab size before the error control is active,
   # though.
-  - - SlabCompares:
+  - Trigger:
+      SlabCompares:
         Comparison: GreaterThanOrEqualTo
         Value: *slab_update_delay
-    - - ChangeSlabSize:
+    Events:
+      - ChangeSlabSize:
           DelayChange: 0
           StepChoosers:
             - Increase:

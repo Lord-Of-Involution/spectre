@@ -15,9 +15,9 @@
 #include "Elliptic/Systems/Xcts/Tags.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "Options/Auto.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
-#include "Parallel/PupStlCpp17.hpp"
+#include "Options/Context.hpp"
+#include "Options/ParseError.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/Xcts/CommonVariables.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Xcts/Flatness.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
@@ -26,6 +26,8 @@
 #include "PointwiseFunctions/InitialDataUtilities/InitialGuess.hpp"
 #include "Utilities/CallWithDynamicType.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -40,19 +42,19 @@ namespace Xcts::AnalyticData {
 namespace detail {
 
 template <typename DataType>
-using BinaryVariablesCache = cached_temp_buffer_from_typelist<
-    tmpl::push_front<
-        common_tags<DataType>,
+using BinaryVariablesCache = cached_temp_buffer_from_typelist<tmpl::append<
+    common_tags<DataType>,
+    tmpl::list<
         ::Tags::deriv<Tags::ShiftBackground<DataType, 3, Frame::Inertial>,
                       tmpl::size_t<3>, Frame::Inertial>,
         gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>, 0>,
         gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0>,
-        gr::Tags::Conformal<
-            gr::Tags::MomentumDensity<3, Frame::Inertial, DataType>, 0>,
+        gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, 3>, 0>,
         // For initial guesses
         Tags::ConformalFactor<DataType>,
         Tags::LapseTimesConformalFactor<DataType>,
-        Tags::ShiftExcess<DataType, 3, Frame::Inertial>>>;
+        Tags::ShiftExcess<DataType, 3, Frame::Inertial>>,
+    hydro_tags<DataType>>>;
 
 template <typename DataType>
 struct BinaryVariables
@@ -62,19 +64,20 @@ struct BinaryVariables
   using Base = CommonVariables<DataType, BinaryVariablesCache<DataType>>;
   using Base::operator();
 
-  using superposed_tags = tmpl::list<
-      Tags::ConformalMetric<DataType, Dim, Frame::Inertial>,
-      ::Tags::deriv<Tags::ConformalMetric<DataType, Dim, Frame::Inertial>,
-                    tmpl::size_t<Dim>, Frame::Inertial>,
-      gr::Tags::TraceExtrinsicCurvature<DataType>,
-      ::Tags::dt<gr::Tags::TraceExtrinsicCurvature<DataType>>,
-      gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>, 0>,
-      gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0>,
-      gr::Tags::Conformal<
-          gr::Tags::MomentumDensity<Dim, Frame::Inertial, DataType>, 0>,
-      Tags::ConformalFactor<DataType>,
-      Tags::LapseTimesConformalFactor<DataType>,
-      Tags::ShiftExcess<DataType, Dim, Frame::Inertial>>;
+  using superposed_tags = tmpl::append<
+      tmpl::list<
+          Tags::ConformalMetric<DataType, Dim, Frame::Inertial>,
+          ::Tags::deriv<Tags::ConformalMetric<DataType, Dim, Frame::Inertial>,
+                        tmpl::size_t<Dim>, Frame::Inertial>,
+          gr::Tags::TraceExtrinsicCurvature<DataType>,
+          ::Tags::dt<gr::Tags::TraceExtrinsicCurvature<DataType>>,
+          gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>, 0>,
+          gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0>,
+          gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, Dim>, 0>,
+          Tags::ConformalFactor<DataType>,
+          Tags::LapseTimesConformalFactor<DataType>,
+          Tags::ShiftExcess<DataType, Dim, Frame::Inertial>>,
+      hydro_tags<DataType>>;
 
   BinaryVariables(
       std::optional<std::reference_wrapper<const Mesh<Dim>>> local_mesh,
@@ -188,9 +191,8 @@ struct BinaryVariables
   void operator()(
       const gsl::not_null<tnsr::I<DataType, Dim>*> conformal_momentum_density,
       const gsl::not_null<Cache*> cache,
-      gr::Tags::Conformal<
-          gr::Tags::MomentumDensity<Dim, Frame::Inertial, DataType>, 0>
-          meta) const {
+      gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, Dim>, 0> meta)
+      const {
     superposition<false>(conformal_momentum_density, cache, meta);
   }
   void operator()(const gsl::not_null<Scalar<DataType>*> conformal_factor,
@@ -209,6 +211,36 @@ struct BinaryVariables
       const gsl::not_null<Cache*> cache,
       Tags::ShiftExcess<DataType, Dim, Frame::Inertial> meta) const {
     superposition(shift_excess, cache, meta);
+  }
+  void operator()(const gsl::not_null<Scalar<DataType>*> rest_mass_density,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::RestMassDensity<DataType> meta) const {
+    superposition<false>(rest_mass_density, cache, meta);
+  }
+  void operator()(const gsl::not_null<Scalar<DataType>*> specific_enthalpy,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::SpecificEnthalpy<DataType> meta) const {
+    superposition<false>(specific_enthalpy, cache, meta);
+  }
+  void operator()(const gsl::not_null<Scalar<DataType>*> pressure,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::Pressure<DataType> meta) const {
+    superposition<false>(pressure, cache, meta);
+  }
+  void operator()(const gsl::not_null<tnsr::I<DataType, 3>*> spatial_velocity,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::SpatialVelocity<DataType, 3> meta) const {
+    superposition<false>(spatial_velocity, cache, meta);
+  }
+  void operator()(const gsl::not_null<Scalar<DataType>*> lorentz_factor,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::LorentzFactor<DataType> meta) const {
+    superposition<false>(lorentz_factor, cache, meta);
+  }
+  void operator()(const gsl::not_null<tnsr::I<DataType, 3>*> magnetic_field,
+                  const gsl::not_null<Cache*> cache,
+                  hydro::Tags::MagneticField<DataType, 3> meta) const {
+    superposition<false>(magnetic_field, cache, meta);
   }
 
  private:
@@ -281,12 +313,12 @@ class Binary : public elliptic::analytic_data::Background,
         "The coordinates on the x-axis where the two objects are placed";
     using type = std::array<double, 2>;
   };
-  struct ObjectA {
+  struct ObjectLeft {
     static constexpr Options::String help =
         "The object placed on the negative x-axis";
     using type = std::unique_ptr<IsolatedObjectBase>;
   };
-  struct ObjectB {
+  struct ObjectRight {
     static constexpr Options::String help =
         "The object placed on the positive x-axis";
     using type = std::unique_ptr<IsolatedObjectBase>;
@@ -309,7 +341,7 @@ class Binary : public elliptic::analytic_data::Background,
         "to disable the Gaussian falloff.";
     using type = Options::Auto<std::array<double, 2>, Options::AutoLabel::None>;
   };
-  using options = tmpl::list<XCoords, ObjectA, ObjectB, AngularVelocity,
+  using options = tmpl::list<XCoords, ObjectLeft, ObjectRight, AngularVelocity,
                              Expansion, FalloffWidths>;
   static constexpr Options::String help =
       "Binary compact-object data in general relativity, constructed from "
@@ -323,15 +355,20 @@ class Binary : public elliptic::analytic_data::Background,
   ~Binary() = default;
 
   Binary(std::array<double, 2> xcoords,
-         std::unique_ptr<IsolatedObjectBase> object_a,
-         std::unique_ptr<IsolatedObjectBase> object_b, double angular_velocity,
-         const double expansion,
-         std::optional<std::array<double, 2>> falloff_widths)
+         std::unique_ptr<IsolatedObjectBase> object_left,
+         std::unique_ptr<IsolatedObjectBase> object_right,
+         double angular_velocity, const double expansion,
+         std::optional<std::array<double, 2>> falloff_widths,
+         const Options::Context& context = {})
       : xcoords_(xcoords),
-        superposed_objects_({std::move(object_a), std::move(object_b)}),
+        superposed_objects_({std::move(object_left), std::move(object_right)}),
         angular_velocity_(angular_velocity),
         expansion_(expansion),
-        falloff_widths_(falloff_widths) {}
+        falloff_widths_(falloff_widths) {
+    if (xcoords_[0] >= xcoords_[1]) {
+      PARSE_ERROR(context, "Specify 'XCoords' ascending from left to right.");
+    }
+  }
 
   explicit Binary(CkMigrateMessage* m)
       : elliptic::analytic_data::Background(m),
@@ -367,7 +404,10 @@ class Binary : public elliptic::analytic_data::Background,
     p | falloff_widths_;
   }
 
+  /// Coordinates of the objects, ascending left to right
   const std::array<double, 2>& x_coords() const { return xcoords_; }
+  /// The two objects. First entry is the left object, second entry is the right
+  /// object.
   const std::array<std::unique_ptr<IsolatedObjectBase>, 2>& superposed_objects()
       const {
     return superposed_objects_;

@@ -79,7 +79,7 @@ class TciOnFdGrid {
                  hydro::Tags::EquationOfStateBase, domain::Tags::Mesh<Dim>,
                  evolution::dg::subcell::Tags::Mesh<Dim>,
                  evolution::dg::subcell::Tags::DataForRdmpTci,
-                 evolution::dg::subcell::Tags::SubcellOptions>;
+                 evolution::dg::subcell::Tags::SubcellOptions<Dim>>;
 
   template <size_t ThermodynamicDim>
   static std::tuple<bool, evolution::dg::subcell::RdmpTciData> apply(
@@ -92,6 +92,6 @@ class TciOnFdGrid {
       const Mesh<Dim>& dg_mesh, const Mesh<Dim>& subcell_mesh,
       const evolution::dg::subcell::RdmpTciData& past_rdmp_tci_data,
       const evolution::dg::subcell::SubcellOptions& subcell_options,
-      double persson_exponent);
+      double persson_exponentconst, bool need_rdmp_data_only);
 };
 }  // namespace NewtonianEuler::subcell

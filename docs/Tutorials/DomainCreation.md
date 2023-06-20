@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # %Domain Creation {#tutorial_domain_creation}
 
+\tableofcontents
+
 ### Domain Decomposition
 The spatial domain on which the solution is computed is divided into
 non-overlapping cells. For 2D and 3D domains, we use curvilinear
@@ -44,8 +46,8 @@ in the \ref tutorial_orientations tutorial. For spherical domains,
 DomainHelpers has the methods `corners_for_radially_layered_domains` and
 `corners_for_biradially_layered_domains`, which provides the proper corner
 numberings for the maps obtained from the method `sph_wedge_coordinate_maps`.
-These methods are used in the \ref domain::creators::Shell "Shell" and
-\ref domain::creators::Sphere "Sphere" DomainCreators.
+These methods are used in the
+\ref domain::creators::Sphere "Sphere" DomainCreator.
 For rectilinear multicube domains, DomainHelpers has the methods
 `corners_for_rectilinear_domains`, which provides the proper corner
 numberings for the maps obtained from the method

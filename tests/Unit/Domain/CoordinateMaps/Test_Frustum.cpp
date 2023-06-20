@@ -29,6 +29,7 @@ void test_suite_for_frustum(const bool with_equiangular_map) {
   std::uniform_real_distribution<> upper_bound_lower_base_dis(3, 7);
   std::uniform_real_distribution<> lower_bound_upper_base_dis(-13.5, -9);
   std::uniform_real_distribution<> upper_bound_upper_base_dis(9, 13.5);
+  std::uniform_real_distribution<> angle_dis(55.0, 125.0);
 
   const double lower_x_lower_base = lower_bound_lower_base_dis(gen);
   CAPTURE(lower_x_lower_base);
@@ -50,6 +51,8 @@ void test_suite_for_frustum(const bool with_equiangular_map) {
   CAPTURE(upper_z);
   const double lower_z = -1.0;
   CAPTURE(lower_z);
+  const double opening_angle = angle_dis(gen) * M_PI / 180.0;
+  CAPTURE(opening_angle * 180.0 / M_PI);
 
   // For diagnostic purposes, compute other Frustum quantities:
   // Frustum cross factor is small when the diagonals across each of the bases
@@ -101,9 +104,9 @@ void test_suite_for_frustum(const bool with_equiangular_map) {
     // of the longer base to the height of the Frustum is at most 7:1. Frustums
     // with larger ratios cannot be bulged out without the root find beginning
     // to fail in extreme cases.
-    const CoordinateMaps::Frustum frustum_map(face_vertices, lower_z, upper_z,
-                                              map_i(), with_equiangular_map,
-                                              1.2, false, 1.0, 1.0);
+    const CoordinateMaps::Frustum frustum_map(
+        face_vertices, lower_z, upper_z, map_i(), with_equiangular_map, 1.2,
+        false, 1.0, 1.0, opening_angle);
     test_suite_for_map_on_unit_cube(frustum_map);
   }
 }
@@ -529,6 +532,31 @@ void test_frustum_fail_equiangular() {
   CHECK(not equiangular_map.inverse(test_mapped_point2).has_value());
   CHECK(not equiangular_map.inverse(test_mapped_point3).has_value());
 }
+
+void test_bulged_frustum_inverse() {
+  // Check that the bulged frustum inverse map works with input coordinates
+  // outside of the domain, and returns nullopt. The map involves a numerical
+  // rootfind, which has to terminate cleanly for this to work. These parameters
+  // are taken from a BBH domain where this case failed.
+  CoordinateMaps::Frustum frustum{
+      {{{{-40., -20.}},
+        {{0., 20.}},
+        {{-69.282032302755098385, -69.282032302755098385}},
+        {{0., 69.282032302755098385}}}},
+      20.,
+      69.282032302755098385,
+      OrientationMap<3>{{{Direction<3>::upper_xi(), Direction<3>::lower_zeta(),
+                          Direction<3>::upper_eta()}}},
+      true,
+      0.288675,
+      false,
+      1.,
+      -1.};
+  const auto inverse =
+      frustum.inverse({{-83.565015846289398382, -20.891253961572349596,
+                        -82.337943622612172589}});
+  CHECK_FALSE(inverse.has_value());
+}
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Domain.CoordinateMaps.Frustum", "[Domain][Unit]") {
@@ -545,6 +573,7 @@ SPECTRE_TEST_CASE("Unit.Domain.CoordinateMaps.Frustum", "[Domain][Unit]") {
   test_bulged_frustum_equiangular_upper();
   test_bulged_frustum_equiangular_lower();
   test_frustum_fail_equiangular();
+  test_bulged_frustum_inverse();
 
 #ifdef SPECTRE_DEBUG
   CHECK_THROWS_WITH(
@@ -653,7 +682,7 @@ SPECTRE_TEST_CASE("Unit.Domain.CoordinateMaps.Frustum", "[Domain][Unit]") {
       Catch::Contains(
           "The sphericity must be set between 0.0, corresponding to a flat "
           "surface, and 1.0, corresponding to a spherical surface, inclusive. "
-          "It is currently set to 1.3."));
+          "It is currently set to 1.3"));
 #endif
 }
 }  // namespace domain

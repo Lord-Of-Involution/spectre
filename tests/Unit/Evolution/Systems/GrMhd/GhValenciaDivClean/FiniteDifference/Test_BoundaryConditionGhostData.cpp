@@ -10,7 +10,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
@@ -19,22 +18,23 @@
 #include "Domain/CoordinateMaps/Tags.hpp"
 #include "Domain/CreateInitialElement.hpp"
 #include "Domain/Creators/Brick.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
-#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/InterfaceLogicalCoordinates.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/SegmentId.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/DgSubcell/GhostZoneLogicalCoordinates.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/BoundaryConditions/DirichletAnalytic.hpp"
@@ -54,6 +54,7 @@
 #include "Framework/SetupLocalPythonEnvironment.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
+#include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/WrappedGr.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GrMhd/SmoothFlow.hpp"
@@ -74,9 +75,10 @@ namespace {
 struct EvolutionMetaVars {
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
-    using factory_classes = tmpl::map<
-        tmpl::pair<BoundaryConditions::BoundaryCondition,
-                   BoundaryConditions::standard_fd_boundary_conditions>>;
+    using factory_classes = tmpl::map<tmpl::pair<
+        BoundaryConditions::BoundaryCondition,
+        tmpl::push_back<BoundaryConditions::standard_fd_boundary_conditions,
+                        BoundaryConditions::DirichletAnalytic>>>;
   };
 };
 
@@ -92,6 +94,8 @@ void test(const BoundaryConditionType& boundary_condition) {
                                                     num_dg_pts};
   const auto brick = domain::creators::Brick(
       lower_bounds, upper_bounds, refinement_levels, number_of_grid_points,
+      std::make_unique<BoundaryConditionType>(boundary_condition),
+      std::make_unique<BoundaryConditionType>(boundary_condition),
       std::make_unique<BoundaryConditionType>(boundary_condition), nullptr);
   auto domain = brick.create_domain();
   auto boundary_conditions = brick.external_boundary_conditions();
@@ -110,7 +114,7 @@ void test(const BoundaryConditionType& boundary_condition) {
   const size_t ghost_zone_size{ReconstructorForTest{}.ghost_zone_size()};
 
   // dummy neighbor data to put into DataBox
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>::type
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<3>::type
       neighbor_data{};
 
   // Below are tags required by DirichletAnalytic boundary condition to compute
@@ -139,11 +143,9 @@ void test(const BoundaryConditionType& boundary_condition) {
 
   const auto subcell_logical_coords = logical_coordinates(subcell_mesh);
 
-  const GeneralizedHarmonic::Solutions::WrappedGr solution{
-      RelativisticEuler::Solutions::TovStar{
-          1.28e-3,
-          EquationsOfState::PolytropicFluid<true>{100.0, 2.0}.get_clone(),
-          RelativisticEuler::Solutions::TovCoordinates::Schwarzschild}};
+  const gh::Solutions::WrappedGr solution{RelativisticEuler::Solutions::TovStar{
+      1.28e-3, EquationsOfState::PolytropicFluid<true>{100.0, 2.0}.get_clone(),
+      RelativisticEuler::Solutions::TovCoordinates::Schwarzschild}};
   using SolutionForTest = std::decay_t<decltype(solution)>;
 
   // Below are tags used for testing Outflow boundary condition
@@ -154,9 +156,9 @@ void test(const BoundaryConditionType& boundary_condition) {
   const auto subcell_inertial_coords = (*grid_to_inertial_map)(
       logical_to_grid_map(subcell_logical_coords), time, functions_of_time);
 
-  using SpacetimeMetric = gr::Tags::SpacetimeMetric<3>;
-  using Pi = GeneralizedHarmonic::Tags::Pi<3>;
-  using Phi = GeneralizedHarmonic::Tags::Phi<3>;
+  using SpacetimeMetric = gr::Tags::SpacetimeMetric<DataVector, 3>;
+  using Pi = gh::Tags::Pi<DataVector, 3>;
+  using Phi = gh::Tags::Phi<DataVector, 3>;
   using RestMassDensity = hydro::Tags::RestMassDensity<DataVector>;
   using ElectronFraction = hydro::Tags::ElectronFraction<DataVector>;
   using Pressure = hydro::Tags::Pressure<DataVector>;
@@ -226,7 +228,7 @@ void test(const BoundaryConditionType& boundary_condition) {
       domain::Tags::Domain<3>, domain::Tags::ExternalBoundaryConditions<3>,
       evolution::dg::subcell::Tags::Mesh<3>,
       evolution::dg::subcell::Tags::Coordinates<3, Frame::ElementLogical>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<3>,
       fd::Tags::Reconstructor, domain::Tags::MeshVelocity<3>,
       evolution::dg::Tags::NormalCovectorAndMagnitude<3>, ::Tags::Time,
       domain::Tags::FunctionsOfTimeInitialize,
@@ -249,15 +251,15 @@ void test(const BoundaryConditionType& boundary_condition) {
           domain::CoordinateMaps::Identity<3>{}),
       volume_prim_vars, solution);
 
-
   // compute FD ghost data and retrieve the result
   fd::BoundaryConditionGhostData::apply(make_not_null(&box), element,
                                         ReconstructorForTest{});
   const auto direction = Direction<3>::upper_xi();
   const std::pair mortar_id = {direction, ElementId<3>::external_boundary_id()};
-  const std::vector<double>& fd_ghost_data =
-      get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(box)
-          .at(mortar_id);
+  const DataVector& fd_ghost_data =
+      get<evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(box)
+          .at(mortar_id)
+          .neighbor_ghost_data_for_reconstruction();
 
   // Copy the computed FD ghost data into a Variables object in order to
   // facilitate comparison. Note that the returned FD ghost data contains the

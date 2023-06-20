@@ -50,10 +50,11 @@ void test_gh_lockstep_interface_manager(const gsl::not_null<Generator*> gen) {
       substep_numerator = 1;
     }
     const Time step_time{{static_cast<double>(step), step + 1.0}, {0, 1}};
-    const Time substep_time{{static_cast<double>(step), step + 1.0},
-                            {substep_numerator, 2}};
+    const double substep_time{
+        static_cast<double>(step) + 0.5 * substep_numerator};
     const TimeStepId time_id{true, static_cast<int64_t>(step), step_time,
-                             substep, substep_time};
+                             substep, step_time.slab().duration(),
+                             substep_time};
     fill_with_random_values(make_not_null(&spacetime_metric), gen,
                             make_not_null(&value_dist));
     fill_with_random_values(make_not_null(&phi), gen,
@@ -63,10 +64,9 @@ void test_gh_lockstep_interface_manager(const gsl::not_null<Generator*> gen) {
     interface_manager.insert_gh_data(time_id, spacetime_metric, phi, pi);
     InterfaceManagers::GhInterfaceManager::gh_variables vars{
         get<0, 0>(spacetime_metric).size()};
-    get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(vars) =
-        spacetime_metric;
-    get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(vars) = pi;
-    get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(vars) = phi;
+    get<gr::Tags::SpacetimeMetric<DataVector, 3>>(vars) = spacetime_metric;
+    get<gh::Tags::Pi<DataVector, 3>>(vars) = pi;
+    get<gh::Tags::Phi<DataVector, 3>>(vars) = phi;
     expected_gh_data[i] = std::make_tuple(time_id, std::move(vars));
     running_total += timestep_dist(*gen);
   }

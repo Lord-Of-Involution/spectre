@@ -82,7 +82,8 @@ pretty_grep() {
             file_prefix=${file}:
         fi
         git show ":./${file}" | \
-            GREP_COLOR='1;37;41' grep -n $color "${non_file_args[@]}" | \
+            GREP_COLOR='1;37;41' GREP_COLORS='mt=1;37;41' \
+            grep -n $color "${non_file_args[@]}" | \
             sed "s|^|${file_prefix}|"
     done
 }
@@ -242,6 +243,12 @@ run_tests() {
 standard_checks=()
 
 # Check for lines longer than 80 characters
+# Some patterns are allowed to exceed the line limit. Notes:
+# - Black Python formatting prefers to end single-line docstrings on the same
+#   line even if the '"""' exceeds the line limit.
+# - Black also prefers to avoid backslashes even if that means a long import
+#   statements exceeds the line limit (in case breaking the line with
+#   parentheseses is not possible).
 long_lines_exclude() {
     grep -Ev 'https?://' | \
         grep -v 'mailto:' | \
@@ -249,7 +256,9 @@ long_lines_exclude() {
         grep -v '// NOLINT' | \
         grep -v '\\snippet' | \
         grep -v '\\image' | \
-        grep -v 'a href='
+        grep -v 'a href=' | \
+        grep -v '"""' | \
+        grep -v 'import'
 }
 long_lines() {
     whitelist "$1" \
@@ -261,6 +270,7 @@ long_lines() {
               '.js$' \
               '.json$' \
               '.min.js$' \
+              '.mplstyle$' \
               '.patch' \
               '.travis.yml$' \
               '.xml$' \
@@ -276,6 +286,7 @@ long_lines() {
               'docs/config/MathJax.js' \
               'eos.*' \
               'RotatingStarId.dat$' \
+              'tools/CheckFiles.sh$' \
               'tools/Iwyu/boost-all.imp$' && \
         staged_grep '^[^#].\{80,\}' "$1" | long_lines_exclude >/dev/null
 }
@@ -408,7 +419,6 @@ license() {
               '.json' \
               '.nojekyll' \
               '.png' \
-              '.style.yapf' \
               '.svg' \
               '.patch' \
               '.xmf' \
@@ -425,6 +435,7 @@ license() {
               'docs/config/doxygen-awesome-sidebar-only.css' \
               'docs/config/doxygen-awesome.css' \
               'docs/config/doxygen-awesome-fragment-copy-button.js' \
+              'docs/config/doxygen-awesome-interactive-toc.js' \
               'docs/config/doxygen-awesome-paragraph-link.js' \
               'docs/config/footer.html' \
               'docs/config/header.html' \
@@ -483,11 +494,11 @@ standard_checks+=(catch_approx)
 
 # Check for Doxygen comments on the same line as a /*!
 doxygen_start_line() {
-    is_c++ "$1" && staged_grep -q '/\*\![^\n]' "$1"
+    is_c++ "$1" && staged_grep -q '/\*![^\n]' "$1"
 }
 doxygen_start_line_report() {
     echo "Found occurrences of bad Doxygen syntax: /*! STUFF:"
-    pretty_grep -E '\/\*\!.*' "$@"
+    pretty_grep -E '\/\*!.*' "$@"
 }
 doxygen_start_line_test() {
     test_check pass foo.cpp ''
@@ -727,11 +738,11 @@ standard_checks+=(prevent_cpp_includes)
 # Check for Doxygen-comments in cpp files. We don't parse cpp files with
 # Doxygen, so they shouldn't contain Doxygen-formatting.
 prevent_cpp_doxygen() {
-    [[ $1 =~ \.cpp$ ]] && staged_grep -q '/// \|/\*\!' "$1"
+    [[ $1 =~ \.cpp$ ]] && staged_grep -q '/// \|/\*!' "$1"
 }
 prevent_cpp_doxygen_report() {
     echo "Found Doxygen-formatting in cpp file:"
-    pretty_grep '/// \|/\*\!' "$@"
+    pretty_grep '/// \|/\*!' "$@"
     echo "Doxygen-formatting only has an effect in header files."
     echo "Use standard C++ comments in cpp files."
 }

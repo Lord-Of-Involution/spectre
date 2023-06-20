@@ -38,8 +38,7 @@
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Fluxes.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticData/Tags.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
@@ -48,6 +47,7 @@
 #include "Time/Tags.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace grmhd::GhValenciaDivClean::BoundaryConditions {
@@ -57,6 +57,10 @@ namespace grmhd::GhValenciaDivClean::BoundaryConditions {
  * variables.
  */
 class DirichletFreeOutflow final : public BoundaryCondition {
+ private:
+  template <typename T>
+  using Flux = ::Tags::Flux<T, tmpl::size_t<3>, Frame::Inertial>;
+
  public:
   using options = tmpl::list<>;
   static constexpr Options::String help{
@@ -84,10 +88,10 @@ class DirichletFreeOutflow final : public BoundaryCondition {
   void pup(PUP::er& p) override;
 
   using dg_interior_evolved_variables_tags = tmpl::list<>;
-  using dg_interior_temporary_tags = tmpl::list<
-      domain::Tags::Coordinates<3, Frame::Inertial>,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>;
+  using dg_interior_temporary_tags =
+      tmpl::list<domain::Tags::Coordinates<3, Frame::Inertial>,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma2>;
   using dg_interior_primitive_variables_tags =
       tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
                  hydro::Tags::ElectronFraction<DataVector>,
@@ -95,8 +99,7 @@ class DirichletFreeOutflow final : public BoundaryCondition {
                  hydro::Tags::SpatialVelocity<DataVector, 3>,
                  hydro::Tags::MagneticField<DataVector, 3>,
                  hydro::Tags::LorentzFactor<DataVector>,
-                 hydro::Tags::Pressure<DataVector>,
-                 hydro::Tags::SpecificEnthalpy<DataVector>>;
+                 hydro::Tags::Pressure<DataVector>>;
   using dg_gridless_tags =
       tmpl::list<::Tags::Time, ::Tags::AnalyticSolutionOrData>;
 
@@ -145,7 +148,6 @@ class DirichletFreeOutflow final : public BoundaryCondition {
       const tnsr::I<DataVector, 3, Frame::Inertial>& interior_magnetic_field,
       const Scalar<DataVector>& interior_lorentz_factor,
       const Scalar<DataVector>& interior_pressure,
-      const Scalar<DataVector>& interior_specific_enthalpy,
 
       const tnsr::I<DataVector, 3, Frame::Inertial>& coords,
       const Scalar<DataVector>& interior_gamma1,
@@ -158,43 +160,37 @@ class DirichletFreeOutflow final : public BoundaryCondition {
       if constexpr (is_analytic_solution_v<AnalyticSolutionOrData>) {
         return analytic_solution_or_data.variables(
             coords, time,
-            tmpl::list<
-                gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                gr::Tags::Lapse<DataVector>,
-                gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<gr::Tags::SpatialMetric<DataVector, 3>,
+                       gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                       gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                       gr::Tags::Lapse<DataVector>,
+                       gr::Tags::Shift<DataVector, 3>,
+                       gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
 
       } else {
         (void)time;
         return analytic_solution_or_data.variables(
-            coords,
-            tmpl::list<
-                gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                gr::Tags::Lapse<DataVector>,
-                gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            coords, tmpl::list<gr::Tags::SpatialMetric<DataVector, 3>,
+                               gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                               gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                               gr::Tags::Lapse<DataVector>,
+                               gr::Tags::Shift<DataVector, 3>,
+                               gr::Tags::SpacetimeMetric<DataVector, 3>,
+                               ::gh::Tags::Pi<DataVector, 3>,
+                               ::gh::Tags::Phi<DataVector, 3>>{});
       }
     }();
 
     *spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
-    *pi = get<::GeneralizedHarmonic::Tags::Pi<3>>(boundary_values);
-    *phi = get<::GeneralizedHarmonic::Tags::Phi<3>>(boundary_values);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_values);
+    *pi = get<::gh::Tags::Pi<DataVector, 3>>(boundary_values);
+    *phi = get<::gh::Tags::Phi<DataVector, 3>>(boundary_values);
     *lapse = get<gr::Tags::Lapse<DataVector>>(boundary_values);
-    *shift =
-        get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(boundary_values);
+    *shift = get<gr::Tags::Shift<DataVector, 3>>(boundary_values);
     *inv_spatial_metric =
-        get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(boundary_values);
 
     return grmhd::ValenciaDivClean::BoundaryConditions::HydroFreeOutflow::
         dg_ghost(tilde_d, tilde_ye, tilde_tau, tilde_s, tilde_b, tilde_phi,
@@ -209,7 +205,7 @@ class DirichletFreeOutflow final : public BoundaryCondition {
                  interior_rest_mass_density, interior_electron_fraction,
                  interior_specific_internal_energy, interior_spatial_velocity,
                  interior_magnetic_field, interior_lorentz_factor,
-                 interior_pressure, interior_specific_enthalpy,
+                 interior_pressure,
 
                  *shift, *lapse, *inv_spatial_metric);
   }
@@ -221,6 +217,7 @@ class DirichletFreeOutflow final : public BoundaryCondition {
       tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
                  hydro::Tags::ElectronFraction<DataVector>,
                  hydro::Tags::Pressure<DataVector>,
+                 hydro::Tags::SpecificInternalEnergy<DataVector>,
                  hydro::Tags::LorentzFactor<DataVector>,
                  hydro::Tags::SpatialVelocity<DataVector, 3>,
                  hydro::Tags::MagneticField<DataVector, 3>>;
@@ -254,6 +251,7 @@ class DirichletFreeOutflow final : public BoundaryCondition {
       const Scalar<DataVector>& interior_rest_mass_density,
       const Scalar<DataVector>& interior_electron_fraction,
       const Scalar<DataVector>& interior_pressure,
+      const Scalar<DataVector>& interior_specific_internal_energy,
       const Scalar<DataVector>& interior_lorentz_factor,
       const tnsr::I<DataVector, 3, Frame::Inertial>& interior_spatial_velocity,
       const tnsr::I<DataVector, 3, Frame::Inertial>& interior_magnetic_field,
@@ -286,43 +284,69 @@ class DirichletFreeOutflow final : public BoundaryCondition {
         (void)time;
         return analytic_solution_or_data.variables(
             ghost_inertial_coords,
-            tmpl::list<
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
       } else {
         return analytic_solution_or_data.variables(
             ghost_inertial_coords, time,
-            tmpl::list<
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
       }
     }();
 
     *spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
-    *pi = get<::GeneralizedHarmonic::Tags::Pi<3>>(boundary_values);
-    *phi = get<::GeneralizedHarmonic::Tags::Phi<3>>(boundary_values);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_values);
+    *pi = get<::gh::Tags::Pi<DataVector, 3>>(boundary_values);
+    *phi = get<::gh::Tags::Phi<DataVector, 3>>(boundary_values);
+
+    // Note: Once we support high-order fluxes with GHMHD we will need to
+    // handle this correctly.
+    std::optional<Variables<db::wrap_tags_in<
+        Flux, typename grmhd::ValenciaDivClean::System::flux_variables>>>
+        cell_centered_ghost_fluxes{std::nullopt};
+    // Set to zero since it shouldn't be used
+    Scalar<DataVector> specific_internal_energy{};
+    tnsr::I<DataVector, 3> spatial_velocity{};
+    Scalar<DataVector> lorentz_factor{};
+    const tnsr::I<DataVector, 3> interior_shift{};
+    const Scalar<DataVector> interior_lapse{};
+    const tnsr::ii<DataVector, 3> interior_spatial_metric{};
+    tnsr::ii<DataVector, 3> spatial_metric{};
+    tnsr::II<DataVector, 3> inv_spatial_metric{};
+    Scalar<DataVector> sqrt_det_spatial_metric{};
+    Scalar<DataVector> lapse{};
+    tnsr::I<DataVector, 3> shift{};
 
     grmhd::ValenciaDivClean::BoundaryConditions::HydroFreeOutflow::
-        fd_ghost_impl(rest_mass_density, electron_fraction, pressure,
-                      lorentz_factor_times_spatial_velocity, magnetic_field,
-                      divergence_cleaning_field,
+        fd_ghost_impl(
+            rest_mass_density, electron_fraction, pressure,
+            make_not_null(&specific_internal_energy),
+            lorentz_factor_times_spatial_velocity,
+            make_not_null(&spatial_velocity), make_not_null(&lorentz_factor),
+            magnetic_field, divergence_cleaning_field,
 
-                      direction,
+            make_not_null(&spatial_metric), make_not_null(&inv_spatial_metric),
+            make_not_null(&sqrt_det_spatial_metric), make_not_null(&lapse),
+            make_not_null(&shift),
 
-                      // fd_interior_temporary_tags
-                      subcell_mesh,
+            direction,
 
-                      // fd_interior_primitive_variables_tags
-                      interior_rest_mass_density, interior_electron_fraction,
-                      interior_pressure, interior_lorentz_factor,
-                      interior_spatial_velocity, interior_magnetic_field,
+            // fd_interior_temporary_tags
+            subcell_mesh,
 
-                      // fd_gridless_tags
-                      reconstructor.ghost_zone_size());
+            // fd_interior_primitive_variables_tags
+            interior_rest_mass_density, interior_electron_fraction,
+            interior_pressure, interior_specific_internal_energy,
+            interior_lorentz_factor, interior_spatial_velocity,
+            interior_magnetic_field,
+            // Note: metric vars are empty because they shouldn't be used
+            interior_spatial_metric, interior_lapse, interior_shift,
+
+            // fd_gridless_tags
+            reconstructor.ghost_zone_size(),
+            cell_centered_ghost_fluxes.has_value());
   }
 };
 }  // namespace grmhd::GhValenciaDivClean::BoundaryConditions

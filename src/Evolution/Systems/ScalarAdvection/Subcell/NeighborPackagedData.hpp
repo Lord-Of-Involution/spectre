@@ -27,8 +27,8 @@
 #include "Evolution/DgSubcell/Reconstruction.hpp"
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/PackageDataImpl.hpp"
@@ -65,15 +65,14 @@ namespace ScalarAdvection::subcell {
 struct NeighborPackagedData {
   template <size_t Dim, typename DbTagsList>
   static FixedHashMap<maximum_number_of_neighbors(Dim),
-                      std::pair<Direction<Dim>, ElementId<Dim>>,
-                      std::vector<double>,
+                      std::pair<Direction<Dim>, ElementId<Dim>>, DataVector,
                       boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>
   apply(const db::DataBox<DbTagsList>& box,
         const std::vector<std::pair<Direction<Dim>, ElementId<Dim>>>&
             mortars_to_reconstruct_to) {
     // The object to return
     FixedHashMap<maximum_number_of_neighbors(Dim),
-                 std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
+                 std::pair<Direction<Dim>, ElementId<Dim>>, DataVector,
                  boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>
         neighbor_package_data{};
     if (mortars_to_reconstruct_to.empty()) {
@@ -95,13 +94,14 @@ struct NeighborPackagedData {
     const Mesh<Dim>& subcell_mesh =
         db::get<evolution::dg::subcell::Tags::Mesh<Dim>>(box);
     const auto& subcell_options =
-        db::get<evolution::dg::subcell::Tags::SubcellOptions>(box);
+        db::get<evolution::dg::subcell::Tags::SubcellOptions<Dim>>(box);
     const auto volume_vars_subcell = evolution::dg::subcell::fd::project(
         db::get<typename System<Dim>::variables_tag>(box), dg_mesh,
         subcell_mesh.extents());
 
-    const auto& neighbor_subcell_data = db::get<
-        evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>>(box);
+    const auto& ghost_subcell_data =
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>>(
+            box);
 
     const ScalarAdvection::fd::Reconstructor<Dim>& recons =
         db::get<ScalarAdvection::fd::Tags::Reconstructor<Dim>>(box);
@@ -160,11 +160,11 @@ struct NeighborPackagedData {
                                  typename ScalarAdvection::fd::Reconstructor<
                                      Dim>::creatable_classes>(
               &recons,
-              [&element, &mortar_id, &neighbor_subcell_data, &subcell_mesh,
+              [&element, &mortar_id, &ghost_subcell_data, &subcell_mesh,
                &vars_on_face, &volume_vars_subcell](const auto& reconstructor) {
                 reconstructor->reconstruct_fd_neighbor(
                     make_not_null(&vars_on_face), volume_vars_subcell, element,
-                    neighbor_subcell_data, subcell_mesh, mortar_id.first);
+                    ghost_subcell_data, subcell_mesh, mortar_id.first);
               });
 
           // Compute fluxes
@@ -201,9 +201,12 @@ struct NeighborPackagedData {
               typename derived_correction::dg_package_data_volume_tags{},
               dg_package_data_argument_tags{});
 
-          neighbor_package_data[mortar_id] =
-              std::vector<double>{packaged_data.data(),
-                                  packaged_data.data() + packaged_data.size()};
+          // Make a view so we can use iterators with std::copy
+          DataVector packaged_data_view{packaged_data.data(),
+                                        packaged_data.size()};
+          neighbor_package_data[mortar_id] = DataVector{packaged_data.size()};
+          std::copy(packaged_data_view.begin(), packaged_data_view.end(),
+                    neighbor_package_data[mortar_id].begin());
 
           // Note : need to reconstruct from FD to DG grid in 2D
           if constexpr (Dim > 1) {
@@ -214,9 +217,15 @@ struct NeighborPackagedData {
                     subcell_mesh.extents().slice_away(
                         mortar_id.first.dimension()),
                     subcell_options.reconstruction_method());
-            neighbor_package_data[mortar_id] = std::vector<double>{
-                dg_packaged_data.data(),
-                dg_packaged_data.data() + dg_packaged_data.size()};
+            // Make a view so we can use iterators with std::copy
+            DataVector dg_packaged_data_view{
+                const_cast<double*>(dg_packaged_data.data()),
+                dg_packaged_data.size()};
+            neighbor_package_data[mortar_id] =
+                DataVector{dg_packaged_data.size()};
+            std::copy(dg_packaged_data_view.begin(),
+                      dg_packaged_data_view.end(),
+                      neighbor_package_data[mortar_id].begin());
           }
         }
       }

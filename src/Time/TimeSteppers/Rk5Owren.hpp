@@ -5,9 +5,9 @@
 
 #include <cstddef>
 
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Time/TimeSteppers/RungeKutta.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace TimeSteppers {
@@ -59,7 +59,6 @@ class Rk5Owren : public RungeKutta {
 
   explicit Rk5Owren(CkMigrateMessage* /*msg*/);
 
- private:
   const ButcherTableau& butcher_tableau() const override;
 };
 

@@ -8,18 +8,18 @@
 #include <limits>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/FixedHashMap.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/FiniteDifference/Reconstructor.hpp"
 #include "NumericalAlgorithms/FiniteDifference/FallbackReconstructorType.hpp"
 #include "Options/Auto.hpp"
-#include "Options/Options.hpp"
+#include "Options/Context.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -46,6 +46,9 @@ class er;
 }  // namespace PUP
 template <typename TagsList>
 class Variables;
+namespace evolution::dg::subcell {
+class GhostData;
+}  // namespace evolution::dg::subcell
 /// \endcond
 
 namespace grmhd::ValenciaDivClean::fd {
@@ -139,6 +142,9 @@ class PositivityPreservingAdaptiveOrderPrim : public Reconstructor {
 
   auto get_clone() const -> std::unique_ptr<Reconstructor> override;
 
+  static constexpr bool use_adaptive_order = true;
+  bool supports_adaptive_order() const override { return use_adaptive_order; }
+
   void pup(PUP::er& p) override;
 
   size_t ghost_zone_size() const override {
@@ -147,24 +153,26 @@ class PositivityPreservingAdaptiveOrderPrim : public Reconstructor {
                : (six_to_the_alpha_7_.has_value() ? 4 : 3);
   }
 
-  using reconstruction_argument_tags = tmpl::list<
-      ::Tags::Variables<hydro::grmhd_tags<DataVector>>,
-      hydro::Tags::EquationOfStateBase, domain::Tags::Element<dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<dim>,
-      evolution::dg::subcell::Tags::Mesh<dim>>;
+  using reconstruction_argument_tags =
+      tmpl::list<::Tags::Variables<hydro::grmhd_tags<DataVector>>,
+                 hydro::Tags::EquationOfStateBase, domain::Tags::Element<dim>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<dim>,
+                 evolution::dg::subcell::Tags::Mesh<dim>>;
 
   template <size_t ThermodynamicDim, typename TagsList>
   void reconstruct(
       gsl::not_null<std::array<Variables<TagsList>, dim>*> vars_on_lower_face,
       gsl::not_null<std::array<Variables<TagsList>, dim>*> vars_on_upper_face,
+      gsl::not_null<std::optional<std::array<gsl::span<std::uint8_t>, dim>>*>
+          reconstruction_order,
       const Variables<hydro::grmhd_tags<DataVector>>& volume_prims,
       const EquationsOfState::EquationOfState<true, ThermodynamicDim>& eos,
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh) const;
 
   template <size_t ThermodynamicDim, typename TagsList>
@@ -175,9 +183,9 @@ class PositivityPreservingAdaptiveOrderPrim : public Reconstructor {
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh,
       const Direction<dim> direction_to_reconstruct) const;
 
@@ -187,6 +195,7 @@ class PositivityPreservingAdaptiveOrderPrim : public Reconstructor {
                          const PositivityPreservingAdaptiveOrderPrim& rhs);
   friend bool operator!=(const PositivityPreservingAdaptiveOrderPrim& lhs,
                          const PositivityPreservingAdaptiveOrderPrim& rhs);
+  void set_function_pointers();
 
   double four_to_the_alpha_5_ = std::numeric_limits<double>::signaling_NaN();
   std::optional<double> six_to_the_alpha_7_{};
@@ -194,40 +203,31 @@ class PositivityPreservingAdaptiveOrderPrim : public Reconstructor {
   FallbackReconstructorType low_order_reconstructor_ =
       FallbackReconstructorType::None;
 
-  void (*reconstruct_)(gsl::not_null<std::array<gsl::span<double>, dim>*>,
-                       gsl::not_null<std::array<gsl::span<double>, dim>*>,
-                       const gsl::span<const double>&,
-                       const DirectionMap<dim, gsl::span<const double>>&,
-                       const Index<dim>&, size_t, double, double,
-                       double) = nullptr;
-  void (*reconstruct_lower_neighbor_)(gsl::not_null<DataVector*>,
-                                      const DataVector&, const DataVector&,
-                                      const Index<dim>&, const Index<dim>&,
-                                      const Direction<dim>&, const double&,
-                                      const double&, const double&) = nullptr;
-  void (*reconstruct_upper_neighbor_)(gsl::not_null<DataVector*>,
-                                      const DataVector&, const DataVector&,
-                                      const Index<dim>&, const Index<dim>&,
-                                      const Direction<dim>&, const double&,
-                                      const double&, const double&) = nullptr;
-  void (*pp_reconstruct_)(gsl::not_null<std::array<gsl::span<double>, dim>*>,
-                          gsl::not_null<std::array<gsl::span<double>, dim>*>,
-                          const gsl::span<const double>&,
-                          const DirectionMap<dim, gsl::span<const double>>&,
-                          const Index<dim>&, size_t, double, double,
-                          double) = nullptr;
-  void (*pp_reconstruct_lower_neighbor_)(gsl::not_null<DataVector*>,
-                                         const DataVector&, const DataVector&,
-                                         const Index<dim>&, const Index<dim>&,
-                                         const Direction<dim>&, const double&,
-                                         const double&,
-                                         const double&) = nullptr;
-  void (*pp_reconstruct_upper_neighbor_)(gsl::not_null<DataVector*>,
-                                         const DataVector&, const DataVector&,
-                                         const Index<dim>&, const Index<dim>&,
-                                         const Direction<dim>&, const double&,
-                                         const double&,
-                                         const double&) = nullptr;
+  using PointerReconsOrder = void (*)(
+      gsl::not_null<std::array<gsl::span<double>, dim>*>,
+      gsl::not_null<std::array<gsl::span<double>, dim>*>,
+      gsl::not_null<std::optional<std::array<gsl::span<std::uint8_t>, dim>>*>,
+      const gsl::span<const double>&,
+      const DirectionMap<dim, gsl::span<const double>>&, const Index<dim>&,
+      size_t, double, double, double);
+  using PointerRecons =
+      void (*)(gsl::not_null<std::array<gsl::span<double>, dim>*>,
+               gsl::not_null<std::array<gsl::span<double>, dim>*>,
+               const gsl::span<const double>&,
+               const DirectionMap<dim, gsl::span<const double>>&,
+               const Index<dim>&, size_t, double, double, double);
+  PointerRecons reconstruct_ = nullptr;
+  PointerReconsOrder pp_reconstruct_ = nullptr;
+
+  using PointerNeighbor = void (*)(gsl::not_null<DataVector*>,
+                                   const DataVector&, const DataVector&,
+                                   const Index<dim>&, const Index<dim>&,
+                                   const Direction<dim>&, const double&,
+                                   const double&, const double&);
+  PointerNeighbor reconstruct_lower_neighbor_ = nullptr;
+  PointerNeighbor reconstruct_upper_neighbor_ = nullptr;
+  PointerNeighbor pp_reconstruct_lower_neighbor_ = nullptr;
+  PointerNeighbor pp_reconstruct_upper_neighbor_ = nullptr;
 };
 
 }  // namespace grmhd::ValenciaDivClean::fd

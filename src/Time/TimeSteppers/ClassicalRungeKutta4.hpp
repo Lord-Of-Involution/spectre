@@ -5,9 +5,9 @@
 
 #include <cstddef>
 
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Time/TimeSteppers/RungeKutta.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -69,10 +69,7 @@ class ClassicalRungeKutta4 : public RungeKutta {
 
   explicit ClassicalRungeKutta4(CkMigrateMessage* /*unused*/) {}
 
- private:
   const ButcherTableau& butcher_tableau() const override;
-
-  const ButcherTableau& error_tableau() const override;
 };
 
 inline bool constexpr operator==(const ClassicalRungeKutta4& /*lhs*/,

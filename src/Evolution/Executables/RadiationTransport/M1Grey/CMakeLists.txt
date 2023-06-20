@@ -5,6 +5,7 @@ set(LIBS_TO_LINK
   CoordinateMaps
   DiscontinuousGalerkin
   DomainCreators
+  Events
   EventsAndDenseTriggers
   EventsAndTriggers
   Evolution
@@ -20,6 +21,7 @@ set(LIBS_TO_LINK
   Options
   Parallel
   PhaseControl
+  Serialization
   Time
   Utilities
   )

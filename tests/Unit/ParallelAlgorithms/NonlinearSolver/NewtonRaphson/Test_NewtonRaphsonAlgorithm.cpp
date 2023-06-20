@@ -7,13 +7,14 @@
 #include <vector>
 
 #include "Helpers/ParallelAlgorithms/NonlinearSolver/Algorithm.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Main.hpp"
 #include "ParallelAlgorithms/LinearSolver/Gmres/Gmres.hpp"
 #include "ParallelAlgorithms/NonlinearSolver/NewtonRaphson/NewtonRaphson.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -46,9 +47,8 @@ struct ApplyNonlinearOperator {
       const int /*array_index*/, const ActionList /*meta*/,
       const ParallelComponent* const /*component*/) {
     db::mutate<::NonlinearSolver::Tags::OperatorAppliedTo<OperandTag>>(
-        make_not_null(&box),
         [](const auto Ax, const auto& x) { *Ax = cube(x) - x; },
-        get<OperandTag>(box));
+        make_not_null(&box), get<OperandTag>(box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -64,11 +64,10 @@ struct ApplyLinearizedOperator {
       const int /*array_index*/, const ActionList /*meta*/,
       const ParallelComponent* const /*component*/) {
     db::mutate<LinearSolver::Tags::OperatorAppliedTo<OperandTag>>(
-        make_not_null(&box),
         [](const auto Ap, const auto& dx, const auto& x) {
           *Ap = (3. * square(x) - 1) * dx;
         },
-        get<OperandTag>(box), get<FieldTag>(box));
+        make_not_null(&box), get<OperandTag>(box), get<FieldTag>(box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -105,7 +104,7 @@ struct Metavariables {
 static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Parallel::Main<Metavariables>;
 

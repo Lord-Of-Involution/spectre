@@ -1,7 +1,7 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-cmake_minimum_required(VERSION 3.12.0)
+cmake_minimum_required(VERSION 3.18.0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
@@ -92,8 +92,6 @@ include(SpectreAddInterfaceLibraryHeaders)
 include(SpectreTargetHeaders)
 include(SpectreTargetSources)
 include(SetupFormaline)
-# We need yapf before we set up the git hooks
-include(SetupYapf)
 include(SetupGitHooks)
 include(SetBuildType)
 include(SetupPic)
@@ -136,6 +134,7 @@ include(SetupHdf5)
 include(SetupAllocator)
 include(SetupPapi)
 include(SetupPybind11)
+include(SetupSpec)
 include(SetupStl)
 include(SetupLibsharp)
 include(SetupXsimd)
@@ -189,6 +188,7 @@ spectre_include_directories(${CMAKE_BINARY_DIR}/src/Parallel)
 
 add_subdirectory(external)
 add_subdirectory(src)
+add_subdirectory(support)
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

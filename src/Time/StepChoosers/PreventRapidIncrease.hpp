@@ -8,11 +8,11 @@
 #include <pup.h>
 #include <utility>
 
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"  // IWYU pragma: keep
 #include "Time/Tags.hpp"
 #include "Time/Utilities.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace StepChoosers {
@@ -45,21 +45,20 @@ class PreventRapidIncrease : public StepChooser<StepChooserUse> {
       return std::make_pair(std::numeric_limits<double>::infinity(), true);
     }
 
-    const double sloppiness = slab_rounding_error(history[0]);
-    std::optional<Time> history_step{};
-    for (auto step = history.begin(); step != history.end(); ++step) {
-      if (step.time_step_id().substep() != 0) {
-        continue;
-      }
-      if (history_step.has_value()) {
+    const double sloppiness =
+        slab_rounding_error(history.front().time_step_id.step_time());
+    std::optional<Time> previous_time{};
+    for (const auto& record : history) {
+      const Time time = record.time_step_id.step_time();
+      if (previous_time.has_value()) {
         // Potential roundoff error comes from the inability to make
         // slabs exactly the same length.
-        if (abs(abs(*history_step - *step).value() - last_step_magnitude) >
+        if (abs(abs(*previous_time - time).value() - last_step_magnitude) >
             sloppiness) {
           return std::make_pair(last_step_magnitude, true);
         }
       }
-      history_step.emplace(*step);
+      previous_time.emplace(time);
     }
     // Request that the step size be at most infinity.  This imposes
     // no restriction on the chosen step.

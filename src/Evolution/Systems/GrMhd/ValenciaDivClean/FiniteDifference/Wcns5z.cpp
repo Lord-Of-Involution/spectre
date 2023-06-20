@@ -10,7 +10,6 @@
 #include <pup.h>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/Prefixes.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -22,6 +21,7 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Structure/Side.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/FiniteDifference/ReconstructWork.tpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/FiniteDifference/Reconstructor.hpp"
@@ -85,8 +85,8 @@ void Wcns5zPrim::reconstruct(
     const Element<3>& element,
     const FixedHashMap<
         maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
-        std::vector<double>,
-        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& neighbor_data,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& ghost_data,
     const Mesh<3>& subcell_mesh) const {
   FixedHashMap<maximum_number_of_neighbors(dim),
                std::pair<Direction<dim>, ElementId<dim>>,
@@ -94,7 +94,7 @@ void Wcns5zPrim::reconstruct(
                boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>
       neighbor_variables_data{};
   ::fd::neighbor_data_as_variables<dim>(make_not_null(&neighbor_variables_data),
-                                        neighbor_data, ghost_zone_size(),
+                                        ghost_data, ghost_zone_size(),
                                         subcell_mesh);
 
   reconstruct_prims_work<prims_to_reconstruct_tags>(
@@ -118,8 +118,8 @@ void Wcns5zPrim::reconstruct_fd_neighbor(
     const Element<3>& element,
     const FixedHashMap<
         maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
-        std::vector<double>,
-        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& neighbor_data,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& ghost_data,
     const Mesh<3>& subcell_mesh,
     const Direction<3> direction_to_reconstruct) const {
   reconstruct_fd_neighbor_work<prims_to_reconstruct_tags,
@@ -147,7 +147,7 @@ void Wcns5zPrim::reconstruct_fd_neighbor(
             tensor_component_neighbor, subcell_extents, ghost_data_extents,
             local_direction_to_reconstruct, epsilon_, max_number_of_extrema_);
       },
-      subcell_volume_prims, eos, element, neighbor_data, subcell_mesh,
+      subcell_volume_prims, eos, element, ghost_data, subcell_mesh,
       direction_to_reconstruct, ghost_zone_size(), true);
 }
 
@@ -186,11 +186,10 @@ bool operator!=(const Wcns5zPrim& lhs, const Wcns5zPrim& rhs) {
              ::Tags::Flux<Tags::TildeB<Frame::Inertial>, tmpl::size_t<3>,    \
                           Frame::Inertial>,                                  \
              ::Tags::Flux<Tags::TildePhi, tmpl::size_t<3>, Frame::Inertial>, \
-             gr::Tags::Lapse<DataVector>,                                    \
-             gr::Tags::Shift<3, Frame::Inertial, DataVector>,                \
-             gr::Tags::SpatialMetric<3>,                                     \
+             gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,    \
+             gr::Tags::SpatialMetric<DataVector, 3>,                         \
              gr::Tags::SqrtDetSpatialMetric<DataVector>,                     \
-             gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>, \
+             gr::Tags::InverseSpatialMetric<DataVector, 3>,                  \
              evolution::dg::Actions::detail::NormalVector<3>>
 
 #define INSTANTIATION(r, data)                                                \
@@ -202,20 +201,22 @@ bool operator!=(const Wcns5zPrim& lhs, const Wcns5zPrim& rhs) {
       const Variables<hydro::grmhd_tags<DataVector>>& volume_prims,           \
       const EquationsOfState::EquationOfState<true, THERMO_DIM(data)>& eos,   \
       const Element<3>& element,                                              \
-      const FixedHashMap<                                                     \
-          maximum_number_of_neighbors(3),                                     \
-          std::pair<Direction<3>, ElementId<3>>, std::vector<double>,         \
-          boost::hash<std::pair<Direction<3>, ElementId<3>>>>& neighbor_data, \
+      const FixedHashMap<maximum_number_of_neighbors(3),                      \
+                         std::pair<Direction<3>, ElementId<3>>,               \
+                         evolution::dg::subcell::GhostData,                   \
+                         boost::hash<std::pair<Direction<3>, ElementId<3>>>>& \
+          ghost_data,                                                         \
       const Mesh<3>& subcell_mesh) const;                                     \
   template void Wcns5zPrim::reconstruct_fd_neighbor(                          \
       gsl::not_null<Variables<TAGS_LIST(data)>*> vars_on_face,                \
       const Variables<hydro::grmhd_tags<DataVector>>& subcell_volume_prims,   \
       const EquationsOfState::EquationOfState<true, THERMO_DIM(data)>& eos,   \
       const Element<3>& element,                                              \
-      const FixedHashMap<                                                     \
-          maximum_number_of_neighbors(3),                                     \
-          std::pair<Direction<3>, ElementId<3>>, std::vector<double>,         \
-          boost::hash<std::pair<Direction<3>, ElementId<3>>>>& neighbor_data, \
+      const FixedHashMap<maximum_number_of_neighbors(3),                      \
+                         std::pair<Direction<3>, ElementId<3>>,               \
+                         evolution::dg::subcell::GhostData,                   \
+                         boost::hash<std::pair<Direction<3>, ElementId<3>>>>& \
+          ghost_data,                                                         \
       const Mesh<3>& subcell_mesh,                                            \
       const Direction<3> direction_to_reconstruct) const;
 

@@ -20,11 +20,10 @@ endfunction()
 set(SPECTRE_PYTHON_PREFIX "${SPECTRE_PYTHON_PREFIX_PARENT}/spectre")
 
 # Create the root __init__.py file
-if(NOT EXISTS "${SPECTRE_PYTHON_PREFIX}/__init__.py")
-  file(WRITE
-    "${SPECTRE_PYTHON_PREFIX}/__init__.py"
-    "__all__ = []\n")
-endif()
+configure_or_symlink_py_file(
+  "${CMAKE_SOURCE_DIR}/support/Python/__init__.py"
+  "${SPECTRE_PYTHON_PREFIX}/__init__.py"
+)
 
 # Create the root __main__.py entry point
 configure_or_symlink_py_file(
@@ -32,7 +31,7 @@ configure_or_symlink_py_file(
   "${SPECTRE_PYTHON_PREFIX}/__main__.py"
 )
 # Also link the main entry point to bin/
-set(PYTHON_SCRIPT_LOCATION "spectre")
+set(PYTHON_EXE_COMMAND "-m spectre")
 set(JEMALLOC_PRELOAD "")
 if(BUILD_PYTHON_BINDINGS AND "${JEMALLOC_LIB_TYPE}" STREQUAL SHARED)
   set(JEMALLOC_PRELOAD "LD_PRELOAD=\${LD_PRELOAD}\${LD_PRELOAD:+:}${JEMALLOC_LIBRARIES}")
@@ -41,6 +40,17 @@ configure_file(
   "${CMAKE_SOURCE_DIR}/cmake/SpectrePythonExecutable.sh"
   "${CMAKE_BINARY_DIR}/tmp/spectre")
 file(COPY "${CMAKE_BINARY_DIR}/tmp/spectre"
+  DESTINATION "${CMAKE_BINARY_DIR}/bin"
+  FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
+    GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+# Also link the Python interpreter to bin/python-spectre as an easy way to jump
+# into a Python shell or run a script that uses pybindings
+set(PYTHON_EXE_COMMAND "")
+configure_file(
+  "${CMAKE_SOURCE_DIR}/cmake/SpectrePythonExecutable.sh"
+  "${CMAKE_BINARY_DIR}/tmp/python-spectre")
+file(COPY "${CMAKE_BINARY_DIR}/tmp/python-spectre"
   DESTINATION "${CMAKE_BINARY_DIR}/bin"
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ
     GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
@@ -59,10 +69,10 @@ list(REMOVE_ITEM SPECTRE_PY_DEV_DEPS "")
 list(JOIN SPECTRE_PY_DEPS "\n    " SPECTRE_PY_DEPS_OUTPUT)
 list(JOIN SPECTRE_PY_DEV_DEPS "\n    " SPECTRE_PY_DEV_DEPS_OUTPUT)
 configure_or_symlink_py_file(
-  "${CMAKE_SOURCE_DIR}/src/PythonBindings/pyproject.toml"
+  "${CMAKE_SOURCE_DIR}/pyproject.toml"
   "${SPECTRE_PYTHON_PREFIX_PARENT}/pyproject.toml")
 configure_or_symlink_py_file(
-  "${CMAKE_SOURCE_DIR}/src/PythonBindings/setup.cfg"
+  "${CMAKE_SOURCE_DIR}/setup.cfg"
   "${SPECTRE_PYTHON_PREFIX_PARENT}/setup.cfg")
 
 set(_JEMALLOC_MESSAGE "")
@@ -202,7 +212,7 @@ function(SPECTRE_PYTHON_ADD_MODULE MODULE_NAME)
       ${ARG_LIBRARY_NAME}
       PROPERTIES
       PREFIX ""
-      LIBRARY_OUTPUT_NAME "_${ARG_LIBRARY_NAME}"
+      LIBRARY_OUTPUT_NAME "_Pybindings"
       LIBRARY_OUTPUT_DIRECTORY ${MODULE_LOCATION}
       )
     # We need --no-as-needed since each python module needs to depend on all the
@@ -223,12 +233,6 @@ function(SPECTRE_PYTHON_ADD_MODULE MODULE_NAME)
     add_dependencies(all-pybindings ${ARG_LIBRARY_NAME})
   endif(BUILD_PYTHON_BINDINGS AND NOT "${ARG_SOURCES}" STREQUAL "")
 
-  # Create an empty __init__.py file if none exists
-  set(INIT_FILE_LOCATION "${MODULE_LOCATION}/__init__.py")
-  if(NOT EXISTS ${INIT_FILE_LOCATION})
-    file(WRITE ${INIT_FILE_LOCATION} "")
-  endif()
-
   # configure the Python source files into the build directory
   foreach(PYTHON_FILE ${ARG_PYTHON_FILES})
     # Configure file
@@ -239,6 +243,17 @@ function(SPECTRE_PYTHON_ADD_MODULE MODULE_NAME)
       "${MODULE_LOCATION}/${PYTHON_FILE_JUST_NAME}"
       )
   endforeach(PYTHON_FILE ${ARG_PYTHON_FILES})
+
+  # Create empty __init__.py files if none exist
+  # We walk up the tree until we get to ${SPECTRE_PYTHON_PREFIX}
+  set(CURRENT_MODULE ${MODULE_LOCATION})
+  while(NOT ${CURRENT_MODULE} STREQUAL ${SPECTRE_PYTHON_PREFIX})
+    set(INIT_FILE_LOCATION "${CURRENT_MODULE}/__init__.py")
+    if(NOT EXISTS ${INIT_FILE_LOCATION})
+      file(WRITE ${INIT_FILE_LOCATION} "")
+    endif()
+    get_filename_component(CURRENT_MODULE "${CURRENT_MODULE}/.." ABSOLUTE)
+  endwhile()
 endfunction()
 
 # Add headers if Python bindings are being built
@@ -350,3 +365,7 @@ function(SPECTRE_ADD_PYTHON_BINDINGS_TEST TEST_NAME FILE TAGS
   endif()
   spectre_add_python_test(${TEST_NAME} ${FILE} "${TAGS}" ${PY_MODULE_DEPENDENCY})
 endfunction()
+
+# Add a convenient target name for the pybindings.
+add_custom_target(cli)
+add_dependencies(cli all-pybindings)

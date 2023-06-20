@@ -6,7 +6,7 @@
 #include <memory>
 #include <pup.h>
 
-#include "Parallel/CharmPupable.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace ForceFree {
@@ -14,6 +14,10 @@ namespace ForceFree {
  * \brief Boundary corrections/numerical fluxes for the GRFFE sytem.
  */
 namespace BoundaryCorrections {
+
+/// \cond
+class Rusanov;
+/// \endcond
 
 /*!
  * \brief The base class used to create boundary corrections from input files
@@ -33,7 +37,7 @@ class BoundaryCorrection : public PUP::able {
   WRAPPED_PUPable_abstract(BoundaryCorrection);  // NOLINT
   /// \endcond
 
-  using creatable_classes = tmpl::list<>;
+  using creatable_classes = tmpl::list<Rusanov>;
 
   virtual std::unique_ptr<BoundaryCorrection> get_clone() const = 0;
 };

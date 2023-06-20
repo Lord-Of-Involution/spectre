@@ -30,8 +30,8 @@
 #include "Evolution/DgSubcell/Reconstruction.hpp"
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
@@ -67,9 +67,9 @@ namespace grmhd::ValenciaDivClean::subcell {
  */
 struct NeighborPackagedData {
   template <typename DbTagsList>
-  static FixedHashMap<
-      maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
-      std::vector<double>, boost::hash<std::pair<Direction<3>, ElementId<3>>>>
+  static FixedHashMap<maximum_number_of_neighbors(3),
+                      std::pair<Direction<3>, ElementId<3>>, DataVector,
+                      boost::hash<std::pair<Direction<3>, ElementId<3>>>>
   apply(const db::DataBox<DbTagsList>& box,
         const std::vector<std::pair<Direction<3>, ElementId<3>>>&
             mortars_to_reconstruct_to) {
@@ -89,21 +89,21 @@ struct NeighborPackagedData {
            "re-slicing/projecting.");
 
     FixedHashMap<maximum_number_of_neighbors(3),
-                 std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+                 std::pair<Direction<3>, ElementId<3>>, DataVector,
                  boost::hash<std::pair<Direction<3>, ElementId<3>>>>
         neighbor_package_data{};
     if (mortars_to_reconstruct_to.empty()) {
       return neighbor_package_data;
     }
 
-    const auto& neighbor_subcell_data =
-        db::get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
+    const auto& ghost_subcell_data =
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(
             box);
     const Mesh<3>& subcell_mesh =
         db::get<evolution::dg::subcell::Tags::Mesh<3>>(box);
     const Mesh<3>& dg_mesh = db::get<domain::Tags::Mesh<3>>(box);
     const auto& subcell_options =
-        db::get<evolution::dg::subcell::Tags::SubcellOptions>(box);
+        db::get<evolution::dg::subcell::Tags::SubcellOptions<3>>(box);
 
     // Note: we need to compare if projecting the entire mesh or only ghost
     // zones needed is faster. This probably depends on the number of neighbors
@@ -122,7 +122,7 @@ struct NeighborPackagedData {
         derived_boundary_corrections>([&box, &boundary_correction, &dg_mesh,
                                        &mortars_to_reconstruct_to,
                                        &neighbor_package_data,
-                                       &neighbor_subcell_data, &recons,
+                                       &ghost_subcell_data, &recons,
                                        &subcell_mesh, &subcell_options,
                                        &volume_prims](
                                           auto derived_correction_v) {
@@ -130,13 +130,14 @@ struct NeighborPackagedData {
       if (typeid(boundary_correction) == typeid(DerivedCorrection)) {
         using dg_package_data_temporary_tags =
             typename DerivedCorrection::dg_package_data_temporary_tags;
-        using dg_package_data_argument_tags = tmpl::append<
-            evolved_vars_tags, recons_prim_tags, fluxes_tags,
-            tmpl::remove_duplicates<tmpl::push_back<
-                dg_package_data_temporary_tags, gr::Tags::SpatialMetric<3>,
-                gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-                evolution::dg::Actions::detail::NormalVector<3>>>>;
+        using dg_package_data_argument_tags =
+            tmpl::append<evolved_vars_tags, recons_prim_tags, fluxes_tags,
+                         tmpl::remove_duplicates<tmpl::push_back<
+                             dg_package_data_temporary_tags,
+                             gr::Tags::SpatialMetric<DataVector, 3>,
+                             gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                             gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                             evolution::dg::Actions::detail::NormalVector<3>>>>;
 
         const auto& element = db::get<domain::Tags::Element<3>>(box);
         const auto& eos = get<hydro::Tags::EquationOfStateBase>(box);
@@ -159,36 +160,36 @@ struct NeighborPackagedData {
                                           .product();
           vars_on_face.initialize(num_face_pts);
           // Copy spacetime vars over from volume.
-          using spacetime_vars_to_copy = tmpl::list<
-              gr::Tags::Lapse<DataVector>,
-              gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-              gr::Tags::SpatialMetric<3>,
-              gr::Tags::SqrtDetSpatialMetric<DataVector>,
-              gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>;
-          tmpl::for_each<spacetime_vars_to_copy>([
-            &direction, &extents, &vars_on_face,
-            &spacetime_vars_on_faces =
-                db::get<evolution::dg::subcell::Tags::OnSubcellFaces<
-                    typename System::flux_spacetime_variables_tag, 3>>(box)
-          ](auto tag_v) {
-            using tag = tmpl::type_from<decltype(tag_v)>;
-            data_on_slice(make_not_null(&get<tag>(vars_on_face)),
-                          get<tag>(gsl::at(spacetime_vars_on_faces,
-                                           direction.dimension())),
-                          extents, direction.dimension(),
-                          direction.side() == Side::Lower
-                              ? 0
-                              : extents[direction.dimension()] - 1);
-          });
+          using spacetime_vars_to_copy =
+              tmpl::list<gr::Tags::Lapse<DataVector>,
+                         gr::Tags::Shift<DataVector, 3>,
+                         gr::Tags::SpatialMetric<DataVector, 3>,
+                         gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                         gr::Tags::InverseSpatialMetric<DataVector, 3>>;
+          tmpl::for_each<spacetime_vars_to_copy>(
+              [&direction, &extents, &vars_on_face,
+               &spacetime_vars_on_faces =
+                   db::get<evolution::dg::subcell::Tags::OnSubcellFaces<
+                       typename System::flux_spacetime_variables_tag, 3>>(box)](
+                  auto tag_v) {
+                using tag = tmpl::type_from<decltype(tag_v)>;
+                data_on_slice(make_not_null(&get<tag>(vars_on_face)),
+                              get<tag>(gsl::at(spacetime_vars_on_faces,
+                                               direction.dimension())),
+                              extents, direction.dimension(),
+                              direction.side() == Side::Lower
+                                  ? 0
+                                  : extents[direction.dimension()] - 1);
+              });
 
           call_with_dynamic_type<void, typename grmhd::ValenciaDivClean::fd::
                                            Reconstructor::creatable_classes>(
-              &recons, [&element, &eos, &mortar_id, &neighbor_subcell_data,
-                        &subcell_mesh, &vars_on_face,
-                        &volume_prims](const auto& reconstructor) {
+              &recons,
+              [&element, &eos, &mortar_id, &ghost_subcell_data, &subcell_mesh,
+               &vars_on_face, &volume_prims](const auto& reconstructor) {
                 reconstructor->reconstruct_fd_neighbor(
                     make_not_null(&vars_on_face), volume_prims, eos, element,
-                    neighbor_subcell_data, subcell_mesh, mortar_id.first);
+                    ghost_subcell_data, subcell_mesh, mortar_id.first);
               });
 
           grmhd::ValenciaDivClean::subcell::compute_fluxes(
@@ -238,9 +239,13 @@ struct NeighborPackagedData {
               packaged_data, dg_mesh.slice_away(mortar_id.first.dimension()),
               subcell_mesh.extents().slice_away(mortar_id.first.dimension()),
               subcell_options.reconstruction_method());
-          neighbor_package_data[mortar_id] = std::vector<double>{
-              dg_packaged_data.data(),
-              dg_packaged_data.data() + dg_packaged_data.size()};
+          // Make a view so we can use iterators with std::copy
+          DataVector dg_packaged_data_view{dg_packaged_data.data(),
+                                           dg_packaged_data.size()};
+          neighbor_package_data[mortar_id] =
+              DataVector{dg_packaged_data.size()};
+          std::copy(dg_packaged_data_view.begin(), dg_packaged_data_view.end(),
+                    neighbor_package_data[mortar_id].begin());
         }
       }
     });

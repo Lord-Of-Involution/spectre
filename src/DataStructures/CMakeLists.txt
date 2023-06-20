@@ -9,7 +9,11 @@ spectre_target_sources(
   ${LIBRARY}
   PRIVATE
   ApplyMatrices.cpp
+  CompressedMatrix.cpp
+  CompressedVector.cpp
   DynamicBuffer.cpp
+  DynamicMatrix.cpp
+  DynamicVector.cpp
   FloatingPointType.cpp
   Index.cpp
   IndexIterator.cpp
@@ -37,7 +41,6 @@ spectre_target_headers(
   DynamicVector.hpp
   FixedHashMap.hpp
   FloatingPointType.hpp
-  GeneralIndexIterator.hpp
   IdPair.hpp
   Index.hpp
   IndexIterator.hpp
@@ -51,6 +54,7 @@ spectre_target_headers(
   SliceTensorToVariables.hpp
   SliceVariables.hpp
   SpinWeighted.hpp
+  StaticDeque.hpp
   StaticMatrix.hpp
   StaticVector.hpp
   StripeIterator.hpp
@@ -71,6 +75,7 @@ target_link_libraries(
   Charmxx::pup
   ErrorHandling
   Options
+  Serialization
   Utilities
   )
 

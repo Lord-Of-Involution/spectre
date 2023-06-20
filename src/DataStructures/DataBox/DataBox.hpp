@@ -30,7 +30,9 @@
 #include "Utilities/NoSuchType.hpp"
 #include "Utilities/Overloader.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/TMPL.hpp"
+#include "Utilities/TaggedTuple.hpp"
 #include "Utilities/TypeTraits.hpp"
 #include "Utilities/TypeTraits/CreateIsCallable.hpp"
 #include "Utilities/TypeTraits/IsA.hpp"
@@ -63,6 +65,38 @@ template <typename Tag, typename DataBoxType>
 constexpr bool tag_is_retrievable_v =
     tag_is_retrievable<Tag, DataBoxType>::value;
 /// @}
+
+namespace detail {
+template <typename TagsList, typename Tag>
+struct creation_tag_impl {
+  DEBUG_STATIC_ASSERT(
+      not has_no_matching_tag_v<TagsList, Tag>,
+      "Found no tags in the DataBox that match the tag being retrieved.");
+  DEBUG_STATIC_ASSERT(
+      has_unique_matching_tag_v<TagsList, Tag>,
+      "Found more than one tag in the DataBox that matches the tag "
+      "being retrieved. This happens because more than one tag with the same "
+      "base (class) tag was added to the DataBox.");
+  using normalized_tag = first_matching_tag<TagsList, Tag>;
+  // A list with 0 or 1 elements.  This uses `Tag` rather than
+  // `normalized_tag` because subitems of compute tags normalize to
+  // `Tags::Subitem<...>`, which is not what is in the `Subitems`
+  // list.
+  using parent_of_subitem =
+      tmpl::filter<TagsList, tmpl::bind<tmpl::list_contains, Subitems<tmpl::_1>,
+                                        tmpl::pin<Tag>>>;
+  using type = tmpl::front<tmpl::push_back<parent_of_subitem, normalized_tag>>;
+};
+}  // namespace detail
+
+/*!
+ * \ingroup DataBoxGroup
+ * \brief The tag added to \p Box referred to by \p Tag.  This
+ * resolves base tags and converts subitems to full items.
+ */
+template <typename Tag, typename Box>
+using creation_tag =
+    typename detail::creation_tag_impl<typename Box::tags_list, Tag>::type;
 
 namespace detail {
 template <typename Tag>
@@ -135,27 +169,13 @@ struct create_compute_tag_argument_edges {
                  tmpl::pin<ComputeTag>>>;
 };
 
-template <typename Tag>
-struct create_subitem_reverse_edge {
-  // This edge records that the value of a subitem of a compute
-  // item depend on the value of the compute item itself.
-  using type = tmpl::edge<typename Tag::parent_tag, Tag>;
-};
-
-template <typename TagsList, typename ComputeTagsList>
+template <typename TagsList, typename ImmutableItemTagsList>
 struct create_dependency_graph {
-  using compute_tag_argument_edges =
-      tmpl::join<tmpl::transform<ComputeTagsList,
+  using immutable_item_argument_edges =
+      tmpl::join<tmpl::transform<ImmutableItemTagsList,
                                  detail::create_compute_tag_argument_edges<
                                      tmpl::pin<TagsList>, tmpl::_1>>>;
-  using subitems_that_need_reverse_edges = tmpl::transform<
-      tmpl::filter<compute_tag_argument_edges,
-                   db::is_reference_tag<tmpl::get_source<tmpl::_1>>>,
-      tmpl::get_source<tmpl::_1>>;
-  using subitem_reverse_edges =
-      tmpl::transform<subitems_that_need_reverse_edges,
-                      create_subitem_reverse_edge<tmpl::_1>>;
-  using type = tmpl::append<compute_tag_argument_edges, subitem_reverse_edges>;
+  using type = immutable_item_argument_edges;
 };
 }  // namespace detail
 
@@ -181,7 +201,8 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
    */
   using tags_list = tmpl::list<Tags...>;
 
-  /// A list of all the immutable item tags, including their subitems
+  /// A list of all the immutable item tags, including their subitems.
+  /// Immutable items are compute tags and reference tags.
   using immutable_item_tags =
       tmpl::filter<tags_list, db::is_immutable_item_tag<tmpl::_1>>;
 
@@ -203,9 +224,19 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
   using mutable_subitem_tags = tmpl::flatten<
       tmpl::transform<mutable_item_tags, db::Subitems<tmpl::_1>>>;
 
+  /// A list of all the mutable item tags used to create the DataBox
+  ///
+  /// \note This does not include subitems of mutable items
+  using mutable_item_creation_tags =
+      tmpl::list_difference<mutable_item_tags, mutable_subitem_tags>;
+
   /// A list of all the compute item tags
   using compute_item_tags =
       tmpl::filter<immutable_item_tags, db::is_compute_tag<tmpl::_1>>;
+
+  /// A list of all the reference tags
+  using reference_item_tags =
+      tmpl::filter<immutable_item_tags, db::is_reference_tag<tmpl::_1>>;
 
   /// \cond HIDDEN_SYMBOLS
   /*!
@@ -250,20 +281,26 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
   template <typename Tag>
   const auto& get() const;
 
+  /// \brief Copy the items with tags `TagsOfItemsToCopy` from the DataBox
+  /// into a TaggedTuple, should be called by the free function db::copy_items
+  template <typename... TagsOfItemsToCopy>
+  tuples::TaggedTuple<TagsOfItemsToCopy...> copy_items() const;
+
   /// Retrieve a mutable reference to the tag `Tag`, should be called
   /// by the free function db::get_mutable_reference
   template <typename Tag>
   auto& get_mutable_reference();
 
+  /// Check whether a tags depends on another tag.  Should be called
+  /// through the metafunction db::tag_depends_on.
+  template <typename Consumer, typename Provider>
+  constexpr static bool tag_depends_on();
+
   // NOLINTNEXTLINE(google-runtime-references)
   void pup(PUP::er& p) {
-    using non_subitems_tags =
-        tmpl::list_difference<mutable_item_tags,
-                              mutable_subitem_tags>;
-
     // We do not send subitems for both simple items and compute items since
     // they can be reconstructed very cheaply.
-    pup_impl(p, non_subitems_tags{}, immutable_item_creation_tags{});
+    pup_impl(p, mutable_item_creation_tags{}, immutable_item_creation_tags{});
   }
 
   template <typename... AddMutableItemTags, typename AddImmutableItemTagsList,
@@ -272,17 +309,26 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
                     AddImmutableItemTagsList /*meta*/, Args&&... args);
 
  private:
+  template <typename CopiedItemsTagList, typename DbTagList>
+  // clang-tidy: redundant declaration
+  friend auto copy_items(const DataBox<DbTagList>& box);
+
   template <typename... MutateTags, typename TagList, typename Invokable,
             typename... Args>
   // clang-tidy: redundant declaration
-  friend decltype(auto) mutate(gsl::not_null<DataBox<TagList>*> box,  // NOLINT
-                               Invokable&& invokable,
-                               Args&&... args);  // NOLINT
+  friend decltype(auto) mutate(Invokable&& invokable,
+                               gsl::not_null<DataBox<TagList>*> box,  // NOLINT
+                               Args&&... args);                       // NOLINT
 
   // evaluates the compute item corresponding to ComputeTag passing along
   // items fetched via ArgumentTags
   template <typename ComputeTag, typename... ArgumentTags>
   void evaluate_compute_item(tmpl::list<ArgumentTags...> /*meta*/) const;
+
+  // retrieves the reference of the ReferenceTag passing along items fetched via
+  // ArgumentTags
+  template <typename ReferenceTag, typename... ArgumentTags>
+  const auto& get_reference_item(tmpl::list<ArgumentTags...> /*meta*/) const;
 
   // get a constant reference to the item corresponding to Tag
   template <typename Tag>
@@ -295,6 +341,16 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
   auto& get_item() {
     return static_cast<detail::Item<Tag>&>(*this);
   }
+
+  // copy item correspond to Tag
+  template <typename Tag>
+  auto copy_item() const;
+
+  // copy items corresponding to CopiedItemsTags
+  // from the DataBox to a TaggedTuple
+  template <typename... CopiedItemsTags>
+  tuples::TaggedTuple<CopiedItemsTags...> copy_items(
+      tmpl::list<CopiedItemsTags...> /*meta*/) const;
 
   template <typename ParentTag>
   constexpr void add_mutable_subitems_to_box(tmpl::list<> /*meta*/) {}
@@ -320,9 +376,11 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
                         tmpl::list<AddImmutableItemTags...> /*meta*/);
 
   // clang-tidy: no non-const references
-  template <typename... NonSubitemsTags, typename... ComputeTags>
-  void pup_impl(PUP::er& p, tmpl::list<NonSubitemsTags...> /*meta*/,  // NOLINT
-                tmpl::list<ComputeTags...> /*meta*/);
+  template <typename... MutableItemCreationTags,
+            typename... ImmutableItemCreationTags>
+  void pup_impl(PUP::er& p,  // NOLINT
+                tmpl::list<MutableItemCreationTags...> /*meta*/,
+                tmpl::list<ImmutableItemCreationTags...> /*meta*/);
 
   // Mutating items in the DataBox
   template <typename ParentTag>
@@ -346,7 +404,7 @@ class DataBox<tmpl::list<Tags...>> : private detail::Item<Tags>... {
 
   using edge_list =
       typename detail::create_dependency_graph<tags_list,
-                                               compute_item_tags>::type;
+                                               immutable_item_tags>::type;
 
   bool mutate_locked_box_{false};
 };
@@ -366,14 +424,14 @@ std::string DataBox<tmpl::list<Tags...>>::print_types() const {
      << pretty_type::get_name<mutable_subitem_tags>() << ";\n";
   os << "using compute_item_tags = "
      << pretty_type::get_name<compute_item_tags>() << ";\n";
+  os << "using reference_item_tags = "
+     << pretty_type::get_name<reference_item_tags>() << ";\n";
   os << "using edge_list = " << pretty_type::get_name<edge_list>() << ";\n";
   return os.str();
 }
 
 template <typename... Tags>
 std::string DataBox<tmpl::list<Tags...>>::print_items() const {
-  using mutable_item_creation_tags =
-      tmpl::list_difference<mutable_item_tags, mutable_subitem_tags>;
   std::ostringstream os;
   os << "Items:\n";
   const auto print_item = [this, &os](auto tag_v) {
@@ -536,10 +594,11 @@ constexpr DataBox<tmpl::list<Tags...>>::DataBox(
 // Serialization of DataBox
 
 template <typename... Tags>
-template <typename... NonSubitemsTags, typename... ComputeTags>
+template <typename... MutableItemCreationTags,
+          typename... ImmutableItemCreationTags>
 void DataBox<tmpl::list<Tags...>>::pup_impl(
-    PUP::er& p, tmpl::list<NonSubitemsTags...> /*meta*/,
-    tmpl::list<ComputeTags...> /*meta*/) {
+    PUP::er& p, tmpl::list<MutableItemCreationTags...> /*meta*/,
+    tmpl::list<ImmutableItemCreationTags...> /*meta*/) {
   const auto pup_simple_item = [&p, this](auto current_tag) {
     (void)this;  // Compiler bug warning this capture is not used
     using tag = decltype(current_tag);
@@ -549,9 +608,9 @@ void DataBox<tmpl::list<Tags...>>::pup_impl(
     }
   };
   (void)pup_simple_item;  // Silence GCC warning about unused variable
-  EXPAND_PACK_LEFT_TO_RIGHT(pup_simple_item(NonSubitemsTags{}));
+  EXPAND_PACK_LEFT_TO_RIGHT(pup_simple_item(MutableItemCreationTags{}));
 
-  EXPAND_PACK_LEFT_TO_RIGHT(get_item<ComputeTags>().pup(p));
+  EXPAND_PACK_LEFT_TO_RIGHT(get_item<ImmutableItemCreationTags>().pup(p));
 }
 
 ////////////////////////////////////////////////////////////////
@@ -625,7 +684,7 @@ db::DataBox<tmpl::list<Tags...>>::reset_all_subitems() {
  * \brief Allows changing the state of one or more non-computed elements in
  * the DataBox
  *
- * `mutate()`'s first argument is the DataBox from which to retrieve the tags
+ * `mutate()`'s second argument is the DataBox from which to retrieve the tags
  * `MutateTags`. The objects corresponding to the `MutateTags` are then passed
  * to `invokable`, which is a lambda or a function object taking as many
  * arguments as there are `MutateTags` and with the arguments being of types
@@ -652,8 +711,9 @@ db::DataBox<tmpl::list<Tags...>>::reset_all_subitems() {
  */
 template <typename... MutateTags, typename TagList, typename Invokable,
           typename... Args>
-decltype(auto) mutate(const gsl::not_null<DataBox<TagList>*> box,
-                      Invokable&& invokable, Args&&... args) {
+decltype(auto) mutate(Invokable&& invokable,
+                      const gsl::not_null<DataBox<TagList>*> box,
+                      Args&&... args) {
   static_assert(
       tmpl2::flat_all_v<
           detail::has_unique_matching_tag_v<TagList, MutateTags>...>,
@@ -722,6 +782,13 @@ void DataBox<tmpl::list<Tags...>>::evaluate_compute_item(
 }
 
 template <typename... Tags>
+template <typename ReferenceTag, typename... ArgumentTags>
+const auto& DataBox<tmpl::list<Tags...>>::get_reference_item(
+    tmpl::list<ArgumentTags...> /*meta*/) const {
+  return ReferenceTag::get(get<ArgumentTags>()...);
+}
+
+template <typename... Tags>
 template <typename Tag>
 const auto& DataBox<tmpl::list<Tags...>>::get() const {
   if constexpr (std::is_same_v<Tag, ::Tags::DataBox>) {
@@ -753,7 +820,7 @@ const auto& DataBox<tmpl::list<Tags...>>::get() const {
     }
     if constexpr (detail::Item<item_tag>::item_type ==
                   detail::ItemType::Reference) {
-      return item_tag::get(get<typename item_tag::parent_tag>());
+      return get_reference_item<item_tag>(typename item_tag::argument_tags{});
     } else {
       if constexpr (detail::Item<item_tag>::item_type ==
                     detail::ItemType::Compute) {
@@ -784,6 +851,47 @@ SPECTRE_ALWAYS_INLINE const auto& get(const DataBox<TagList>& box) {
   return box.template get<Tag>();
 }
 
+////////////////////////////////////////////////////////////////
+// Copy mutable creation items from the DataBox
+
+/// \cond
+template <typename... Tags>
+template <typename Tag>
+SPECTRE_ALWAYS_INLINE auto DataBox<tmpl::list<Tags...>>::copy_item() const {
+  using item_tag = detail::first_matching_tag<tags_list, Tag>;
+  using item_type = typename item_tag::type;
+  static_assert(tmpl::list_contains_v<mutable_item_creation_tags, item_tag>,
+                "Can only copy mutable creation items");
+  return deserialize<item_type>(
+      serialize<item_type>(get_item<item_tag>().get()).data());
+}
+
+template <typename... DbTags>
+template <typename... CopiedItemsTags>
+tuples::TaggedTuple<CopiedItemsTags...>
+DataBox<tmpl::list<DbTags...>>::copy_items(
+    tmpl::list<CopiedItemsTags...> /*meta*/) const {
+  return tuples::TaggedTuple<CopiedItemsTags...>{
+      copy_item<CopiedItemsTags>()...};
+}
+/// \endcond
+
+/*!
+ * \ingroup DataBoxGroup
+ * \brief Copy the items from the DataBox into a TaggedTuple
+ *
+ * \return The objects corresponding to CopiedItemsTagList
+ *
+ * \note The tags in CopiedItemsTagList must be a subset of
+ * the mutable_item_creation_tags of the DataBox
+ */
+template <typename CopiedItemsTagList, typename DbTagList>
+SPECTRE_ALWAYS_INLINE auto copy_items(const DataBox<DbTagList>& box) {
+  return box.copy_items(CopiedItemsTagList{});
+}
+
+////////////////////////////////////////////////////////////////
+// Get mutable reference from the DataBox
 template <typename... Tags>
 template <typename Tag>
 auto& DataBox<tmpl::list<Tags...>>::get_mutable_reference() {
@@ -816,6 +924,55 @@ auto& DataBox<tmpl::list<Tags...>>::get_mutable_reference() {
   return get_item<item_tag>().mutate();
 }
 
+template <typename... Tags>
+template <typename Consumer, typename Provider>
+constexpr bool DataBox<tmpl::list<Tags...>>::tag_depends_on() {
+  // We need to check for things depending on the passed tag, any
+  // subitems, and the parent item if we were passed a subitem.  These
+  // dependencies are handled internally by the mutation functions and
+  // not encoded in the graph.
+  using provider_aliases =
+      tmpl::push_front<typename Subitems<Provider>::type,
+                       creation_tag<Provider, DataBox<tmpl::list<Tags...>>>>;
+
+  // We have to replace subitems with their parents here because
+  // subitems of compute tags sometimes get graph edges from their
+  // parents and sometimes do not, depending on if they have
+  // dependencies.
+  using consumer_tag_to_check =
+      creation_tag<Consumer, DataBox<tmpl::list<Tags...>>>;
+
+  // We cannot recursively call the function we are in, because we
+  // need to avoid the normalization done above.  Otherwise we could
+  // end up in a loop when destination of an edge normalizes to its
+  // source.
+  //
+  // Lambdas cannot capture themselves, but they can take themselves
+  // as an argument.
+  auto check_dependents = [](auto&& recurse,
+                             auto node_depending_on_provider_v) {
+    using node_depending_on_provider = decltype(node_depending_on_provider_v);
+    if (std::is_same_v<node_depending_on_provider, consumer_tag_to_check>) {
+      return true;
+    }
+
+    using next_nodes_to_check = tmpl::transform<
+        tmpl::filter<
+            edge_list,
+            tmpl::has_source<tmpl::_1, tmpl::pin<node_depending_on_provider>>>,
+        tmpl::get_destination<tmpl::_1>>;
+
+    return tmpl::as_pack<next_nodes_to_check>([&](auto... nodes) {
+      return (... or recurse(recurse, tmpl::type_from<decltype(nodes)>{}));
+    });
+  };
+
+  return tmpl::as_pack<provider_aliases>([&](auto... aliases) {
+    return (... or check_dependents(check_dependents,
+                                    tmpl::type_from<decltype(aliases)>{}));
+  });
+}
+
 /*!
  * \ingroup DataBoxGroup
  * \brief Retrieve a mutable reference to the item with tag `Tag` from the
@@ -833,12 +990,25 @@ SPECTRE_ALWAYS_INLINE auto& get_mutable_reference(
   return box->template get_mutable_reference<Tag>();
 }
 
+/// @{
 /*!
  * \ingroup DataBoxGroup
- * \brief List of Tags to remove from the DataBox
+ * \brief Check whether the tag \p Consumer depends on the tag \p
+ * Provider in a given \p Box.
+ *
+ * This is equivalent to the question of whether changing \p Provider
+ * (through `db::mutate`, updating one of its dependencies, etc.)
+ * could change the value of `db::get<Consumer>`.  Tags depend on
+ * themselves, and an item and its subitems all depend on one another.
  */
-template <typename... Tags>
-using RemoveTags = tmpl::flatten<tmpl::list<Tags...>>;
+template <typename Consumer, typename Provider, typename Box>
+using tag_depends_on =
+    std::bool_constant<Box::template tag_depends_on<Consumer, Provider>()>;
+
+template <typename Consumer, typename Provider, typename Box>
+constexpr bool tag_depends_on_v =
+    tag_depends_on<Consumer, Provider, Box>::value;
+/// @}
 
 /*!
  * \ingroup DataBoxGroup
@@ -1068,28 +1238,26 @@ SPECTRE_ALWAYS_INLINE constexpr decltype(auto) mutate_apply(
                     F, const gsl::not_null<typename ReturnTags::type*>...,
                     const_item_type<ArgumentTags, BoxTags>..., Args...>) {
     return ::db::mutate<ReturnTags...>(
-        box,
         [](const gsl::not_null<typename ReturnTags::type*>... mutated_items,
            const_item_type<ArgumentTags, BoxTags>... args_items,
            decltype(std::forward<Args>(args))... l_args) {
           return std::decay_t<F>::apply(mutated_items..., args_items...,
                                         std::forward<Args>(l_args)...);
         },
-        db::get<ArgumentTags>(*box)..., std::forward<Args>(args)...);
+        box, db::get<ArgumentTags>(*box)..., std::forward<Args>(args)...);
   } else if constexpr (::tt::is_callable_v<
                            F,
                            const gsl::not_null<typename ReturnTags::type*>...,
                            const_item_type<ArgumentTags, BoxTags>...,
                            Args...>) {
     return ::db::mutate<ReturnTags...>(
-        box,
         [&f](const gsl::not_null<typename ReturnTags::type*>... mutated_items,
              const_item_type<ArgumentTags, BoxTags>... args_items,
              decltype(std::forward<Args>(args))... l_args) {
           return f(mutated_items..., args_items...,
                    std::forward<Args>(l_args)...);
         },
-        db::get<ArgumentTags>(*box)..., std::forward<Args>(args)...);
+        box, db::get<ArgumentTags>(*box)..., std::forward<Args>(args)...);
   } else {
     error_function_not_callable<F, gsl::not_null<typename ReturnTags::type*>...,
                                 const_item_type<ArgumentTags, BoxTags>...,

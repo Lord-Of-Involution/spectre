@@ -32,7 +32,7 @@
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
 
-namespace GeneralizedHarmonic::gauges {
+namespace gh::gauges {
 template <size_t Dim>
 void SetPiFromGauge<Dim>::apply(
     const gsl::not_null<tnsr::aa<DataVector, Dim, Frame::Inertial>*> pi,
@@ -71,23 +71,29 @@ void SetPiFromGauge<Dim>::apply(
     }
   }
 
-  Variables<tmpl::list<
-      gr::Tags::SpatialMetric<Dim>, gr::Tags::SqrtDetSpatialMetric<>,
-      gr::Tags::InverseSpatialMetric<Dim>, gr::Tags::Lapse<>,
-      gr::Tags::Shift<Dim>, gr::Tags::InverseSpacetimeMetric<Dim>,
-      gr::Tags::SpacetimeNormalOneForm<Dim>,
-      gr::Tags::SpacetimeNormalVector<Dim>,
-      ::Tags::deriv<gr::Tags::Lapse<>, tmpl::size_t<Dim>, Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::Shift<Dim>, tmpl::size_t<Dim>, Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<Dim>, tmpl::size_t<Dim>,
-                    Frame::Inertial>,
-      gr::Tags::ExtrinsicCurvature<Dim>, gr::Tags::TraceExtrinsicCurvature<>,
-      gr::Tags::SpatialChristoffelFirstKind<Dim>,
-      gr::Tags::TraceSpatialChristoffelFirstKind<Dim>,
-      GeneralizedHarmonic::Tags::GaugeH<Dim>,
-      GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<Dim>,
-      ::Tags::dt<gr::Tags::Lapse<>>, ::Tags::dt<gr::Tags::Shift<Dim>>,
-      ::Tags::dt<gr::Tags::SpatialMetric<Dim>>>>
+  Variables<
+      tmpl::list<gr::Tags::SpatialMetric<DataVector, Dim>,
+                 gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                 gr::Tags::InverseSpatialMetric<DataVector, Dim>,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim>,
+                 gr::Tags::InverseSpacetimeMetric<DataVector, Dim>,
+                 gr::Tags::SpacetimeNormalOneForm<DataVector, Dim>,
+                 gr::Tags::SpacetimeNormalVector<DataVector, Dim>,
+                 ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<Dim>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::Shift<DataVector, Dim>,
+                               tmpl::size_t<Dim>, Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, Dim>,
+                               tmpl::size_t<Dim>, Frame::Inertial>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, Dim>,
+                 gr::Tags::TraceExtrinsicCurvature<DataVector>,
+                 gr::Tags::SpatialChristoffelFirstKind<DataVector, Dim>,
+                 gr::Tags::TraceSpatialChristoffelFirstKind<DataVector, Dim>,
+                 gh::Tags::GaugeH<DataVector, Dim>,
+                 gh::Tags::SpacetimeDerivGaugeH<DataVector, Dim>,
+                 ::Tags::dt<gr::Tags::Lapse<DataVector>>,
+                 ::Tags::dt<gr::Tags::Shift<DataVector, Dim>>,
+                 ::Tags::dt<gr::Tags::SpatialMetric<DataVector, Dim>>>>
       buffer(get<0, 0>(spacetime_metric).size());
 
   auto& [spatial_metric, sqrt_det_spatial_metric, inverse_spatial_metric, lapse,
@@ -106,7 +112,7 @@ void SetPiFromGauge<Dim>::apply(
   gr::lapse(make_not_null(&lapse), shift, spacetime_metric);
   gr::inverse_spacetime_metric(make_not_null(&inverse_spacetime_metric), lapse,
                                shift, inverse_spatial_metric);
-  gr::spacetime_normal_one_form<Dim, Frame::Inertial>(
+  gr::spacetime_normal_one_form<DataVector, Dim, Frame::Inertial>(
       make_not_null(&spacetime_unit_normal_one_form), lapse);
   gr::spacetime_normal_vector(make_not_null(&spacetime_unit_normal_vector),
                               lapse, shift);
@@ -130,7 +136,7 @@ void SetPiFromGauge<Dim>::apply(
   // Here we use `derivatives_of_spacetime_metric` to get \f$ \partial_a
   // g_{bc}\f$ instead, and use only the derivatives of \f$ g_{bi}\f$.
   tnsr::abb<DataVector, Dim, Frame::Inertial> d4_spacetime_metric{};
-  GeneralizedHarmonic::spacetime_derivative_of_spacetime_metric(
+  gh::spacetime_derivative_of_spacetime_metric(
       make_not_null(&d4_spacetime_metric), lapse, shift, *pi, phi);
 
   Scalar<DataVector> half_pi_two_normals{get(lapse).size(), 0.0};
@@ -190,8 +196,8 @@ void SetPiFromGauge<Dim>::apply(
 
   time_deriv_of_spatial_metric(make_not_null(&dt_spatial_metric), lapse, shift,
                                phi, *pi);
-  GeneralizedHarmonic::pi(pi, lapse, dt_lapse, shift, dt_shift, spatial_metric,
-                          dt_spatial_metric, phi);
+  gh::pi(pi, lapse, dt_lapse, shift, dt_shift, spatial_metric,
+         dt_spatial_metric, phi);
 }
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
@@ -202,4 +208,4 @@ GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3))
 
 #undef INSTANTIATE
 #undef DIM
-}  // namespace GeneralizedHarmonic::gauges
+}  // namespace gh::gauges

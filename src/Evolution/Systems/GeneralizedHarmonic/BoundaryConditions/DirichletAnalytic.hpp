@@ -17,14 +17,14 @@
 #include "Evolution/Systems/GeneralizedHarmonic/BoundaryConditions/BoundaryCondition.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/ConstraintDamping/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/Tags.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -34,7 +34,7 @@ struct Coordinates;
 }  // namespace domain::Tags
 /// \endcond
 
-namespace GeneralizedHarmonic::BoundaryConditions {
+namespace gh::BoundaryConditions {
 /*!
  * \brief Sets Dirichlet boundary conditions using the analytic solution or
  * analytic data.
@@ -81,10 +81,10 @@ class DirichletAnalytic final : public BoundaryCondition<Dim> {
   void pup(PUP::er& p) override;
 
   using dg_interior_evolved_variables_tags = tmpl::list<>;
-  using dg_interior_temporary_tags = tmpl::list<
-      domain::Tags::Coordinates<Dim, Frame::Inertial>,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>;
+  using dg_interior_temporary_tags =
+      tmpl::list<domain::Tags::Coordinates<Dim, Frame::Inertial>,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma2>;
   using dg_gridless_tags = tmpl::list<::Tags::Time>;
 
   std::optional<std::string> dg_ghost(
@@ -116,4 +116,4 @@ class DirichletAnalytic final : public BoundaryCondition<Dim> {
 
   std::unique_ptr<evolution::initial_data::InitialData> analytic_prescription_;
 };
-}  // namespace GeneralizedHarmonic::BoundaryConditions
+}  // namespace gh::BoundaryConditions

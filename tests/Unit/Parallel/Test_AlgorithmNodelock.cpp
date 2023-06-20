@@ -29,6 +29,7 @@
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/Requires.hpp"
@@ -104,7 +105,6 @@ struct nodegroup_receive {
                                  NodegroupParallelComponent<TestMetavariables>>,
                   "The ParallelComponent is not deduced to be the right type");
     db::mutate<Tags::vector_of_array_indexs, Tags::total_receives_on_node>(
-        make_not_null(&box),
         [&id_of_array](const gsl::not_null<std::vector<int>*> array_indexs,
                        const gsl::not_null<int*> total_receives_on_node) {
           if (static_cast<int>(array_indexs->size()) !=
@@ -115,7 +115,8 @@ struct nodegroup_receive {
           std::for_each(array_indexs->begin(), array_indexs->end(),
                         [](int& t) { t++; });
           ++*total_receives_on_node;
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -158,7 +159,6 @@ struct nodegroup_threaded_receive {
     // [threaded_action_example]
     node_lock->lock();
     db::mutate<Tags::vector_of_array_indexs, Tags::total_receives_on_node>(
-        make_not_null(&box),
         [&id_of_array](const gsl::not_null<std::vector<int>*> array_indexs,
                        const gsl::not_null<int*> total_receives_on_node) {
           if (static_cast<int>(array_indexs->size()) !=
@@ -169,7 +169,8 @@ struct nodegroup_threaded_receive {
           std::for_each(array_indexs->begin(), array_indexs->end(),
                         [](int& t) { t++; });
           ++*total_receives_on_node;
-        });
+        },
+        make_not_null(&box));
     node_lock->unlock();
   }
 };
@@ -327,7 +328,7 @@ struct TestMetavariables {
 static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Parallel::Main<TestMetavariables>;
 

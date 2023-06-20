@@ -6,7 +6,8 @@
 #include <array>
 #include <string>
 
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
+#include "Utilities/TMPL.hpp"
 
 /// \cond
 namespace PUP {
@@ -14,7 +15,7 @@ class er;
 }  // namespace PUP
 /// \endcond
 
-namespace GeneralizedHarmonic::gauges {
+namespace gh::gauges {
 /*!
  * \brief A struct holding the parameters for initializing damped harmonic gauge
  *
@@ -137,4 +138,4 @@ struct DhGaugeParameters<false> {
   void pup(PUP::er& p);
 };
 /// \endcond
-}  // namespace GeneralizedHarmonic::gauges
+}  // namespace gh::gauges

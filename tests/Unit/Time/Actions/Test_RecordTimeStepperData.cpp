@@ -3,6 +3,7 @@
 
 #include "Framework/TestingFramework.hpp"
 
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -37,141 +38,87 @@ struct AlternativeVar : db::SimpleTag {
   using type = double;
 };
 
-// Replacement for Tags::RollbackValue when not doing rollback.
-// Included so the DataBox contains the same types of values either
-// way, which simplifies initialization.
-struct DummyRollback : db::SimpleTag {
-  using type = double;
-};
-
-struct System {
+struct SingleVariableSystem {
   using variables_tag = Var;
 };
 
-using variables_tag = Var;
-using dt_variables_tag = Tags::dt<Var>;
-using history_tag = Tags::HistoryEvolvedVariables<variables_tag>;
-
-using alternative_variables_tag = AlternativeVar;
-using dt_alternative_variables_tag = Tags::dt<AlternativeVar>;
-using alternative_history_tag =
-    Tags::HistoryEvolvedVariables<alternative_variables_tag>;
+struct TwoVariableSystem {
+  using variables_tag = tmpl::list<Var, AlternativeVar>;
+};
 
 template <typename Metavariables>
 struct Component {
   using metavariables = Metavariables;
   using chare_type = ActionTesting::MockArrayChare;
   using array_index = int;
-  using simple_tags = db::AddSimpleTags<
-      Tags::TimeStepId, variables_tag, dt_variables_tag, history_tag,
-      tmpl::conditional_t<Metavariables::use_rollback,
-                          Tags::RollbackValue<variables_tag>, DummyRollback>>;
+  using simple_tags =
+      db::AddSimpleTags<Tags::TimeStepId, Var, ::Tags::dt<Var>,
+                        Tags::HistoryEvolvedVariables<Var>, AlternativeVar,
+                        ::Tags::dt<AlternativeVar>,
+                        Tags::HistoryEvolvedVariables<AlternativeVar>>;
   using compute_tags = db::AddComputeTags<>;
   using phase_dependent_action_list = tmpl::list<
       Parallel::PhaseActions<Parallel::Phase::Initialization,
                              tmpl::list<ActionTesting::InitializeDataBox<
                                  simple_tags, compute_tags>>>,
       Parallel::PhaseActions<Parallel::Phase::Testing,
-                             tmpl::list<Actions::RecordTimeStepperData<>>>>;
+                             tmpl::list<Actions::RecordTimeStepperData<
+                                 typename Metavariables::system_for_test>>>>;
 };
 
-template <typename Metavariables>
-struct ComponentWithTemplateSpecifiedVariables {
-  using metavariables = Metavariables;
-  using chare_type = ActionTesting::MockArrayChare;
-  using array_index = int;
-  using simple_tags = db::AddSimpleTags<
-      Tags::TimeStepId, alternative_variables_tag, dt_alternative_variables_tag,
-      alternative_history_tag,
-      tmpl::conditional_t<Metavariables::use_rollback,
-                          Tags::RollbackValue<alternative_variables_tag>,
-                          DummyRollback>>;
-  using compute_tags = db::AddComputeTags<>;
-  using phase_dependent_action_list = tmpl::list<
-      Parallel::PhaseActions<Parallel::Phase::Initialization,
-                             tmpl::list<ActionTesting::InitializeDataBox<
-                                 simple_tags, compute_tags>>>,
-      Parallel::PhaseActions<
-          Parallel::Phase::Testing,
-          tmpl::list<Actions::RecordTimeStepperData<AlternativeVar>>>>;
-};
-
-template <bool UseRollback>
+template <typename System>
 struct Metavariables {
-  static constexpr bool use_rollback = UseRollback;
-  using system = System;
-  using component_list =
-      tmpl::list<Component<Metavariables>,
-                 ComponentWithTemplateSpecifiedVariables<Metavariables>>;
+  using system_for_test = System;
+  using component_list = tmpl::list<Component<Metavariables>>;
 };
 
-template <bool UseRollback>
+template <typename System, bool AlternativeUpdates>
 void run_test() {
+  using history_tag = Tags::HistoryEvolvedVariables<Var>;
+  using alternative_history_tag = Tags::HistoryEvolvedVariables<AlternativeVar>;
+
   const Slab slab(1., 3.);
+  const TimeStepId slab_start_id(true, 0, slab.start());
+  const TimeStepId slab_end_id(true, 0, slab.end());
 
-  history_tag::type history{};
-  history.insert(TimeStepId(true, 0, slab.end()), 3.);
+  typename history_tag::type history{};
+  history.insert(slab_start_id, -3., 3.);
+  typename alternative_history_tag::type alternative_history{};
+  alternative_history.insert(slab_start_id, -3., 3.);
 
-  alternative_history_tag::type alternative_history{};
-  alternative_history.insert(TimeStepId(true, 0, slab.end()), 3.);
-
-  using metavariables = Metavariables<UseRollback>;
+  using metavariables = Metavariables<System>;
   using component = Component<metavariables>;
-  using component_with_template_specified_variables =
-      ComponentWithTemplateSpecifiedVariables<metavariables>;
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavariables>;
   MockRuntimeSystem runner{{}};
 
   const double initial_value = 4.;
   ActionTesting::emplace_component_and_initialize<component>(
       &runner, 0,
-      {TimeStepId(true, 0, slab.start()), initial_value, 5., std::move(history),
-       Tags::RollbackValue<variables_tag>::type{}});
-  ActionTesting::emplace_component_and_initialize<
-      component_with_template_specified_variables>(
-      &runner, 0,
-      {TimeStepId(true, 0, slab.start()), initial_value, 5.,
-       std::move(alternative_history),
-       Tags::RollbackValue<alternative_variables_tag>::type{}});
+      {slab_end_id, initial_value, 5., std::move(history), initial_value, 5.,
+       std::move(alternative_history)});
   ActionTesting::set_phase(make_not_null(&runner), Parallel::Phase::Testing);
   runner.template next_action<component>(0);
-  runner.template next_action<component_with_template_specified_variables>(0);
   auto& box = ActionTesting::get_databox<component>(runner, 0);
-  auto& template_specified_variables_box =
-      ActionTesting::get_databox<component_with_template_specified_variables>(
-          runner, 0);
 
-  const auto& new_history = db::get<history_tag>(box);
-  CHECK(new_history.size() == 2);
-  CHECK(*new_history.begin() == slab.end());
-  CHECK(*new_history.begin().derivative() == 3.);
-  CHECK(*(new_history.begin() + 1) == slab.start());
-  CHECK(*(new_history.begin() + 1).derivative() == 5.);
-  if constexpr (UseRollback) {
-    CHECK(db::get<Tags::RollbackValue<variables_tag>>(box) == initial_value);
-  }
-
-  const auto& new_history_from_template_specified_variables_box =
-      db::get<alternative_history_tag>(template_specified_variables_box);
-  CHECK(new_history_from_template_specified_variables_box.size() == 2);
-  CHECK(*new_history_from_template_specified_variables_box.begin() ==
-        slab.end());
-  CHECK(
-      *new_history_from_template_specified_variables_box.begin().derivative() ==
-      3.);
-  CHECK(*(new_history_from_template_specified_variables_box.begin() + 1) ==
-        slab.start());
-  CHECK(*(new_history_from_template_specified_variables_box.begin() + 1)
-             .derivative() == 5.);
-  if constexpr (UseRollback) {
-    CHECK(db::get<Tags::RollbackValue<alternative_variables_tag>>(
-              template_specified_variables_box) == initial_value);
+  const auto check_history = [&initial_value, &slab_end_id,
+                              &slab_start_id](const auto& updated_history) {
+    CHECK(updated_history.size() == 2);
+    CHECK(updated_history[0].time_step_id == slab_start_id);
+    CHECK(updated_history[0].value == std::optional{-3.});
+    CHECK(updated_history[0].derivative == 3.);
+    CHECK(updated_history[1].time_step_id == slab_end_id);
+    CHECK(updated_history[1].value == std::optional{initial_value});
+    CHECK(updated_history[1].derivative == 5.);
+  };
+  check_history(db::get<history_tag>(box));
+  if (AlternativeUpdates) {
+    check_history(db::get<alternative_history_tag>(box));
   }
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Time.Actions.RecordTimeStepperData",
                   "[Unit][Time][Actions]") {
-  run_test<false>();
-  run_test<true>();
+  run_test<SingleVariableSystem, false>();
+  run_test<TwoVariableSystem, true>();
 }

@@ -15,6 +15,9 @@
 #include "DataStructures/Variables.hpp"
 #include "Domain/Creators/Interval.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/Actions/InitializeFixedSources.hpp"
@@ -23,11 +26,11 @@
 #include "Elliptic/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Background.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -102,11 +105,11 @@ struct Metavariables {
 SPECTRE_TEST_CASE("Unit.Elliptic.Actions.InitializeFixedSources",
                   "[Unit][Elliptic][Actions]") {
   domain::creators::register_derived_with_charm();
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
   // Which element we work with does not matter for this test
   const ElementId<1> element_id{0, {{SegmentId{2, 1}}}};
-  const domain::creators::Interval domain_creator{{{-0.5}}, {{1.5}},   {{2}},
-                                                  {{4}},    {{false}}, nullptr};
+  const domain::creators::Interval domain_creator{
+      {{-0.5}}, {{1.5}}, {{2}}, {{4}}};
 
   using element_array = ElementArray<Metavariables>;
   ActionTesting::MockRuntimeSystem<Metavariables> runner{tuples::TaggedTuple<

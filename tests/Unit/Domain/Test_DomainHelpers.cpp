@@ -222,29 +222,6 @@ void test_wedge_errors() {
       }()),
       Catch::Contains("If we are using half wedges we must also be using "
                       "ShellWedges::All."));
-
-  CHECK_THROWS_WITH(
-      ([]() {
-        const double inner_radius = 0.5;
-        const double outer_radius = 2.0;
-        const double inner_sphericity = 0.9;
-        const double outer_sphericity = 1.0;
-        const bool use_equiangular_map = true;
-        const bool use_half_wedges = true;
-        std::vector<double> radial_partitioning{1., 1.5};
-        const std::vector<domain::CoordinateMaps::Distribution>
-            radial_distribution{
-                domain::CoordinateMaps::Distribution::Logarithmic,
-                domain::CoordinateMaps::Distribution::Logarithmic,
-                domain::CoordinateMaps::Distribution::Logarithmic};
-        const ShellWedges which_wedges = ShellWedges::All;
-        static_cast<void>(sph_wedge_coordinate_maps(
-            inner_radius, outer_radius, inner_sphericity, outer_sphericity,
-            use_equiangular_map, use_half_wedges, radial_partitioning,
-            radial_distribution, which_wedges));
-      }()),
-      Catch::Contains("If we are using more than one layer the inner and outer "
-                      "sphericities must match."));
 #endif
 }
 
@@ -374,32 +351,40 @@ void test_all_frustum_directions() {
       origin_preimage);
 
   const double projective_scale_factor = 0.3;
+  const double sphericity = 0.;
   for (const bool use_equiangular_map : {true, false}) {
+    const double stretch = tan(0.5 * M_PI_2);
     const auto expected_coord_maps = make_vector(
         FrustumMap{
             {{{{-2.0 * lower - displacement1[0], -lower - displacement1[1]}},
               {{-displacement1[0], lower - displacement1[1]}},
-              {{-top, -top}},
+              {{-stretch * top, -top}},
               {{0.0, top}}}},
             lower - displacement1[2],
             top,
             OrientationMap<3>{},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            -1.},
         FrustumMap{
             {{{{-displacement2[0], -lower - displacement2[1]}},
               {{2.0 * lower - displacement2[0], lower - displacement2[1]}},
               {{0.0, -top}},
-              {{top, top}}}},
+              {{stretch * top, top}}}},
             lower - displacement2[2],
             top,
             OrientationMap<3>{},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            1.},
         FrustumMap{
             {{{{-2.0 * lower - displacement3[0], -lower - displacement3[1]}},
               {{-displacement3[0], lower - displacement3[1]}},
-              {{-top, -top}},
+              {{-stretch * top, -top}},
               {{0.0, top}}}},
             lower - displacement3[2],
             top,
@@ -407,23 +392,29 @@ void test_all_frustum_directions() {
                 {Direction<3>::upper_xi(), Direction<3>::lower_eta(),
                  Direction<3>::lower_zeta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            -1.},
         FrustumMap{
             {{{{-displacement4[0], -lower - displacement4[1]}},
               {{2.0 * lower - displacement4[0], lower - displacement4[1]}},
               {{0.0, -top}},
-              {{top, top}}}},
+              {{stretch * top, top}}}},
             lower - displacement4[2],
             top,
             OrientationMap<3>{std::array<Direction<3>, 3>{
                 {Direction<3>::upper_xi(), Direction<3>::lower_eta(),
                  Direction<3>::lower_zeta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            1.},
         FrustumMap{
             {{{{-2.0 * lower - displacement5[0], -lower - displacement5[1]}},
               {{-displacement5[0], lower - displacement5[1]}},
-              {{-top, -top}},
+              {{-stretch * top, -top}},
               {{0.0, top}}}},
             lower - displacement5[2],
             top,
@@ -431,23 +422,29 @@ void test_all_frustum_directions() {
                 {Direction<3>::upper_xi(), Direction<3>::upper_zeta(),
                  Direction<3>::lower_eta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            -1.},
         FrustumMap{
             {{{{-displacement6[0], -lower - displacement6[1]}},
               {{2.0 * lower - displacement6[0], lower - displacement6[1]}},
               {{0.0, -top}},
-              {{top, top}}}},
+              {{stretch * top, top}}}},
             lower - displacement6[2],
             top,
             OrientationMap<3>{std::array<Direction<3>, 3>{
                 {Direction<3>::upper_xi(), Direction<3>::upper_zeta(),
                  Direction<3>::lower_eta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            1.},
         FrustumMap{
             {{{{-2.0 * lower - displacement7[0], -lower - displacement7[1]}},
               {{-displacement7[0], lower - displacement7[1]}},
-              {{-top, -top}},
+              {{-stretch * top, -top}},
               {{0.0, top}}}},
             lower - displacement7[2],
             top,
@@ -455,26 +452,32 @@ void test_all_frustum_directions() {
                 {Direction<3>::upper_xi(), Direction<3>::lower_zeta(),
                  Direction<3>::upper_eta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            -1.},
         FrustumMap{
             {{{{-displacement8[0], -lower - displacement8[1]}},
               {{2.0 * lower - displacement8[0], lower - displacement8[1]}},
               {{0.0, -top}},
-              {{top, top}}}},
+              {{stretch * top, top}}}},
             lower - displacement8[2],
             top,
             OrientationMap<3>{std::array<Direction<3>, 3>{
                 {Direction<3>::upper_xi(), Direction<3>::lower_zeta(),
                  Direction<3>::upper_eta()}}},
             use_equiangular_map,
-            projective_scale_factor},
+            projective_scale_factor,
+            false,
+            sphericity,
+            1.},
         // Frustum on right half in the +x direction
         FrustumMap{{{{{-lower - displacement9[0], -lower - displacement9[1]}},
                      {{lower - displacement9[0], lower - displacement9[1]}},
                      {{-top, -top}},
                      {{top, top}}}},
                    2.0 * lower - displacement9[2],
-                   top,
+                   stretch * top,
                    OrientationMap<3>{std::array<Direction<3>, 3>{
                        {Direction<3>::upper_zeta(), Direction<3>::upper_xi(),
                         Direction<3>::upper_eta()}}},
@@ -486,7 +489,7 @@ void test_all_frustum_directions() {
                      {{-top, -top}},
                      {{top, top}}}},
                    2.0 * lower - displacement10[2],
-                   top,
+                   stretch * top,
                    OrientationMap<3>{std::array<Direction<3>, 3>{
                        {Direction<3>::lower_zeta(), Direction<3>::lower_xi(),
                         Direction<3>::upper_eta()}}},

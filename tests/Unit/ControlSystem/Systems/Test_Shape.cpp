@@ -13,24 +13,25 @@
 #include <unordered_map>
 #include <vector>
 
-#include "ApparentHorizons/ObjectLabel.hpp"
 #include "ControlSystem/Averager.hpp"
 #include "ControlSystem/Component.hpp"
 #include "ControlSystem/ControlErrors/Shape.hpp"
 #include "ControlSystem/Controller.hpp"
 #include "ControlSystem/Systems/Shape.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/TimescaleTuner.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/LinkedMessageQueue.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/Shape.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/ShapeMapTransitionFunctions/SphereTransition.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Helpers/ControlSystem/SystemHelpers.hpp"
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
@@ -40,20 +41,21 @@
 #include "Parallel/Phase.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/MakeArray.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/StdArrayHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
 namespace Frame {
-struct Grid;
+struct Distorted;
 }  // namespace Frame
 
 namespace control_system {
 namespace {
 using FoTMap = std::unordered_map<
     std::string, std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>>;
-using Strahlkorper = Strahlkorper<Frame::Grid>;
+using Strahlkorper = Strahlkorper<Frame::Distorted>;
 template <typename Metavars>
 using SystemHelper = control_system::TestHelpers::SystemHelper<Metavars>;
 
@@ -74,12 +76,18 @@ void test_shape_control(
   auto& initial_measurement_timescales =
       system_helper->initial_measurement_timescales();
 
+  auto grid_center_A = domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B = domain.excision_spheres().at("ExcisionSphereB").center();
+
   const auto& init_shape_tuple = system_helper->template init_tuple<system>();
 
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<Metavars>;
-  MockRuntimeSystem runner{{"DummyFileName", std::move(domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  // Excision centers aren't used so their values can be anything
+  MockRuntimeSystem runner{
+      {"DummyFileName", std::move(domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_singleton_component_and_initialize<shape_component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, init_shape_tuple);
@@ -93,13 +101,14 @@ void test_shape_control(
   const auto& cache_domain = get<::domain::Tags::Domain<3>>(cache);
   const auto& excision_sphere = cache_domain.excision_spheres().at(
       control_system::ControlErrors::detail::excision_sphere_name<
-          ::ah::ObjectLabel::A>());
+          ::domain::ObjectLabel::A>());
 
   SpherepackIterator iter{l_max, l_max};
   const double ah_radius =
       ah_coefs_function_of_time.func(initial_time)[0][iter.set(0, 0)()];
-  const std::array<double, 3>& center = excision_sphere.center();
-  Strahlkorper horizon_a{l_max, l_max, ah_radius, center};
+  const tnsr::I<double, 3, Frame::Grid>& grid_center = excision_sphere.center();
+  Strahlkorper horizon_a{l_max, l_max, ah_radius,
+                         make_array<double, 3>(grid_center)};
   // B just needs to exist. Doesn't have to be valid
   const Strahlkorper horizon_b{};
 
@@ -114,13 +123,14 @@ void test_shape_control(
 
   // Run the test, specifying that we are only using 1 horizon
   system_helper->run_control_system_test(runner, final_time, generator,
-                                         horizon_measurement, 1);
+                                         horizon_measurement);
 
   const auto& functions_of_time =
       Parallel::get<domain::Tags::FunctionsOfTime>(cache);
-  const double excision_radius = sqrt(0.5 * M_PI) * excision_sphere.radius();
+  const double excision_radius = excision_sphere.radius();
   const std::string size_name =
-      control_system::ControlErrors::detail::size_name<::ah::ObjectLabel::A>();
+      control_system::ControlErrors::detail::size_name<
+          ::domain::ObjectLabel::A>();
   const std::string shape_name = system_helper->template name<system>();
 
   const auto lambda_00_coef =
@@ -133,9 +143,10 @@ void test_shape_control(
   // Our expected coefs are just the (minus) coefs of the AH (except for l=0,l=1
   // which should be zero) scaled by the relative size factor defined in the
   // control error
-  auto expected_shape_coefs = -1.0 * (excision_radius / Y00 - lambda_00_coef) /
-                              ah_coefs_and_derivs[0][iter.set(0, 0)()] *
-                              ah_coefs_and_derivs;
+  auto expected_shape_coefs =
+      -1.0 * (excision_radius / Y00 - lambda_00_coef) /
+      (sqrt(0.5 * M_PI) * ah_coefs_and_derivs[0][iter.set(0, 0)()]) *
+      ah_coefs_and_derivs;
   // Manually set 0,0 component to 0
   expected_shape_coefs[0][iter.set(0, 0)()] = 0.0;
 
@@ -217,7 +228,7 @@ void test_suite(const gsl::not_null<Generator*> generator, const size_t l_max,
             make_array<DerivOrder + 1, DataVector>(DataVector{1, 0.0});
         initial_size_func[0][0] = ah_radius;
         const std::string size_name =
-            ControlErrors::detail::size_name<::ah::ObjectLabel::A>();
+            ControlErrors::detail::size_name<::domain::ObjectLabel::A>();
         (*functions_of_time)[size_name] = std::make_unique<
             domain::FunctionsOfTime::PiecewisePolynomial<DerivOrder>>(
             local_initial_time, initial_size_func,
@@ -446,11 +457,12 @@ void test_suite(const gsl::not_null<Generator*> generator, const size_t l_max,
 }
 
 void test_names() {
-  using shape = control_system::Systems::Shape<::ah::ObjectLabel::A, 2>;
+  using shape = control_system::Systems::Shape<::domain::ObjectLabel::A, 2,
+                                               measurements::BothHorizons>;
 
   CHECK(pretty_type::name<shape>() == "ShapeA");
 
-  const size_t l_max = 4;
+  const size_t l_max = 3;
   SpherepackIterator iter(l_max, l_max);
   const size_t size = iter.spherepack_array_size();
 
@@ -458,10 +470,23 @@ void test_names() {
   for (iter.reset(); iter; ++iter) {
     const auto component_name = shape::component_name(iter(), size);
     CHECK(component_name.has_value());
+    const int m = iter() < size / 2 ? static_cast<int>(iter.m())
+                                    : -static_cast<int>(iter.m());
     const std::string check_name =
-        "(l,m)=("s + get_output(iter.l()) + ","s + get_output(iter.m()) + ")"s;
+        "l"s + get_output(iter.l()) + "m"s + get_output(m);
     CHECK(*component_name == check_name);
   }
+
+  // We hard code the names for this specific ell so we know they are right. The
+  // (--) are just place holders for spherepack components that don't correspond
+  // to an l,m. They won't be checked (if everything is working properly)
+  const std::vector<std::string> expected_names{
+      "l0m0", "(--)",  "(--)",  "(--)", "l1m0", "l1m1",  "(--)",  "(--)",
+      "l2m0", "l2m1",  "l2m2",  "(--)", "l3m0", "l3m1",  "l3m2",  "l3m3",
+      "(--)", "(--)",  "(--)",  "(--)", "(--)", "l1m-1", "(--)",  "(--)",
+      "(--)", "l2m-1", "l2m-2", "(--)", "(--)", "l3m-1", "l3m-2", "l3m-3"};
+
+  CHECK(size == expected_names.size());
 
   // Check all indices
   iter.reset();
@@ -471,15 +496,14 @@ void test_names() {
     CHECK(compact_index.has_value() == component_name.has_value());
     if (component_name.has_value()) {
       CHECK(*compact_index == iter.current_compact_index());
-      const std::string check_name = "(l,m)=("s + get_output(iter.l()) + ","s +
-                                     get_output(iter.m()) + ")"s;
+      const std::string& check_name = expected_names[i];
       CHECK(*component_name == check_name);
       ++iter;
     }
   }
 }
 
-// [[TimeOut, 15]]
+// [[TimeOut, 30]]
 SPECTRE_TEST_CASE("Unit.ControlSystem.Systems.Shape", "[ControlSystem][Unit]") {
   MAKE_GENERATOR(generator);
   domain::FunctionsOfTime::register_derived_with_charm();

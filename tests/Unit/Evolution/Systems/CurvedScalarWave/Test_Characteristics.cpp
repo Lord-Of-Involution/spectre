@@ -77,15 +77,41 @@ void test_characteristic_speeds() {
 
 namespace {
 template <typename Tag, size_t SpatialDim>
-typename Tag::type field_with_tag(
-    const Scalar<DataVector>& gamma_2,
-    const tnsr::II<DataVector, SpatialDim, Frame::Inertial>&
-        inverse_spatial_metric,
-    const Scalar<DataVector>& psi, const Scalar<DataVector>& pi,
+typename Tag::type field_with_tag_variables(
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& psi,
+    const Scalar<DataVector>& pi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
-    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& normal_one_form) {
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& normal_one_form,
+    const tnsr::I<DataVector, SpatialDim, Frame::Inertial>& normal_vector) {
   return get<Tag>(CurvedScalarWave::characteristic_fields(
-      gamma_2, inverse_spatial_metric, psi, pi, phi, normal_one_form));
+      gamma_2, psi, pi, phi, normal_one_form, normal_vector));
+}
+
+// uses the overload that returns tensors by reference
+template <typename Tag, size_t SpatialDim>
+typename Tag::type field_with_tag_tensor(
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& psi,
+    const Scalar<DataVector>& pi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& phi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& normal_one_form,
+    const tnsr::I<DataVector, SpatialDim, Frame::Inertial>& normal_vector) {
+  Scalar<DataVector> v_psi{};
+  tnsr::i<DataVector, SpatialDim, Frame::Inertial> v_zero{};
+  Scalar<DataVector> v_plus{};
+  Scalar<DataVector> v_minus{};
+  CurvedScalarWave::characteristic_fields(
+      make_not_null(&v_psi), make_not_null(&v_zero), make_not_null(&v_plus),
+      make_not_null(&v_minus), gamma_2, psi, pi, phi, normal_one_form,
+      normal_vector);
+  Variables<tmpl::list<
+      CurvedScalarWave::Tags::VPsi, CurvedScalarWave::Tags::VZero<SpatialDim>,
+      CurvedScalarWave::Tags::VPlus, CurvedScalarWave::Tags::VMinus>>
+      vars(get(gamma_2).size());
+  get<CurvedScalarWave::Tags::VPsi>(vars) = v_psi;
+  get<CurvedScalarWave::Tags::VZero<SpatialDim>>(vars) = v_zero;
+  get<CurvedScalarWave::Tags::VPlus>(vars) = v_plus;
+  get<CurvedScalarWave::Tags::VMinus>(vars) = v_minus;
+  return get<Tag>(vars);
 }
 
 template <size_t SpatialDim>
@@ -93,26 +119,46 @@ void test_characteristic_fields() {
   const DataVector used_for_size(5);
   // VPsi
   pypp::check_with_random_values<1>(
-      field_with_tag<CurvedScalarWave::Tags::VPsi, SpatialDim>,
+      field_with_tag_variables<CurvedScalarWave::Tags::VPsi, SpatialDim>,
       "Characteristics", "char_field_vpsi", {{{-2.0, 2.0}}}, used_for_size);
   // VZero
   pypp::check_with_random_values<1>(
-      field_with_tag<CurvedScalarWave::Tags::VZero<SpatialDim>, SpatialDim>,
+      field_with_tag_variables<CurvedScalarWave::Tags::VZero<SpatialDim>,
+                               SpatialDim>,
       "Characteristics", "char_field_vzero", {{{-2.0, 2.0}}}, used_for_size);
   // VPlus
   pypp::check_with_random_values<1>(
-      field_with_tag<CurvedScalarWave::Tags::VPlus, SpatialDim>,
+      field_with_tag_variables<CurvedScalarWave::Tags::VPlus, SpatialDim>,
       "Characteristics", "char_field_vplus", {{{-2.0, 2.0}}}, used_for_size);
   // VMinus
   pypp::check_with_random_values<1>(
-      field_with_tag<CurvedScalarWave::Tags::VMinus, SpatialDim>,
+      field_with_tag_variables<CurvedScalarWave::Tags::VMinus, SpatialDim>,
+      "Characteristics", "char_field_vminus", {{{-2.0, 2.0}}}, used_for_size);
+
+// VPsi
+  pypp::check_with_random_values<1>(
+      field_with_tag_tensor<CurvedScalarWave::Tags::VPsi, SpatialDim>,
+      "Characteristics", "char_field_vpsi", {{{-2.0, 2.0}}}, used_for_size);
+  // VZero
+  pypp::check_with_random_values<1>(
+      field_with_tag_tensor<CurvedScalarWave::Tags::VZero<SpatialDim>,
+                            SpatialDim>,
+      "Characteristics", "char_field_vzero", {{{-2.0, 2.0}}}, used_for_size);
+  // VPlus
+  pypp::check_with_random_values<1>(
+      field_with_tag_tensor<CurvedScalarWave::Tags::VPlus, SpatialDim>,
+      "Characteristics", "char_field_vplus", {{{-2.0, 2.0}}}, used_for_size);
+  // VMinus
+  pypp::check_with_random_values<1>(
+      field_with_tag_tensor<CurvedScalarWave::Tags::VMinus, SpatialDim>,
       "Characteristics", "char_field_vminus", {{{-2.0, 2.0}}}, used_for_size);
 }
 }  // namespace
 
 namespace {
+// uses the overload that returns variables
 template <typename Tag, size_t SpatialDim>
-typename Tag::type evolved_field_with_tag(
+typename Tag::type evolved_field_with_tag_variables(
     const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& u_psi,
     const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& u_zero,
     const Scalar<DataVector>& u_plus, const Scalar<DataVector>& u_minus,
@@ -121,21 +167,57 @@ typename Tag::type evolved_field_with_tag(
       gamma_2, u_psi, u_zero, u_plus, u_minus, normal_one_form));
 }
 
+// uses the overload that returns tensors by reference
+template <typename Tag, size_t SpatialDim>
+typename Tag::type evolved_field_with_tag_tensor(
+    const Scalar<DataVector>& gamma_2, const Scalar<DataVector>& u_psi,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& u_zero,
+    const Scalar<DataVector>& u_plus, const Scalar<DataVector>& u_minus,
+    const tnsr::i<DataVector, SpatialDim, Frame::Inertial>& normal_one_form) {
+  Scalar<DataVector> psi{};
+  Scalar<DataVector> pi{};
+  tnsr::i<DataVector, SpatialDim, Frame::Inertial> phi{};
+  CurvedScalarWave::evolved_fields_from_characteristic_fields(
+      make_not_null(&psi), make_not_null(&pi), make_not_null(&phi), gamma_2,
+      u_psi, u_zero, u_plus, u_minus, normal_one_form);
+  Variables<tmpl::list<CurvedScalarWave::Tags::Psi, CurvedScalarWave::Tags::Pi,
+                       CurvedScalarWave::Tags::Phi<SpatialDim>>>
+      vars(get(gamma_2).size());
+  get<CurvedScalarWave::Tags::Psi>(vars) = psi;
+  get<CurvedScalarWave::Tags::Pi>(vars) = pi;
+  get<CurvedScalarWave::Tags::Phi<SpatialDim>>(vars) = phi;
+  return get<Tag>(vars);
+}
+
 template <size_t SpatialDim>
 void test_evolved_from_characteristic_fields() {
   const DataVector used_for_size(5);
   // Psi
   pypp::check_with_random_values<1>(
-      evolved_field_with_tag<CurvedScalarWave::Tags::Psi, SpatialDim>,
+      evolved_field_with_tag_variables<CurvedScalarWave::Tags::Psi, SpatialDim>,
       "Characteristics", "evol_field_psi", {{{-2.0, 2.0}}}, used_for_size);
   // Pi
   pypp::check_with_random_values<1>(
-      evolved_field_with_tag<CurvedScalarWave::Tags::Pi, SpatialDim>,
+      evolved_field_with_tag_variables<CurvedScalarWave::Tags::Pi, SpatialDim>,
       "Characteristics", "evol_field_pi", {{{-2.0, 2.0}}}, used_for_size);
   // Phi
   pypp::check_with_random_values<1>(
-      evolved_field_with_tag<CurvedScalarWave::Tags::Phi<SpatialDim>,
-                             SpatialDim>,
+      evolved_field_with_tag_variables<CurvedScalarWave::Tags::Phi<SpatialDim>,
+                                       SpatialDim>,
+      "Characteristics", "evol_field_phi", {{{-2.0, 2.0}}}, used_for_size);
+
+  // Psi
+  pypp::check_with_random_values<1>(
+      evolved_field_with_tag_tensor<CurvedScalarWave::Tags::Psi, SpatialDim>,
+      "Characteristics", "evol_field_psi", {{{-2.0, 2.0}}}, used_for_size);
+  // Pi
+  pypp::check_with_random_values<1>(
+      evolved_field_with_tag_tensor<CurvedScalarWave::Tags::Pi, SpatialDim>,
+      "Characteristics", "evol_field_pi", {{{-2.0, 2.0}}}, used_for_size);
+  // Phi
+  pypp::check_with_random_values<1>(
+      evolved_field_with_tag_tensor<CurvedScalarWave::Tags::Phi<SpatialDim>,
+                                    SpatialDim>,
       "Characteristics", "evol_field_phi", {{{-2.0, 2.0}}}, used_for_size);
 }
 
@@ -179,18 +261,19 @@ void test_characteristics_compute_tags() {
   const auto phi =
       make_with_random_values<tnsr::i<DataVector, SpatialDim, Frame::Inertial>>(
           nn_generator, nn_distribution, used_for_size);
-  const auto normal =
+  const auto normal_one_form =
       make_with_random_values<tnsr::i<DataVector, SpatialDim, Frame::Inertial>>(
           nn_generator, nn_distribution, used_for_size);
+  const auto normal_vector = tenex::evaluate<ti::I>(
+      inverse_spatial_metric(ti::I, ti::J) * normal_one_form(ti::j));
 
   // Insert into databox
   const auto box = db::create<
       db::AddSimpleTags<
           CurvedScalarWave::Tags::ConstraintGamma1,
           CurvedScalarWave::Tags::ConstraintGamma2, gr::Tags::Lapse<DataVector>,
-          gr::Tags::Shift<SpatialDim, Frame::Inertial, DataVector>,
-          gr::Tags::InverseSpatialMetric<SpatialDim, Frame::Inertial,
-                                         DataVector>,
+          gr::Tags::Shift<DataVector, SpatialDim>,
+          gr::Tags::InverseSpatialMetric<DataVector, SpatialDim>,
           CurvedScalarWave::Tags::Psi, CurvedScalarWave::Tags::Pi,
           CurvedScalarWave::Tags::Phi<SpatialDim>,
           ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<SpatialDim>>>,
@@ -198,16 +281,17 @@ void test_characteristics_compute_tags() {
           CurvedScalarWave::CharacteristicSpeedsCompute<SpatialDim>,
           CurvedScalarWave::CharacteristicFieldsCompute<SpatialDim>>>(
       gamma_1, gamma_2, lapse, shift, inverse_spatial_metric, psi, pi, phi,
-      normal);
+      normal_one_form);
   // Test compute tag for char speeds
   CHECK(
       db::get<CurvedScalarWave::Tags::CharacteristicSpeeds<SpatialDim>>(box) ==
-      CurvedScalarWave::characteristic_speeds(gamma_1, lapse, shift, normal));
+      CurvedScalarWave::characteristic_speeds(gamma_1, lapse, shift,
+                                              normal_one_form));
   // Test compute tag for char fields
   CHECK(
       db::get<CurvedScalarWave::Tags::CharacteristicFields<SpatialDim>>(box) ==
-      CurvedScalarWave::characteristic_fields(gamma_2, inverse_spatial_metric,
-                                              psi, pi, phi, normal));
+      CurvedScalarWave::characteristic_fields(gamma_2, psi, pi, phi,
+                                              normal_one_form, normal_vector));
 
   // more randomized tensors
   const auto u_psi = make_with_random_values<Scalar<DataVector>>(
@@ -229,12 +313,13 @@ void test_characteristics_compute_tags() {
           ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<SpatialDim>>>,
       db::AddComputeTags<
           CurvedScalarWave::EvolvedFieldsFromCharacteristicFieldsCompute<
-              SpatialDim>>>(gamma_2, u_psi, u_zero, u_plus, u_minus, normal);
+              SpatialDim>>>(gamma_2, u_psi, u_zero, u_plus, u_minus,
+                            normal_one_form);
   // Test compute tag for evolved fields computed from char fields
   CHECK(db::get<CurvedScalarWave::Tags::EvolvedFieldsFromCharacteristicFields<
             SpatialDim>>(box2) ==
         CurvedScalarWave::evolved_fields_from_characteristic_fields(
-            gamma_2, u_psi, u_zero, u_plus, u_minus, normal));
+            gamma_2, u_psi, u_zero, u_plus, u_minus, normal_one_form));
 }
 }  // namespace
 
@@ -368,10 +453,10 @@ void check_max_char_speed_compute_tag(const DataVector& used_for_size) {
 
   // Insert into databox
   const auto box = db::create<
-      db::AddSimpleTags<
-          CurvedScalarWave::Tags::ConstraintGamma1, gr::Tags::Lapse<DataVector>,
-          gr::Tags::Shift<SpatialDim, Frame::Inertial, DataVector>,
-          gr::Tags::SpatialMetric<SpatialDim, Frame::Inertial, DataVector>>,
+      db::AddSimpleTags<CurvedScalarWave::Tags::ConstraintGamma1,
+                        gr::Tags::Lapse<DataVector>,
+                        gr::Tags::Shift<DataVector, SpatialDim>,
+                        gr::Tags::SpatialMetric<DataVector, SpatialDim>>,
       db::AddComputeTags<CurvedScalarWave::Tags::
                              ComputeLargestCharacteristicSpeed<SpatialDim>>>(
       gamma_1, lapse, shift, spatial_metric);

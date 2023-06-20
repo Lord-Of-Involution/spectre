@@ -16,17 +16,17 @@
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
 #include "Domain/CoordinateMaps/Identity.hpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
-#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/Neighbors.hpp"
 #include "Evolution/BoundaryCorrectionTags.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Inactive.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/Initialization/Tags.hpp"
 #include "Evolution/Systems/ScalarAdvection/BoundaryCorrections/BoundaryCorrection.hpp"
@@ -100,19 +100,17 @@ void test_subcell_timederivative() {
 
   // set the ghost data from neighbor
   const ReconstructionForTest reconstructor{};
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<
-      Dim>::type neighbor_data =
-      TestHelpers::ScalarAdvection::fd::compute_neighbor_data(
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>::type
+      ghost_data = TestHelpers::ScalarAdvection::fd::compute_ghost_data(
           subcell_mesh, logical_coords_subcell, element.neighbors(),
           reconstructor.ghost_zone_size(), compute_test_solution);
 
   auto box = db::create<db::AddSimpleTags<
       domain::Tags::Element<Dim>, evolution::dg::subcell::Tags::Mesh<Dim>,
       evolved_vars_tag, dt_variables_tag,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
       fd::Tags::Reconstructor<Dim>,
-      evolution::Tags::BoundaryCorrection<System<Dim>>,
-      ::Tags::Time,
+      evolution::Tags::BoundaryCorrection<System<Dim>>, ::Tags::Time,
       domain::Tags::FunctionsOfTimeInitialize,
       domain::Tags::ElementMap<Dim, Frame::Grid>,
       domain::CoordinateMaps::Tags::CoordinateMap<Dim, Frame::Grid,
@@ -123,7 +121,7 @@ void test_subcell_timederivative() {
       element, subcell_mesh, volume_vars_subcell,
       Variables<typename dt_variables_tag::tags_list>{
           subcell_mesh.number_of_grid_points()},
-      neighbor_data,
+      ghost_data,
       std::unique_ptr<fd::Reconstructor<Dim>>{
           std::make_unique<ReconstructionForTest>()},
       std::unique_ptr<BoundaryCorrections::BoundaryCorrection<Dim>>{

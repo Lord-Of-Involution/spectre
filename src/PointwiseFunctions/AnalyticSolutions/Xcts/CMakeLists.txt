@@ -11,6 +11,7 @@ spectre_target_sources(
   ConstantDensityStar.cpp
   Flatness.cpp
   Schwarzschild.cpp
+  TovStar.cpp
   WrappedGr.cpp
   )
 
@@ -24,6 +25,7 @@ spectre_target_headers(
   Factory.hpp
   Flatness.hpp
   Schwarzschild.hpp
+  TovStar.hpp
   WrappedGr.hpp
   )
 
@@ -35,9 +37,11 @@ target_link_libraries(
   ErrorHandling
   GeneralRelativity
   GeneralRelativitySolutions
+  GrMhdAnalyticData
   InitialDataUtilities
   Options
-  Parallel
+  RelativisticEulerSolutions
+  Serialization
   Utilities
   Xcts
   XctsAnalyticData

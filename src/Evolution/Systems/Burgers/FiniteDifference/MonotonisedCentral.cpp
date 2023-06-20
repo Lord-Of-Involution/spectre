@@ -9,9 +9,9 @@
 #include <memory>
 #include <pup.h>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/Prefixes.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/FixedHashMap.hpp"
 #include "DataStructures/Index.hpp"
 #include "DataStructures/Tensor/IndexType.hpp"
@@ -21,6 +21,7 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Structure/Side.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/Systems/Burgers/FiniteDifference/ReconstructWork.tpp"
 #include "Evolution/Systems/Burgers/FiniteDifference/Reconstructor.hpp"
 #include "Evolution/Systems/Burgers/Tags.hpp"
@@ -51,8 +52,8 @@ void MonotonisedCentral::reconstruct(
     const Element<1>& element,
     const FixedHashMap<
         maximum_number_of_neighbors(1), std::pair<Direction<1>, ElementId<1>>,
-        std::vector<double>,
-        boost::hash<std::pair<Direction<1>, ElementId<1>>>>& neighbor_data,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<1>, ElementId<1>>>>& ghost_data,
     const Mesh<1>& subcell_mesh) const {
   reconstruct_work(
       vars_on_lower_face, vars_on_upper_face,
@@ -63,7 +64,7 @@ void MonotonisedCentral::reconstruct(
             upper_face_vars_ptr, lower_face_vars_ptr, volume_variables,
             ghost_cell_vars, subcell_extents, number_of_variables);
       },
-      volume_vars, element, neighbor_data, subcell_mesh, ghost_zone_size());
+      volume_vars, element, ghost_data, subcell_mesh, ghost_zone_size());
 }
 
 void MonotonisedCentral::reconstruct_fd_neighbor(
@@ -71,8 +72,8 @@ void MonotonisedCentral::reconstruct_fd_neighbor(
     const Variables<volume_vars_tags>& volume_vars, const Element<1>& element,
     const FixedHashMap<
         maximum_number_of_neighbors(1), std::pair<Direction<1>, ElementId<1>>,
-        std::vector<double>,
-        boost::hash<std::pair<Direction<1>, ElementId<1>>>>& neighbor_data,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<1>, ElementId<1>>>>& ghost_data,
     const Mesh<1>& subcell_mesh,
     const Direction<1> direction_to_reconstruct) const {
   reconstruct_fd_neighbor_work(
@@ -101,8 +102,8 @@ void MonotonisedCentral::reconstruct_fd_neighbor(
             tensor_component_neighbor, subcell_extents, ghost_data_extents,
             local_direction_to_reconstruct);
       },
-      volume_vars, element, neighbor_data, subcell_mesh,
-      direction_to_reconstruct, ghost_zone_size());
+      volume_vars, element, ghost_data, subcell_mesh, direction_to_reconstruct,
+      ghost_zone_size());
 }
 
 bool operator==(const MonotonisedCentral& /*lhs*/,

@@ -16,9 +16,11 @@
 #include "DataStructures/DataBox/ObservationBox.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/Variables.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
+#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
@@ -129,10 +131,9 @@ struct mock_interpolator {
   using array_index = size_t;
   using phase_dependent_action_list = tmpl::list<Parallel::PhaseActions<
       Parallel::Phase::Initialization,
-      tmpl::list<
-          ::intrp::Actions::InitializeInterpolator<
-              intrp::Tags::VolumeVarsInfo<Metavariables, ::Tags::TimeStepId>,
-              intrp::Tags::InterpolatedVarsHolders<Metavariables>>>>>;
+      tmpl::list<::intrp::Actions::InitializeInterpolator<
+          intrp::Tags::VolumeVarsInfo<Metavariables, ::Tags::TimeStepId>,
+          intrp::Tags::InterpolatedVarsHolders<Metavariables>>>>>;
   using initial_databox = db::compute_databox_type<
       typename ::intrp::Actions::InitializeInterpolator<
           intrp::Tags::VolumeVarsInfo<Metavariables, ::Tags::TimeStepId>,
@@ -181,7 +182,8 @@ struct MockMetavariables {
     using vars_to_interpolate_to_target = tmpl::list<Tags::Lapse>;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
-        ::intrp::TargetPoints::LineSegment<InterpolatorTargetA, 3>;
+        ::intrp::TargetPoints::LineSegment<InterpolatorTargetA, 3,
+                                           Frame::Inertial>;
     using post_interpolation_callback =
         intrp::callbacks::ObserveTimeSeriesOnSurface<tmpl::list<>,
                                                      InterpolatorTargetA>;
@@ -262,7 +264,7 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.InterpolateEvent",
     CHECK(called_mock_add_temporal_ids_to_interpolation_target == 1);
 
     const auto& results = MockInterpolatorReceiveVolumeData::results;
-    CHECK(results.temporal_id.substep_time().value() == observation_time);
+    CHECK(results.temporal_id.substep_time() == observation_time);
     CHECK(results.element_id == element_id);
     CHECK(results.mesh == mesh);
     CHECK(results.vars == vars);
@@ -294,8 +296,8 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.InterpolateEvent",
       box, cache, array_index, std::add_pointer_t<elem_component>{}));
 
   // Update time in box and functions of time
-  db::mutate<::Tags::Time>(make_not_null(&box),
-                           [](gsl::not_null<double*> time) { *time = 1.0; });
+  db::mutate<::Tags::Time>([](gsl::not_null<double*> time) { *time = 1.0; },
+                           make_not_null(&box));
   Parallel::mutate<domain::Tags::FunctionsOfTime,
                    control_system::UpdateFunctionOfTime>(
       cache, name, initial_expr_time, DataVector{1, 0.0}, observation_time);

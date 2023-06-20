@@ -7,7 +7,8 @@
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/TagsDeclarations.hpp"  // IWYU pragma: keep
-#include "Options/Options.hpp"
+#include "Options/Context.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/TagsDeclarations.hpp"  // IWYU pragma: keep
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
@@ -162,8 +163,9 @@ class FixConservatives {
                                  grmhd::ValenciaDivClean::Tags::TildeS<>>;
   using argument_tags =
       tmpl::list<grmhd::ValenciaDivClean::Tags::TildeB<>,
-                 gr::Tags::SpatialMetric<3>, gr::Tags::InverseSpatialMetric<3>,
-                 gr::Tags::SqrtDetSpatialMetric<>>;
+                 gr::Tags::SpatialMetric<DataVector, 3>,
+                 gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 gr::Tags::SqrtDetSpatialMetric<DataVector>>;
 
   /// Returns `true` if any variables were fixed.
   bool operator()(

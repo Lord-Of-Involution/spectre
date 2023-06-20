@@ -5,6 +5,8 @@ spectre_target_sources(
   ${LIBRARY}
   PRIVATE
   AdamsBashforth.cpp
+  AdamsCoefficients.cpp
+  AdamsMoultonPc.cpp
   ClassicalRungeKutta4.cpp
   DormandPrince5.cpp
   Heun2.cpp
@@ -12,6 +14,7 @@ spectre_target_sources(
   Rk3Owren.cpp
   Rk4Owren.cpp
   Rk5Owren.cpp
+  Rk5Tsitouras.cpp
   RungeKutta.cpp
   )
 
@@ -20,6 +23,8 @@ spectre_target_headers(
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
   AdamsBashforth.hpp
+  AdamsCoefficients.hpp
+  AdamsMoultonPc.hpp
   ClassicalRungeKutta4.hpp
   DormandPrince5.hpp
   Factory.hpp
@@ -29,6 +34,7 @@ spectre_target_headers(
   Rk3Owren.hpp
   Rk4Owren.hpp
   Rk5Owren.hpp
+  Rk5Tsitouras.hpp
   RungeKutta.hpp
   TimeStepper.hpp
   )

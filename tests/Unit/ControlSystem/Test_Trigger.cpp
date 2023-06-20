@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/Trigger.hpp"
 #include "ControlSystem/UpdateFunctionOfTime.hpp"
 #include "DataStructures/DataBox/DataBox.hpp"
@@ -21,14 +22,15 @@
 #include "Framework/MockRuntimeSystemFreeFunctions.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/ControlSystem/TestStructs.hpp"
+#include "IO/Logging/Verbosity.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -55,6 +57,7 @@ struct Component {
   using simple_tags = tmpl::list<Tags::Time>;
   using compute_tags = tmpl::list<Parallel::Tags::FromGlobalCache<
       control_system::Tags::MeasurementTimescales>>;
+  using const_global_cache_tags = tmpl::list<control_system::Tags::Verbosity>;
   using mutable_global_cache_tags =
       tmpl::list<control_system::Tags::MeasurementTimescales>;
 
@@ -77,7 +80,7 @@ using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<Metavariables>;
 using component = Component<Metavariables>;
 
 void test_trigger_no_replace() {
-  Parallel::register_classes_with_charm<MeasurementFoT>();
+  register_classes_with_charm<MeasurementFoT>();
   const component* const component_p = nullptr;
 
   control_system::Tags::MeasurementTimescales::type measurement_timescales{};
@@ -90,7 +93,8 @@ void test_trigger_no_replace() {
   measurement_timescales["DifferentMeasurement"] =
       std::make_unique<MeasurementFoT>(0.0, std::array{DataVector{1.0}}, 0.1);
 
-  MockRuntimeSystem runner{{}, {std::move(measurement_timescales)}};
+  MockRuntimeSystem runner{{::Verbosity::Silent},
+                           {std::move(measurement_timescales)}};
   ActionTesting::emplace_array_component_and_initialize<component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, 0, {0.0});
@@ -101,8 +105,8 @@ void test_trigger_no_replace() {
 
   const auto set_time = [&box](const double time) {
     db::mutate<Tags::Time>(
-        make_not_null(&box),
-        [&time](const gsl::not_null<double*> box_time) { *box_time = time; });
+        [&time](const gsl::not_null<double*> box_time) { *box_time = time; },
+        make_not_null(&box));
   };
 
   MeasureTrigger typed_trigger = serialize_and_deserialize(MeasureTrigger{});
@@ -183,7 +187,7 @@ void test_trigger_no_replace() {
 }
 
 void test_trigger_with_replace() {
-  Parallel::register_classes_with_charm<MeasurementFoT>();
+  register_classes_with_charm<MeasurementFoT>();
   const component* const component_p = nullptr;
 
   control_system::Tags::MeasurementTimescales::type measurement_timescales{};

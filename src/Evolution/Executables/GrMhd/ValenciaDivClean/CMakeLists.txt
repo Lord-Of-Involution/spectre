@@ -34,6 +34,7 @@ set(LIBS_TO_LINK
   Options
   Parallel
   PhaseControl
+  Serialization
   Time
   Utilities
   ValenciaDivClean
@@ -138,5 +139,11 @@ add_grmhd_executable(
 add_grmhd_executable(
   RotatingStar
   RelativisticEuler::Solutions::RotatingStar
+  "${LIBS_TO_LINK}"
+  )
+
+add_grmhd_executable(
+  SlabJet
+  grmhd::AnalyticData::SlabJet
   "${LIBS_TO_LINK}"
   )

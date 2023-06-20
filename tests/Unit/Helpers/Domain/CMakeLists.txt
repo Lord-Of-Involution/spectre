@@ -21,6 +21,7 @@ target_link_libraries(
   DomainCreators
   ErrorHandling
   Framework
+  Spectral
 
   PUBLIC
   DataStructures
@@ -29,4 +30,6 @@ target_link_libraries(
   Utilities
   )
 
+add_subdirectory(Amr)
 add_subdirectory(BoundaryConditions)
+add_subdirectory(Structure)

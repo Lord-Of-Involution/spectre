@@ -10,6 +10,7 @@
 
 #include "ApparentHorizons/StrahlkorperGr.hpp"
 #include "ApparentHorizons/TagsDeclarations.hpp"  // IWYU pragma: keep
+#include "ApparentHorizons/TimeDerivStrahlkorper.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/DataBox/TagName.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -41,6 +42,40 @@ struct PreviousStrahlkorpers : db::SimpleTag {
   using type = std::deque<std::pair<double, ::Strahlkorper<Frame>>>;
 };
 
+/// Base tag for whether or not to write the centers of the horizons to disk.
+/// Most likely to be used in the `ObserveCenters` post horizon find callback
+///
+/// Other things can control whether the horizon centers are output by defining
+/// their own simple tag from this base tag.
+struct ObserveCentersBase : db::BaseTag {};
+
+/// Simple tag for whether to write the centers of the horizons to disk.
+/// Currently this tag is not creatable by options
+struct ObserveCenters : ObserveCentersBase, db::SimpleTag {
+  using type = bool;
+};
+
+/// @{
+/// Tag to compute the time derivative of the coefficients of a Strahlkorper
+/// from a number of previous Strahlkorpers.
+template <typename Frame>
+struct TimeDerivStrahlkorper : db::SimpleTag {
+  using type = ::Strahlkorper<Frame>;
+};
+
+template <typename Frame>
+struct TimeDerivStrahlkorperCompute : db::ComputeTag,
+                                      TimeDerivStrahlkorper<Frame> {
+  using base = TimeDerivStrahlkorper<Frame>;
+  using return_type = typename base::type;
+  static constexpr auto function = static_cast<void (*)(
+      gsl::not_null<::Strahlkorper<Frame>*>,
+      const std::deque<std::pair<double, ::Strahlkorper<Frame>>>&)>(
+      &ah::time_deriv_of_strahlkorper<Frame>);
+
+  using argument_tags = tmpl::list<PreviousStrahlkorpers<Frame>>;
+};
+/// @}
 }  // namespace ah::Tags
 
 /// \ingroup SurfacesGroup
@@ -55,7 +90,7 @@ struct OneOverOneFormMagnitude : db::SimpleTag {
 
 /// Computes the reciprocal of the magnitude of the one form perpendicular to
 /// the horizon
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct OneOverOneFormMagnitudeCompute : db::ComputeTag,
                                         OneOverOneFormMagnitude {
   using base = OneOverOneFormMagnitude;
@@ -68,7 +103,7 @@ struct OneOverOneFormMagnitudeCompute : db::ComputeTag,
         1.0 / get(magnitude(normal_one_form, inverse_spatial_metric));
   }
   using argument_tags =
-      tmpl::list<gr::Tags::InverseSpatialMetric<Dim, Frame, DataType>,
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataType, Dim, Frame>,
                  NormalOneForm<Frame>>;
 };
 
@@ -108,7 +143,7 @@ struct UnitNormalVectorCompute : UnitNormalVector<Frame>, db::ComputeTag {
     raise_or_lower_index(result, unit_normal_one_form, inverse_spatial_metric);
   }
   using argument_tags =
-      tmpl::list<gr::Tags::InverseSpatialMetric<3, Frame, DataVector>,
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>,
                  UnitNormalOneForm<Frame>>;
   using return_type = tnsr::I<DataVector, 3, Frame>;
 };
@@ -133,7 +168,7 @@ struct GradUnitNormalOneFormCompute : GradUnitNormalOneForm<Frame>,
   using argument_tags =
       tmpl::list<Rhat<Frame>, Radius<Frame>, UnitNormalOneForm<Frame>,
                  D2xRadius<Frame>, OneOverOneFormMagnitude,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame, DataVector>>;
+                 gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, Frame>>;
   using return_type = tnsr::ii<DataVector, 3, Frame>;
 };
 
@@ -176,9 +211,9 @@ struct RicciScalarCompute : RicciScalar, db::ComputeTag {
       const tnsr::II<DataVector, 3, Frame>&)>(
       &StrahlkorperGr::ricci_scalar<Frame>);
   using argument_tags =
-      tmpl::list<gr::Tags::SpatialRicci<3, Frame, DataVector>,
+      tmpl::list<gr::Tags::SpatialRicci<DataVector, 3, Frame>,
                  UnitNormalVector<Frame>, ExtrinsicCurvature<Frame>,
-                 gr::Tags::InverseSpatialMetric<3, Frame, DataVector>>;
+                 gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>>;
   using return_type = Scalar<DataVector>;
 };
 
@@ -332,9 +367,9 @@ struct AreaElementCompute : AreaElement<Frame>, db::ComputeTag {
       const tnsr::i<DataVector, 3, Frame>&, const Scalar<DataVector>&,
       const tnsr::i<DataVector, 3, Frame>&)>(&area_element<Frame>);
   using argument_tags = tmpl::list<
-      gr::Tags::SpatialMetric<3, Frame>, StrahlkorperTags::Jacobian<Frame>,
-      StrahlkorperTags::NormalOneForm<Frame>, StrahlkorperTags::Radius<Frame>,
-      StrahlkorperTags::Rhat<Frame>>;
+      gr::Tags::SpatialMetric<DataVector, 3, Frame>,
+      StrahlkorperTags::Jacobian<Frame>, StrahlkorperTags::NormalOneForm<Frame>,
+      StrahlkorperTags::Radius<Frame>, StrahlkorperTags::Rhat<Frame>>;
 };
 /// @}
 
@@ -425,7 +460,7 @@ struct SpinFunctionCompute : SpinFunction, db::ComputeTag {
       tmpl::list<StrahlkorperTags::Tangents<Frame>,
                  StrahlkorperTags::Strahlkorper<Frame>,
                  StrahlkorperTags::UnitNormalVector<Frame>, AreaElement<Frame>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame, DataVector>>;
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame>>;
   using return_type = Scalar<DataVector>;
 };
 
@@ -450,7 +485,7 @@ struct DimensionfulSpinMagnitudeCompute : DimensionfulSpinMagnitude,
       &StrahlkorperGr::dimensionful_spin_magnitude<Frame>);
   using argument_tags =
       tmpl::list<StrahlkorperTags::RicciScalar, SpinFunction,
-                 gr::Tags::SpatialMetric<3, Frame>,
+                 gr::Tags::SpatialMetric<DataVector, 3, Frame>,
                  StrahlkorperTags::Tangents<Frame>,
                  StrahlkorperTags::Strahlkorper<Frame>, AreaElement<Frame>>;
 };

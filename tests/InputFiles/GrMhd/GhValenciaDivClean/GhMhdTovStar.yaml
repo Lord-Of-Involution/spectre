@@ -1,12 +1,15 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveGhValenciaDivCleanTovStar
-# Check: parse;execute
-# Timeout: 8
-# ExpectedOutput:
-#   GhMhdTovStarVolume0.h5
-#   GhMhdTovStarReductions.h5
+Executable: EvolveGhValenciaDivCleanTovStar
+Testing:
+  Check: parse;execute
+  Timeout: 8
+ExpectedOutput:
+  - GhMhdTovStarVolume0.h5
+  - GhMhdTovStarReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -15,15 +18,17 @@ Evolution:
   InitialTime: 0.0
   InitialTimeStep: 0.0001
   TimeStepper:
-    AdamsBashforth:
+    AdamsMoultonPc:
       Order: 3
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1000
           Offset: 5
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 
 AnalyticSolution: &InitialData
   TovStar:
@@ -43,7 +48,11 @@ DomainCreator:
     InitialRefinement: [1, 1, 1]
     InitialGridPoints: [3, 3, 3]
     TimeDependence: None
-    BoundaryCondition:
+    BoundaryConditionInX:
+      DirichletAnalytic:
+    BoundaryConditionInY:
+      DirichletAnalytic:
+    BoundaryConditionInZ:
       DirichletAnalytic:
 
 VariableFixing:
@@ -105,6 +114,9 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: true
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
     TciOptions:
       MinimumValueOfD: 1.0e-20
       MinimumValueOfYe: 1.0e-20
@@ -118,23 +130,35 @@ SpatialDiscretization:
     FilterOptions:
       SpacetimeDissipation: 0.1
 
+Filtering:
+  ExpFilter0:
+    Alpha: 36
+    HalfPower: 64
+    Enable: true
+    BlocksToFilter: All
+
+
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 0
-    - - ChangeSlabSize:
+    Events:
+      - ChangeSlabSize:
           DelayChange: 5
           StepChoosers:
             - Cfl:
                 SafetyFactor: 0.6
             - Increase:
                 Factor: 1.5
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1
           Offset: 0
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
             - Name: Error(SpacetimeMetric)
@@ -170,11 +194,13 @@ EventsAndTriggers:
             - Name: Error(SpecificEnthalpy)
               NormType: L2Norm
               Components: Sum
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 2
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve:
             - SpacetimeMetric
@@ -185,10 +211,13 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double, Double, Double, Double, Double]
-  - - Slabs:
+          OverrideObservationValue: None
+  - Trigger:
+      Slabs:
         Specified:
           Values: [3]
-    - - Completion
+    Events:
+      - Completion
 
 Observers:
   VolumeFileName: "GhMhdTovStarVolume"
@@ -198,3 +227,5 @@ Interpolator:
   DumpVolumeDataOnFailure: false
 
 EventsAndDenseTriggers:
+
+EventsRunAtCleanup:

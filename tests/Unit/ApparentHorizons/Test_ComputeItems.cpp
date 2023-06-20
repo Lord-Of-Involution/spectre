@@ -79,17 +79,17 @@ void test_strahlkorper_compute_items(const T& used_for_size) {
       raise_or_lower_first_index(
           gr::christoffel_first_kind(deriv_spatial_metric),
           expected_inverse_spatial_metric);
-  const auto phi =
-      GeneralizedHarmonic::phi(lapse, deriv_lapse, shift, deriv_shift,
-                               spatial_metric, deriv_spatial_metric);
-  const auto pi = GeneralizedHarmonic::pi(
-      lapse, dt_lapse, shift, dt_shift, spatial_metric, dt_spatial_metric, phi);
+  const auto phi = gh::phi(lapse, deriv_lapse, shift, deriv_shift,
+                           spatial_metric, deriv_spatial_metric);
+  const auto pi = gh::pi(lapse, dt_lapse, shift, dt_shift, spatial_metric,
+                         dt_spatial_metric, phi);
 
   // Now test the ComputeItems.
   const auto box = db::create<
-      db::AddSimpleTags<tmpl::list<gr::Tags::SpacetimeMetric<Dim, Frame>,
-                                   GeneralizedHarmonic::Tags::Pi<Dim, Frame>,
-                                   GeneralizedHarmonic::Tags::Phi<Dim, Frame>>>,
+      db::AddSimpleTags<
+          tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim, Frame>,
+                     gh::Tags::Pi<DataVector, Dim, Frame>,
+                     gh::Tags::Phi<DataVector, Dim, Frame>>>,
       db::AddComputeTags<tmpl::list<
           ah::Tags::InverseSpatialMetricCompute<Dim, Frame>,
           ah::Tags::ExtrinsicCurvatureCompute<Dim, Frame>,
@@ -97,11 +97,12 @@ void test_strahlkorper_compute_items(const T& used_for_size) {
       spacetime_metric, pi, phi);
 
   const auto& inverse_spatial_metric =
-      db::get<gr::Tags::InverseSpatialMetric<Dim, Frame>>(box);
+      db::get<gr::Tags::InverseSpatialMetric<DataVector, Dim, Frame>>(box);
   const auto& extrinsic_curvature =
-      db::get<gr::Tags::ExtrinsicCurvature<Dim, Frame>>(box);
+      db::get<gr::Tags::ExtrinsicCurvature<DataVector, Dim, Frame>>(box);
   const auto& spatial_christoffel_second_kind =
-      db::get<gr::Tags::SpatialChristoffelSecondKind<Dim, Frame>>(box);
+      db::get<gr::Tags::SpatialChristoffelSecondKind<DataVector, Dim, Frame>>(
+          box);
   CHECK_ITERABLE_APPROX(inverse_spatial_metric,
                         expected_inverse_spatial_metric);
   CHECK_ITERABLE_APPROX(extrinsic_curvature, expected_extrinsic_curvature);

@@ -4,7 +4,13 @@
 #include <pybind11/pybind11.h>
 
 #include "PointwiseFunctions/AnalyticSolutions/RelativisticEuler/Python/Tov.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 
-PYBIND11_MODULE(_PyRelativisticEulerSolutions, m) {  // NOLINT
+namespace py = pybind11;
+
+PYBIND11_MODULE(_Pybindings, m) {  // NOLINT
+  enable_segfault_handler();
+  py::module_::import("spectre.Interpolation");
+  py::module_::import("spectre.PointwiseFunctions.Hydro.EquationsOfState");
   RelativisticEuler::Solutions::py_bindings::bind_tov(m);
 }

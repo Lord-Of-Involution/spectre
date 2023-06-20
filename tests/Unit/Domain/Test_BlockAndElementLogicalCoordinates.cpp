@@ -21,7 +21,7 @@
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/Brick.hpp"
 #include "Domain/Creators/DomainCreator.hpp"  // IWYU pragma: keep
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
 #include "Domain/Creators/TimeDependence/TimeDependence.hpp"
 #include "Domain/Creators/TimeDependence/UniformTranslation.hpp"
 #include "Domain/Domain.hpp"
@@ -247,6 +247,47 @@ void fuzzy_test_block_and_element_logical_coordinates_unrefined(
                           block_coords[s]);
   }
 
+  // Map to distorted coords
+  // For this test, we test distorted coords only if the first block has
+  // a distorted frame.  For this test, either all blocks have a distorted
+  // frame or none of them do.
+  if(domain.blocks().begin()->has_distorted_frame()) {
+    const auto distorted_coords = [&n_pts, &domain, &block_ids, &block_coords,
+                                   &time, &functions_of_time]() {
+      tnsr::I<DataVector, Dim, Frame::Distorted> coords(n_pts);
+      for (size_t s = 0; s < n_pts; ++s) {
+        tnsr::I<double, Dim, Frame::Distorted> coord_one_point{};
+        if (domain.blocks()[block_ids[s]].is_time_dependent()) {
+          coord_one_point =
+              domain.blocks()[block_ids[s]].moving_mesh_grid_to_distorted_map()(
+                  domain.blocks()[block_ids[s]]
+                      .moving_mesh_logical_to_grid_map()(block_coords[s]),
+                  time, functions_of_time);
+        } else {
+          // time-independent maps have identical distorted and inertial frames.
+          const tnsr::I<double, Dim, Frame::Inertial> coord_one_point_inertial =
+              domain.blocks()[block_ids[s]].stationary_map()(block_coords[s]);
+          for (size_t d = 0; d < Dim; ++d) {
+            coord_one_point.get(d) = coord_one_point_inertial.get(d);
+          }
+        }
+        for (size_t d = 0; d < Dim; ++d) {
+          coords.get(d)[s] = coord_one_point.get(d);
+        }
+      }
+      return coords;
+    }();
+
+    block_logical_result = block_logical_coordinates(domain, distorted_coords,
+                                                     time, functions_of_time);
+    test_serialization(block_logical_result);
+    for (size_t s = 0; s < n_pts; ++s) {
+      CHECK(block_logical_result[s].value().id.get_index() == block_ids[s]);
+      CHECK_ITERABLE_APPROX(block_logical_result[s].value().data,
+                            block_coords[s]);
+    }
+  }
+
   // Map to grid coords
   const auto grid_coords = [&n_pts, &domain, &block_ids, &block_coords]() {
     tnsr::I<DataVector, Dim, Frame::Grid> coords(n_pts);
@@ -284,8 +325,8 @@ void fuzzy_test_block_and_element_logical_coordinates_unrefined(
 
 void fuzzy_test_block_and_element_logical_coordinates_shell(
     const size_t n_pts) {
-  const auto shell =
-      domain::creators::Shell(1.5, 2.5, 2, {{1, 1}}, true, {{1.0, 2}});
+  const auto shell = domain::creators::Sphere(
+      1.5, 2.5, domain::creators::Sphere::Excision{}, 2_st, 1_st, true);
   const auto domain = shell.create_domain();
   fuzzy_test_block_and_element_logical_coordinates_unrefined(domain, n_pts);
   fuzzy_test_block_and_element_logical_coordinates(
@@ -307,6 +348,23 @@ void fuzzy_test_block_and_element_logical_coordinates_time_dependent_brick(
                                                              functions_of_time);
   fuzzy_test_block_and_element_logical_coordinates_unrefined(domain, n_pts, 0.1,
                                                              functions_of_time);
+}
+
+void fuzzy_test_block_and_element_logical_coordinates_distorted_brick(
+    const size_t n_pts) {
+  const auto uniform_translation =
+      domain::creators::time_dependence::UniformTranslation<3>(
+          0.0, {{0.1, 0.2, 0.3}}, {{-0.2, -0.1, -0.2}});
+  const auto brick = domain::creators::Brick(
+      {{-0.1, -0.2, -0.3}}, {{0.1, 0.2, 0.3}}, {{0, 0, 0}}, {{3, 3, 3}},
+      {{false, false, false}}, uniform_translation.get_clone());
+  const auto domain = brick.create_domain();
+  const auto functions_of_time = uniform_translation.functions_of_time();
+  // Test at two different times.
+  fuzzy_test_block_and_element_logical_coordinates_unrefined(
+      domain, n_pts, 0.0, functions_of_time);
+  fuzzy_test_block_and_element_logical_coordinates_unrefined(
+      domain, n_pts, 0.1, functions_of_time);
 }
 
 void fuzzy_test_block_and_element_logical_coordinates3(const size_t n_pts) {
@@ -645,7 +703,8 @@ void test_element_ids_are_uniquely_determined() {
 }
 
 void test_block_logical_coordinates_with_roundoff_error() {
-  const auto shell = domain::creators::Shell(1., 3., 0, {{3, 3}});
+  const auto shell = domain::creators::Sphere(
+      1., 3., domain::creators::Sphere::Excision{}, 0_st, 3_st, true);
   const auto domain = shell.create_domain();
 
   // Use this as roundoff error
@@ -656,7 +715,8 @@ void test_block_logical_coordinates_with_roundoff_error() {
   std::vector<std::array<double, 3>> points{};
   std::vector<size_t> expected_block_ids{};
   // Block piercing z has ID 0, block piercing x has ID 4. Phi=0, Theta=Pi/4 is
-  // on their shared boundary. See also WedgeOrientations.png in the Shell docs.
+  // on their shared boundary. See also WedgeOrientations.png in the Sphere
+  // docs.
   // - Safely in block 0
   points.push_back({{2., M_PI_4 - 0.01, 0.}});
   expected_block_ids.push_back(0);
@@ -696,7 +756,7 @@ void test_block_logical_coordinates_with_roundoff_error() {
     REQUIRE(result.has_value());
     CHECK(result->id.get_index() == expected_block_ids[i]);
   }
-  // See also WedgeOrientations.png in the Shell docs.
+  // See also WedgeOrientations.png in the Sphere docs.
   CHECK(get<0>(block_logical_coords[0]->data) < 1.0);
   CHECK(get<1>(block_logical_coords[1]->data) < 1.0);
   CHECK(get<0>(block_logical_coords[2]->data) == 1.0);
@@ -717,6 +777,7 @@ SPECTRE_TEST_CASE("Unit.Domain.BlockAndElementLogicalCoords",
   fuzzy_test_block_and_element_logical_coordinates1(0);
   fuzzy_test_block_and_element_logical_coordinates_shell(20);
   fuzzy_test_block_and_element_logical_coordinates_time_dependent_brick(20);
+  fuzzy_test_block_and_element_logical_coordinates_distorted_brick(20);
   test_block_logical_coordinates1fail();
   test_element_ids_are_uniquely_determined();
   test_block_logical_coordinates_with_roundoff_error();

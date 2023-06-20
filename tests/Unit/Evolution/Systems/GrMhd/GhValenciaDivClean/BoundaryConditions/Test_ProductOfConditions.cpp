@@ -27,7 +27,7 @@
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Formulation.hpp"
-#include "Options/Options.hpp"
+#include "Options/Protocols/FactoryCreation.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/WrappedGr.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GrMhd/BondiMichel.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Tags.hpp"
@@ -37,8 +37,7 @@
 
 namespace {
 struct DummyAnalyticSolutionTag : db::SimpleTag, Tags::AnalyticSolutionOrData {
-  using type =
-      GeneralizedHarmonic::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>;
+  using type = gh::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>;
 };
 
 struct Metavariables {
@@ -49,12 +48,11 @@ struct Metavariables {
             grmhd::GhValenciaDivClean::BoundaryConditions::BoundaryCondition,
             tmpl::list<grmhd::GhValenciaDivClean::BoundaryConditions::
                            ProductOfConditions<
-                               GeneralizedHarmonic::BoundaryConditions::
-                                   DirichletAnalytic<3_st>,
+                               gh::BoundaryConditions::DirichletAnalytic<3_st>,
                                grmhd::ValenciaDivClean::BoundaryConditions::
                                    DirichletAnalytic>>>,
         tmpl::pair<evolution::initial_data::InitialData,
-                   tmpl::list<GeneralizedHarmonic::Solutions::WrappedGr<
+                   tmpl::list<gh::Solutions::WrappedGr<
                        grmhd::Solutions::BondiMichel>>>>;
   };
 };
@@ -122,36 +120,29 @@ void test_boundary_condition_combination(
           DerivedGhCondition, DerivedValenciaCondition>;
 
   using gh_mutable_tags = tmpl::append<
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
-      db::wrap_tags_in<
-          ::Tags::Flux,
-          typename GeneralizedHarmonic::System<3_st>::flux_variables,
-          tmpl::size_t<3_st>, Frame::Inertial>,
+      typename gh::System<3_st>::variables_tag::tags_list,
+      db::wrap_tags_in<::Tags::Flux, typename gh::System<3_st>::flux_variables,
+                       tmpl::size_t<3_st>, Frame::Inertial>,
       GhCorrectionTempTagList,
-      tmpl::list<
-          gr::Tags::InverseSpatialMetric<3_st, Frame::Inertial, DataVector>>>;
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3_st>>>;
   using valencia_mutable_tags = tmpl::append<
       typename grmhd::ValenciaDivClean::System::variables_tag::tags_list,
       db::wrap_tags_in<::Tags::Flux,
                        typename grmhd::ValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,
       ValenciaCorrectionTempTagList,
-      tmpl::list<
-          gr::Tags::InverseSpatialMetric<3_st, Frame::Inertial, DataVector>>>;
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3_st>>>;
   using product_mutable_tags = tmpl::append<
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
+      typename gh::System<3_st>::variables_tag::tags_list,
       typename grmhd::ValenciaDivClean::System::variables_tag::tags_list,
-      db::wrap_tags_in<
-          ::Tags::Flux,
-          typename GeneralizedHarmonic::System<3_st>::flux_variables,
-          tmpl::size_t<3_st>, Frame::Inertial>,
+      db::wrap_tags_in<::Tags::Flux, typename gh::System<3_st>::flux_variables,
+                       tmpl::size_t<3_st>, Frame::Inertial>,
       db::wrap_tags_in<::Tags::Flux,
                        typename grmhd::ValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,
       tmpl::remove_duplicates<
           tmpl::append<GhCorrectionTempTagList, ValenciaCorrectionTempTagList>>,
-      tmpl::list<
-          gr::Tags::InverseSpatialMetric<3_st, Frame::Inertial, DataVector>>>;
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3_st>>>;
 
   using gh_arg_tags = tmpl::append<
       tmpl::list<::domain::Tags::MeshVelocity<3_st>,
@@ -220,19 +211,20 @@ void test_boundary_condition_combination(
               make_not_null(&gen), make_not_null(&dist), element_size);
     }
   });
-  if constexpr (tmpl::list_contains_v<product_arg_tags,
-                                      gr::Tags::SpacetimeMetric<3_st>>) {
-    get<0, 0>(tuples::get<gr::Tags::SpacetimeMetric<3_st>>(
+  if constexpr (tmpl::list_contains_v<
+                    product_arg_tags,
+                    gr::Tags::SpacetimeMetric<DataVector, 3_st>>) {
+    get<0, 0>(tuples::get<gr::Tags::SpacetimeMetric<DataVector, 3_st>>(
         argument_variables)) += -2.0;
     for (size_t i = 0; i < 3; ++i) {
-      tuples::get<gr::Tags::SpacetimeMetric<3_st>>(argument_variables)
+      tuples::get<gr::Tags::SpacetimeMetric<DataVector, 3_st>>(
+          argument_variables)
           .get(i + 1, 0) *= 0.01;
     }
   }
 
   using gh_bc_helper = ComputeBoundaryConditionHelper<
-      DerivedGhCondition,
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
+      DerivedGhCondition, typename gh::System<3_st>::variables_tag::tags_list,
       gh_mutable_tags, gh_arg_tags, gh_gridless_tags>;
   using valencia_bc_helper = ComputeBoundaryConditionHelper<
       DerivedValenciaCondition,
@@ -241,7 +233,7 @@ void test_boundary_condition_combination(
   using product_bc_helper = ComputeBoundaryConditionHelper<
       product_condition_type,
       tmpl::append<
-          typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
+          typename gh::System<3_st>::variables_tag::tags_list,
           typename grmhd::ValenciaDivClean::System::variables_tag::tags_list>,
       product_mutable_tags, product_arg_tags, product_gridless_tags>;
 
@@ -308,22 +300,20 @@ void test_boundary_condition_combination(
                        evolution::BoundaryConditions::Type::TimeDerivative) {
     // copy the needed tags, verifying the application of the `do nothing' ghost
     // condition
-    tmpl::for_each<tmpl::push_back<
-        typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
-        ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-        ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>>(
+    tmpl::for_each<
+        tmpl::push_back<typename gh::System<3_st>::variables_tag::tags_list,
+                        ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                        ::gh::ConstraintDamping::Tags::ConstraintGamma2>>(
         [&expected_mutable_variables, &argument_variables](auto tag_v) {
           using tag = typename decltype(tag_v)::type;
           get<tag>(expected_mutable_variables) = get<tag>(argument_variables);
         });
     const auto& spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            argument_variables);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(argument_variables);
     const auto spatial_metric = gr::spatial_metric(spacetime_metric);
     const auto inv_spatial_metric =
         determinant_and_inverse(spatial_metric).second;
-    auto& shift =
-        get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(mutable_variables);
+    auto& shift = get<gr::Tags::Shift<DataVector, 3>>(mutable_variables);
     gr::shift(make_not_null(&shift), spacetime_metric, inv_spatial_metric);
     gr::lapse(
         make_not_null(&get<gr::Tags::Lapse<DataVector>>(mutable_variables)),
@@ -351,13 +341,11 @@ void test_boundary_condition_combination(
           get<tag>(expected_mutable_variables) = get<tag>(argument_variables);
         });
     const auto& spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            argument_variables);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(argument_variables);
     const auto spatial_metric = gr::spatial_metric(spacetime_metric);
     const auto inv_spatial_metric =
         determinant_and_inverse(spatial_metric).second;
-    auto& shift =
-        get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(mutable_variables);
+    auto& shift = get<gr::Tags::Shift<DataVector, 3>>(mutable_variables);
     gr::shift(make_not_null(&shift), spacetime_metric, inv_spatial_metric);
     gr::lapse(
         make_not_null(&get<gr::Tags::Lapse<DataVector>>(mutable_variables)),
@@ -411,15 +399,16 @@ void test_boundary_condition_combination(
 SPECTRE_TEST_CASE(
     "Unit.GhValenciaDivClean.BoundaryConditions.ProductOfConditions",
     "[Unit][Evolution]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
   // scoped to separate out each product combination
   {
     INFO("Product condition of DirichletAnalytic in each system");
 
-    const GeneralizedHarmonic::BoundaryConditions::DirichletAnalytic<3_st>
-        gh_condition{std::unique_ptr<evolution::initial_data::InitialData>(
-            std::make_unique<GeneralizedHarmonic::Solutions::WrappedGr<
-                grmhd::Solutions::BondiMichel>>(1.0, 4.0, 0.1, 2.0, 0.01))};
+    const gh::BoundaryConditions::DirichletAnalytic<3_st> gh_condition{
+        std::unique_ptr<evolution::initial_data::InitialData>(
+            std::make_unique<
+                gh::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>>(
+                1.0, 4.0, 0.1, 2.0, 0.01))};
     const grmhd::ValenciaDivClean::BoundaryConditions::DirichletAnalytic
         valencia_condition{};
     const auto product_boundary_condition = TestHelpers::test_creation<
@@ -438,21 +427,20 @@ SPECTRE_TEST_CASE(
         "  ValenciaDirichletAnalytic:\n");
     const auto gridless_box =
         db::create<db::AddSimpleTags<::Tags::Time, DummyAnalyticSolutionTag>>(
-            0.5, GeneralizedHarmonic::Solutions::WrappedGr<
-                     grmhd::Solutions::BondiMichel>{1.0, 4.0, 0.1, 2.0, 0.01});
+            0.5, gh::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>{
+                     1.0, 4.0, 0.1, 2.0, 0.01});
     auto serialized_and_deserialized_condition = serialize_and_deserialize(
         *dynamic_cast<
             grmhd::GhValenciaDivClean::BoundaryConditions::ProductOfConditions<
-                GeneralizedHarmonic::BoundaryConditions::DirichletAnalytic<
-                    3_st>,
+                gh::BoundaryConditions::DirichletAnalytic<3_st>,
                 grmhd::ValenciaDivClean::BoundaryConditions::
                     DirichletAnalytic>*>(product_boundary_condition.get()));
     test_boundary_condition_combination<
-        GeneralizedHarmonic::BoundaryCorrections::UpwindPenalty<
+        gh::BoundaryCorrections::UpwindPenalty<
             3_st>::dg_package_data_temporary_tags,
         grmhd::ValenciaDivClean::BoundaryCorrections::Rusanov::
             dg_package_data_temporary_tags,
-        GeneralizedHarmonic::BoundaryConditions::DirichletAnalytic<3_st>,
+        gh::BoundaryConditions::DirichletAnalytic<3_st>,
         grmhd::ValenciaDivClean::BoundaryConditions::DirichletAnalytic>(
         gh_condition, valencia_condition, serialized_and_deserialized_condition,
         gridless_box);
@@ -463,16 +451,14 @@ SPECTRE_TEST_CASE(
         "GeneralizedHarmonic Bjorhus");
     const grmhd::ValenciaDivClean::BoundaryConditions::DirichletAnalytic
         valencia_condition{};
-    const GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<
-        3_st>
+    const gh::BoundaryConditions::ConstraintPreservingBjorhus<3_st>
         gh_condition{
-            GeneralizedHarmonic::BoundaryConditions::detail::
-                ConstraintPreservingBjorhusType::ConstraintPreservingPhysical};
+            gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+                ConstraintPreservingPhysical};
     const auto product_boundary_condition = TestHelpers::test_factory_creation<
         grmhd::GhValenciaDivClean::BoundaryConditions::BoundaryCondition,
         grmhd::GhValenciaDivClean::BoundaryConditions::ProductOfConditions<
-            GeneralizedHarmonic::BoundaryConditions::
-                ConstraintPreservingBjorhus<3_st>,
+            gh::BoundaryConditions::ConstraintPreservingBjorhus<3_st>,
             grmhd::ValenciaDivClean::BoundaryConditions::DirichletAnalytic>>(
         "ProductConstraintPreservingBjorhusAndDirichletAnalytic:\n"
         "  GeneralizedHarmonicConstraintPreservingBjorhus:\n"
@@ -480,24 +466,22 @@ SPECTRE_TEST_CASE(
         "  ValenciaDirichletAnalytic:");
     const auto gridless_box =
         db::create<db::AddSimpleTags<::Tags::Time, DummyAnalyticSolutionTag>>(
-            0.5, GeneralizedHarmonic::Solutions::WrappedGr<
-                     grmhd::Solutions::BondiMichel>{1.0, 4.0, 0.1, 2.0, 0.01});
+            0.5, gh::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>{
+                     1.0, 4.0, 0.1, 2.0, 0.01});
     auto serialized_and_deserialized_condition = serialize_and_deserialize(
         *dynamic_cast<
             grmhd::GhValenciaDivClean::BoundaryConditions::ProductOfConditions<
-                GeneralizedHarmonic::BoundaryConditions::
-                    ConstraintPreservingBjorhus<3_st>,
+                gh::BoundaryConditions::ConstraintPreservingBjorhus<3_st>,
                 grmhd::ValenciaDivClean::BoundaryConditions::
                     DirichletAnalytic>*>(product_boundary_condition.get()));
     // Bjorhus method does not use dg_ghost, so does not populate the temp tags
     // for boundary corrections
     test_boundary_condition_combination<
-        GeneralizedHarmonic::BoundaryCorrections::UpwindPenalty<
+        gh::BoundaryCorrections::UpwindPenalty<
             3_st>::dg_package_data_temporary_tags,
         grmhd::ValenciaDivClean::BoundaryCorrections::Rusanov::
             dg_package_data_temporary_tags,
-        GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<
-            3_st>,
+        gh::BoundaryConditions::ConstraintPreservingBjorhus<3_st>,
         grmhd::ValenciaDivClean::BoundaryConditions::DirichletAnalytic>(
         gh_condition, valencia_condition, serialized_and_deserialized_condition,
         gridless_box);
@@ -508,14 +492,11 @@ SPECTRE_TEST_CASE(
         "GeneralizedHarmonic DemandOutgoingCharSpeeds");
     const grmhd::ValenciaDivClean::BoundaryConditions::DemandOutgoingCharSpeeds
         valencia_condition{};
-    const GeneralizedHarmonic::BoundaryConditions::DemandOutgoingCharSpeeds<
-        3_st>
-        gh_condition{};
+    const gh::BoundaryConditions::DemandOutgoingCharSpeeds<3_st> gh_condition{};
     const auto product_boundary_condition = TestHelpers::test_factory_creation<
         grmhd::GhValenciaDivClean::BoundaryConditions::BoundaryCondition,
         grmhd::GhValenciaDivClean::BoundaryConditions::ProductOfConditions<
-            GeneralizedHarmonic::BoundaryConditions::DemandOutgoingCharSpeeds<
-                3_st>,
+            gh::BoundaryConditions::DemandOutgoingCharSpeeds<3_st>,
             grmhd::ValenciaDivClean::BoundaryConditions::
                 DemandOutgoingCharSpeeds>>(
         "ProductDemandOutgoingCharSpeedsAndDemandOutgoingCharSpeeds:\n"
@@ -525,14 +506,13 @@ SPECTRE_TEST_CASE(
     auto serialized_and_deserialized_condition = serialize_and_deserialize(
         *dynamic_cast<
             grmhd::GhValenciaDivClean::BoundaryConditions::ProductOfConditions<
-                GeneralizedHarmonic::BoundaryConditions::
-                    DemandOutgoingCharSpeeds<3_st>,
+                gh::BoundaryConditions::DemandOutgoingCharSpeeds<3_st>,
                 grmhd::ValenciaDivClean::BoundaryConditions::
                     DemandOutgoingCharSpeeds>*>(
             product_boundary_condition.get()));
     test_boundary_condition_combination<
         tmpl::list<>, tmpl::list<>,
-        GeneralizedHarmonic::BoundaryConditions::DemandOutgoingCharSpeeds<3_st>,
+        gh::BoundaryConditions::DemandOutgoingCharSpeeds<3_st>,
         grmhd::ValenciaDivClean::BoundaryConditions::DemandOutgoingCharSpeeds>(
         gh_condition, valencia_condition, serialized_and_deserialized_condition,
         gridless_box);

@@ -37,7 +37,7 @@ struct System {
   static constexpr bool has_primitive_and_conservative_vars = true;
   static constexpr size_t volume_dim = 3;
   using grmhd_system = grmhd::ValenciaDivClean::System;
-  using gh_system = GeneralizedHarmonic::System<3_st>;
+  using gh_system = gh::System<3_st>;
 
   static_assert(std::is_same_v<Tags::spacetime_reconstruction_tags,
                                typename gh_system::variables_tag::tags_list>);
@@ -57,14 +57,14 @@ struct System {
 
   using primitive_variables_tag =
       typename grmhd_system::primitive_variables_tag;
-  using spacetime_variables_tag = ::Tags::Variables<tmpl::list<
-      ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
-                    Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>>;
+  using spacetime_variables_tag = ::Tags::Variables<
+      tmpl::list<::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>,
+                               tmpl::size_t<3>, Frame::Inertial>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>>>;
 
   using compute_volume_time_derivative_terms = TimeDerivativeTerms;
 

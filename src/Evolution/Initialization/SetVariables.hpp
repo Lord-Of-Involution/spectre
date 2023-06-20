@@ -18,7 +18,9 @@
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/GlobalCache.hpp"
+#include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticData/Tags.hpp"
+#include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Tags.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
@@ -76,7 +78,19 @@ struct SetVariables {
       call_with_dynamic_type<void, derived_classes>(
           &db::get<evolution::initial_data::Tags::InitialData>(box),
           [&box](const auto* const data_or_solution) {
-            impl<Metavariables>(make_not_null(&box), *data_or_solution);
+            using initial_data_subclass =
+                std::decay_t<decltype(*data_or_solution)>;
+            if constexpr (is_analytic_data_v<initial_data_subclass> or
+                          is_analytic_solution_v<initial_data_subclass>) {
+              impl<Metavariables>(make_not_null(&box), *data_or_solution);
+            } else {
+              ERROR(
+                  "Trying to use "
+                  "'evolution::Initialization::Actions::SetVariables' with a "
+                  "class that's not marked as analytic solution or analytic "
+                  "data. To support numeric initial data, add a "
+                  "system-specific initialization routine to your executable.");
+            }
           });
     } else if constexpr (db::tag_is_retrievable_v<
                              ::Tags::AnalyticSolutionOrData,
@@ -111,28 +125,30 @@ struct SetVariables {
       using primitives_tag = typename system::primitive_variables_tag;
       // Set initial data from analytic solution
       db::mutate<primitives_tag>(
-          box, [&initial_time, &inertial_coords, &solution_or_data](
-                   const gsl::not_null<typename primitives_tag::type*>
-                       primitive_vars) {
+          [&initial_time, &inertial_coords, &solution_or_data](
+              const gsl::not_null<typename primitives_tag::type*>
+                  primitive_vars) {
             primitive_vars->assign_subset(
                 evolution::Initialization::initial_data(
                     solution_or_data, inertial_coords, initial_time,
                     typename Metavariables::analytic_variables_tags{}));
-          });
+          },
+          box);
       using non_conservative_variables =
           typename system::non_conservative_variables;
       using variables_tag = typename system::variables_tag;
       if constexpr (not std::is_same_v<non_conservative_variables,
                                        tmpl::list<>>) {
         db::mutate<variables_tag>(
-            box, [&initial_time, &inertial_coords, &solution_or_data](
-                     const gsl::not_null<typename variables_tag::type*>
-                         evolved_vars) {
+            [&initial_time, &inertial_coords, &solution_or_data](
+                const gsl::not_null<typename variables_tag::type*>
+                    evolved_vars) {
               evolved_vars->assign_subset(
                   evolution::Initialization::initial_data(
                       solution_or_data, inertial_coords, initial_time,
                       non_conservative_variables{}));
-            });
+            },
+            box);
       }
     } else {
       using variables_tag = typename system::variables_tag;
@@ -140,12 +156,13 @@ struct SetVariables {
       // Set initial data from analytic solution
       using Vars = typename variables_tag::type;
       db::mutate<variables_tag>(
-          box, [&initial_time, &inertial_coords,
-                &solution_or_data](const gsl::not_null<Vars*> vars) {
+          [&initial_time, &inertial_coords,
+           &solution_or_data](const gsl::not_null<Vars*> vars) {
             vars->assign_subset(evolution::Initialization::initial_data(
                 solution_or_data, inertial_coords, initial_time,
                 typename Vars::tags_list{}));
-          });
+          },
+          box);
     }
   }
 };

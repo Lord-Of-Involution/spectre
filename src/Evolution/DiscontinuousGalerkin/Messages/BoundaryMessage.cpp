@@ -6,64 +6,65 @@
 #include <ios>
 #include <pup.h>
 
-#include "Parallel/Serialize.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 
 namespace evolution::dg {
 template <size_t Dim>
 BoundaryMessage<Dim>::BoundaryMessage(
     const size_t subcell_ghost_data_size_in, const size_t dg_flux_data_size_in,
-    const bool sent_across_nodes_in, const size_t sender_node_in,
-    const size_t sender_core_in, const ::TimeStepId& current_time_step_id_in,
+    const bool owning_in, const bool enable_if_disabled_in,
+    const size_t sender_node_in, const size_t sender_core_in,
+    const int tci_status_in, const ::TimeStepId& current_time_step_id_in,
     const ::TimeStepId& next_time_step_id_in,
+    const Direction<Dim>& neighbor_direction_in,
+    const ElementId<Dim>& element_id_in,
     const Mesh<Dim>& volume_or_ghost_mesh_in,
     const Mesh<Dim - 1>& interface_mesh_in, double* subcell_ghost_data_in,
     double* dg_flux_data_in)
     : subcell_ghost_data_size(subcell_ghost_data_size_in),
       dg_flux_data_size(dg_flux_data_size_in),
-      sent_across_nodes(sent_across_nodes_in),
+      owning(owning_in),
+      enable_if_disabled(enable_if_disabled_in),
       sender_node(sender_node_in),
       sender_core(sender_core_in),
+      tci_status(tci_status_in),
       current_time_step_id(current_time_step_id_in),
       next_time_step_id(next_time_step_id_in),
+      neighbor_direction(neighbor_direction_in),
+      element_id(element_id_in),
       volume_or_ghost_mesh(volume_or_ghost_mesh_in),
       interface_mesh(interface_mesh_in),
       subcell_ghost_data(subcell_ghost_data_in),
       dg_flux_data(dg_flux_data_in) {}
 
 template <size_t Dim>
-size_t BoundaryMessage<Dim>::total_bytes_without_data() {
-  // subcell_ghost_data_size, dg_flux_data_size, sender_node, sender_core
-  size_t totalsize = 4 * detail::offset<size_t>();
-  // sent_across_nodes
-  totalsize += detail::offset<bool>();
-  // current_time_step_id, next_time_step_id
-  totalsize += 2 * detail::offset<TimeStepId>();
-  // volume_or_ghost_mesh
-  totalsize += detail::offset<Mesh<Dim>>();
-  // interface_mesh
-  totalsize += detail::offset<Mesh<Dim - 1>>();
-  // subcell_ghost_data, dg_flux_data
-  totalsize += 2 * detail::offset<double*>();
-
-  return totalsize;
-}
-
-template <size_t Dim>
 size_t BoundaryMessage<Dim>::total_bytes_with_data(const size_t subcell_size,
                                                    const size_t dg_size) {
-  size_t totalsize = total_bytes_without_data();
+  size_t totalsize = sizeof(BoundaryMessage<Dim>);
   totalsize += (subcell_size + dg_size) * sizeof(double);
   return totalsize;
 }
 
 template <size_t Dim>
 void* BoundaryMessage<Dim>::pack(BoundaryMessage<Dim>* in_msg) {
+  // If this is the case, then in_msg is already in the correct memory layout
+  // with the data appended to one contiguous buffer (aka owning) so we can just
+  // return the message itself
+  if (in_msg->owning) {
+    return static_cast<void*>(in_msg);
+  }
+
   const size_t subcell_size = in_msg->subcell_ghost_data_size;
   const size_t dg_size = in_msg->dg_flux_data_size;
 
   const size_t totalsize = total_bytes_with_data(subcell_size, dg_size);
+
+  // The fact that we call the pack() function means we are sending data across
+  // address boundaries (nodes) which means we will be owning the data the
+  // pointers point to.
+  in_msg->owning = true;
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   auto* out_msg = reinterpret_cast<BoundaryMessage<Dim>*>(
@@ -72,7 +73,7 @@ void* BoundaryMessage<Dim>::pack(BoundaryMessage<Dim>* in_msg) {
   // We cast to char* here to avoid a GCC compiler error
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   memcpy(reinterpret_cast<char*>(out_msg), &in_msg->subcell_ghost_data_size,
-         BoundaryMessage<Dim>::total_bytes_without_data());
+         sizeof(BoundaryMessage<Dim>));
 
   if (subcell_size != 0) {
     // double* + 1 == char* + 8 because double* is 8 bytes
@@ -150,11 +151,15 @@ bool operator==(const BoundaryMessage<Dim>& lhs,
                 const BoundaryMessage<Dim>& rhs) {
   return lhs.subcell_ghost_data_size == rhs.subcell_ghost_data_size and
          lhs.dg_flux_data_size == rhs.dg_flux_data_size and
-         lhs.sent_across_nodes == rhs.sent_across_nodes and
+         lhs.owning == rhs.owning and
+         lhs.enable_if_disabled == rhs.enable_if_disabled and
          lhs.sender_node == rhs.sender_node and
          lhs.sender_core == rhs.sender_core and
+         lhs.tci_status == rhs.tci_status and
          lhs.current_time_step_id == rhs.current_time_step_id and
          lhs.next_time_step_id == rhs.next_time_step_id and
+         lhs.neighbor_direction == rhs.neighbor_direction and
+         lhs.element_id == rhs.element_id and
          lhs.volume_or_ghost_mesh == rhs.volume_or_ghost_mesh and
          lhs.interface_mesh == rhs.interface_mesh and
          // We are guaranteed that lhs.subcell_size == rhs.subcell_size and
@@ -182,12 +187,16 @@ std::ostream& operator<<(std::ostream& os,
                          const BoundaryMessage<Dim>& message) {
   os << "subcell_ghost_data_size = " << message.subcell_ghost_data_size << "\n";
   os << "dg_flux_data_size = " << message.dg_flux_data_size << "\n";
-  os << "sent_across_nodes = " << std::boolalpha << message.sent_across_nodes
+  os << "owning = " << std::boolalpha << message.owning << "\n";
+  os << "enable_if_disabled = " << std::boolalpha << message.enable_if_disabled
      << "\n";
   os << "sender_node = " << message.sender_node << "\n";
   os << "sender_core = " << message.sender_core << "\n";
+  os << "tci_status = " << message.tci_status << "\n";
   os << "current_time_ste_id = " << message.current_time_step_id << "\n";
   os << "next_time_ste_id = " << message.next_time_step_id << "\n";
+  os << "neighbor_direction = " << message.neighbor_direction << "\n";
+  os << "element_id = " << message.element_id << "\n";
   os << "volume_or_ghost_mesh = " << message.volume_or_ghost_mesh << "\n";
   os << "interface_mesh = " << message.interface_mesh << "\n";
 

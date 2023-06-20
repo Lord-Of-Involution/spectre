@@ -72,18 +72,15 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.LinearizedBondiSachs",
   const auto boundary_data = boundary_solution.variables(
       l_max, time, Solutions::LinearizedBondiSachs::tags{});
   const auto& spacetime_metric =
-      get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
-          boundary_data);
+      get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_data);
   // check the serialization
   const auto serialized_and_deserialized_analytic_solution =
       serialize_and_deserialize(boundary_solution);
   const auto boundary_tuple_from_serialized =
       serialized_and_deserialized_analytic_solution.variables(
-          l_max, time,
-          tmpl::list<
-              gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>{});
+          l_max, time, tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>>{});
   const auto& spacetime_metric_from_serialized =
-      get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
+      get<gr::Tags::SpacetimeMetric<DataVector, 3>>(
           boundary_tuple_from_serialized);
   CHECK_ITERABLE_APPROX(spacetime_metric_from_serialized, spacetime_metric);
 
@@ -93,9 +90,8 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.LinearizedBondiSachs",
       TestHelpers::extract_bondi_scalars_from_cartesian_metric(
           spacetime_metric, inverse_jacobian, extraction_radius);
 
-  const auto& dt_spacetime_metric = get<
-      ::Tags::dt<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>>(
-      boundary_data);
+  const auto& dt_spacetime_metric =
+      get<::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>>(boundary_data);
   const auto dt_bondi_quantities =
       TestHelpers::extract_dt_bondi_scalars_from_cartesian_metric(
           dt_spacetime_metric, spacetime_metric, inverse_jacobian,
@@ -105,7 +101,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.LinearizedBondiSachs",
   boundary_solution.dr_inverse_jacobian(make_not_null(&dr_inverse_jacobian),
                                         l_max);
   const auto& d_spacetime_metric =
-      get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(boundary_data);
+      get<gh::Tags::Phi<DataVector, 3>>(boundary_data);
   const auto& dr_cartesian_coordinates =
       get<Tags::Dr<Tags::CauchyCartesianCoords>>(boundary_data);
   tnsr::aa<DataVector, 3> dr_spacetime_metric{

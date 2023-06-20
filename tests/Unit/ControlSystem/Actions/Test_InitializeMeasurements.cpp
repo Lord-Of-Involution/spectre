@@ -17,9 +17,11 @@
 #include "ControlSystem/Protocols/ControlSystem.hpp"
 #include "ControlSystem/Protocols/Measurement.hpp"
 #include "ControlSystem/Protocols/Submeasurement.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/Trigger.hpp"
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
@@ -32,15 +34,16 @@
 #include "Framework/MockRuntimeSystem.hpp"
 #include "Framework/MockRuntimeSystemFreeFunctions.hpp"
 #include "Helpers/ControlSystem/TestStructs.hpp"
+#include "IO/Logging/Verbosity.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/GetOutput.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 template <typename Id>
@@ -153,6 +156,7 @@ struct Component {
   using simple_tags = tmpl::list<Tags::TimeStepId, Tags::Time>;
   using compute_tags = tmpl::list<Parallel::Tags::FromGlobalCache<
       ::domain::Tags::FunctionsOfTimeInitialize>>;
+  using const_global_cache_tags = tmpl::list<control_system::Tags::Verbosity>;
   using mutable_global_cache_tags =
       tmpl::list<domain::Tags::FunctionsOfTimeInitialize>;
 
@@ -179,8 +183,8 @@ struct Metavariables {
 
 SPECTRE_TEST_CASE("Unit.ControlSystem.InitializeMeasurements",
                   "[ControlSystem][Unit]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
-  Parallel::register_classes_with_charm<
+  register_factory_classes_with_charm<Metavariables>();
+  register_classes_with_charm<
       domain::FunctionsOfTime::PiecewisePolynomial<0>>();
 
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<Metavariables>;
@@ -204,7 +208,8 @@ SPECTRE_TEST_CASE("Unit.ControlSystem.InitializeMeasurements",
   functions.emplace("B", timescale->get_clone());
   functions.emplace("C", timescale->get_clone());
 
-  MockRuntimeSystem runner{{}, {std::move(functions), std::move(timescales)}};
+  MockRuntimeSystem runner{{::Verbosity::Silent},
+                           {std::move(functions), std::move(timescales)}};
   ActionTesting::emplace_array_component_and_initialize<component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, 0,

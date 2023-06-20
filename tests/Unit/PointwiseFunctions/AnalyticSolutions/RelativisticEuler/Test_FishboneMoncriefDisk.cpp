@@ -23,7 +23,6 @@
 #include "Helpers/PointwiseFunctions/AnalyticSolutions/GrMhd/VerifyGrMhdSolution.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "NumericalAlgorithms/Spectral/Spectral.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/RelativisticEuler/FishboneMoncriefDisk.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
@@ -31,6 +30,7 @@
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
 #include "Utilities/MakeWithValue.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/StdArrayHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -146,13 +146,11 @@ void test_variables(const DataType& used_for_size) {
           coords, 0.0,
           tmpl::list<gr::Tags::SqrtDetSpatialMetric<DataType>>{})));
   const auto expected_spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>(
-          ks_soln.variables(coords, 0.0,
-                            gr::Solutions::KerrSchild::tags<DataType>{}));
+      get<gr::Tags::SpatialMetric<DataType, 3>>(ks_soln.variables(
+          coords, 0.0, gr::Solutions::KerrSchild::tags<DataType>{}));
   const auto spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>(disk.variables(
-          coords, 0.0,
-          tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>{}));
+      get<gr::Tags::SpatialMetric<DataType, 3>>(disk.variables(
+          coords, 0.0, tmpl::list<gr::Tags::SpatialMetric<DataType, 3>>{}));
   CHECK_ITERABLE_APPROX(expected_spatial_metric, spatial_metric);
 }
 
@@ -183,7 +181,7 @@ void test_sin_theta_squared(const DataType& used_for_size) {
 }
 
 void test_solution() {
-  Parallel::register_classes_with_charm<
+  register_classes_with_charm<
       RelativisticEuler::Solutions::FishboneMoncriefDisk>();
   const std::unique_ptr<evolution::initial_data::InitialData> option_solution =
       TestHelpers::test_option_tag_factory_creation<

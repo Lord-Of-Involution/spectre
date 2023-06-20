@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <memory>
+#include <optional>
 
 #include "ControlSystem/ControlErrors/Size/AhSpeed.hpp"
 #include "ControlSystem/ControlErrors/Size/DeltaR.hpp"
@@ -34,12 +35,12 @@ struct TestParams {
 template <typename InitialState, typename FinalState>
 void do_test(const TestParams& test_params,
              const bool expected_discontinuous_change_has_occurred,
-             const double expected_suggested_time_scale,
+             const std::optional<double> expected_suggested_time_scale,
              const double expected_target_char_speed) {
   // Set reasonable values for quantities that won't change in the various
   // logic tests.
   const double target_drift_velocity = 0.001;
-  const double original_suggested_time_scale = 0.0;
+  const std::optional<double> original_suggested_time_scale = std::nullopt;
   const bool original_discontinuous_change_has_occurred = false;
 
   const control_system::size::StateUpdateArgs update_args{
@@ -54,6 +55,9 @@ void do_test(const TestParams& test_params,
 
   // Check serialization of info
   const auto info_copy = serialize_and_deserialize(info);
+  CHECK_FALSE(info.state == nullptr);
+  const auto info_copy2 = info_copy;
+  CHECK_FALSE(info_copy2.state == nullptr);
   // Note that there is no equality operator for info.state, because the
   // state contains no data; so here we check that the state can be cast to
   // the type it should be.
@@ -76,6 +80,13 @@ void do_test(const TestParams& test_params,
   CHECK(info.suggested_time_scale == expected_suggested_time_scale);
   CHECK(info.discontinuous_change_has_occurred ==
         expected_discontinuous_change_has_occurred);
+
+  info.reset();
+  CHECK(info.damping_time == test_params.damping_time);
+  CHECK(info.target_char_speed == expected_target_char_speed);
+  CHECK(info.target_drift_velocity == target_drift_velocity);
+  CHECK_FALSE(info.suggested_time_scale.has_value());
+  CHECK_FALSE(info.discontinuous_change_has_occurred);
 }
 
 void test_size_control_update() {
@@ -94,20 +105,20 @@ void test_size_control_update() {
   // should do nothing
   do_test<control_system::size::States::Initial,
           control_system::size::States::Initial>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // should go into DeltaR state
   test_params.min_comoving_char_speed = 0.02;
   do_test<control_system::size::States::Initial,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Make deltar cross zero after damping time.
   test_params.crossing_time_info = control_system::size::CrossingTimeInfo(
       0.0, 0.0, 1.1 * test_params.damping_time);
   do_test<control_system::size::States::Initial,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Make deltar cross zero before damping time.
   test_params.crossing_time_info = control_system::size::CrossingTimeInfo(
@@ -149,7 +160,7 @@ void test_size_control_update() {
   // Should do nothing
   do_test<control_system::size::States::DeltaR,
           control_system::size::States::DeltaR>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Should change suggested time scale
   test_params.min_comoving_char_speed = 0.02;
@@ -162,7 +173,7 @@ void test_size_control_update() {
   test_params.control_err_delta_r = 1.e-4;
   do_test<control_system::size::States::DeltaR,
           control_system::size::States::DeltaR>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Make deltar cross zero *slightly* before damping time; should do
   // nothing (depends on tolerance in control_system::size::StateDeltaR).
@@ -170,7 +181,7 @@ void test_size_control_update() {
       0.0, 0.0, 0.999 * test_params.damping_time);
   do_test<control_system::size::States::DeltaR,
           control_system::size::States::DeltaR>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Make deltar cross zero before damping time.
   test_params.crossing_time_info = control_system::size::CrossingTimeInfo(
@@ -231,27 +242,27 @@ void test_size_control_update() {
   // Should do nothing.
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::AhSpeed>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Should change to DeltaR state.
   test_params.min_comoving_char_speed = 0.02;
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Should do nothing because min_comoving_char_speed is smaller than
   // min_char_speed.
   test_params.min_comoving_char_speed = 0.99 * test_params.min_char_speed;
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::AhSpeed>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Now should change to DeltaR state if min_char_speed is larger than
   // target_char_speed
   test_params.min_char_speed = 0.012;
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Now it should do nothing because comoving crossing time is very small.
   test_params.min_char_speed = 0.01;
@@ -260,14 +271,14 @@ void test_size_control_update() {
       control_system::size::CrossingTimeInfo(0.0, 1.e-10, 0.0);
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::AhSpeed>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Now it should go to DeltaR because comoving crossing time is large.
   test_params.crossing_time_info =
       control_system::size::CrossingTimeInfo(0.0, 100.0, 0.0);
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Now it should do nothing because comoving is decreasing faster than
   // charspeeds.
@@ -275,7 +286,7 @@ void test_size_control_update() {
       control_system::size::CrossingTimeInfo(1000.0, 100.0, 0.0);
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::AhSpeed>(
-      test_params, false, 0.0, test_params.original_target_char_speed);
+      test_params, false, std::nullopt, test_params.original_target_char_speed);
 
   // Now it should think delta_r is in danger,
   // and it should go to DeltaR state.
@@ -344,7 +355,7 @@ void test_size_control_update() {
   test_params.min_char_speed = test_params.original_target_char_speed * 1.10001;
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 
   // Again char speed is *barely not* in danger, but for a different reason.
   test_params.min_char_speed = test_params.original_target_char_speed * 1.09999;
@@ -353,13 +364,13 @@ void test_size_control_update() {
       0.992 * test_params.damping_time);
   do_test<control_system::size::States::AhSpeed,
           control_system::size::States::DeltaR>(
-      test_params, true, 0.0, test_params.original_target_char_speed);
+      test_params, true, std::nullopt, test_params.original_target_char_speed);
 }
 
-void test_size_control_signal() {
+void test_size_control_error() {
   // This is a very rudimentary test.  It just computes
   // the same thing as the thing it is testing, but coded differently.
-  const control_system::size::ControlSignalArgs args{0.01, 0.03, 1.2, 0.33};
+  const control_system::size::ControlErrorArgs args{0.01, 0.03, 1.2, 0.33};
   const control_system::size::Info info{
       std::make_unique<control_system::size::States::Initial>(),
       1.1,
@@ -367,15 +378,15 @@ void test_size_control_signal() {
       1.e-3,
       2.e-3,
       false};
-  CHECK(control_system::size::States::Initial{}.control_signal(info, args) ==
+  CHECK(control_system::size::States::Initial{}.control_error(info, args) ==
         -0.329);
-  CHECK(control_system::size::States::AhSpeed{}.control_signal(info, args) ==
+  CHECK(control_system::size::States::AhSpeed{}.control_error(info, args) ==
         approx(0.001 * sqrt(4.0 * M_PI) / 1.2));
-  CHECK(control_system::size::States::DeltaR{}.control_signal(info, args) ==
+  CHECK(control_system::size::States::DeltaR{}.control_error(info, args) ==
         0.03);
 }
 
-template<typename State>
+template <typename State>
 void test_clone_and_serialization() {
   std::unique_ptr<control_system::size::State> state =
       std::make_unique<State>();
@@ -392,13 +403,27 @@ void test_clone_and_serialization() {
   CHECK(dynamic_cast<State*>(state->get_clone().get()) != nullptr);
 }
 
+void test_name_and_number() {
+  const control_system::size::States::Initial initial{};
+  const control_system::size::States::AhSpeed ah_speed{};
+  const control_system::size::States::DeltaR delta_r{};
+
+  CHECK(initial.name() == "Initial"s);
+  CHECK(initial.number() == 0_st);
+  CHECK(ah_speed.name() == "AhSpeed"s);
+  CHECK(ah_speed.number() == 1_st);
+  CHECK(delta_r.name() == "DeltaR"s);
+  CHECK(delta_r.number() == 2_st);
+}
+
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.ControlSystem.SizeControlStates", "[Domain][Unit]") {
   control_system::size::register_derived_with_charm();
   test_size_control_update();
-  test_size_control_signal();
+  test_size_control_error();
   test_clone_and_serialization<control_system::size::States::Initial>();
   test_clone_and_serialization<control_system::size::States::AhSpeed>();
   test_clone_and_serialization<control_system::size::States::DeltaR>();
+  test_name_and_number();
 }

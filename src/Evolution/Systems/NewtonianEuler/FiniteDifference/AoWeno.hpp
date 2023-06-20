@@ -8,16 +8,17 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
-#include <vector>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
 #include "DataStructures/DataBox/Prefixes.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/FixedHashMap.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/NewtonianEuler/FiniteDifference/Reconstructor.hpp"
 #include "Evolution/Systems/NewtonianEuler/Tags.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/EquationOfState.hpp"
@@ -100,11 +101,11 @@ class AoWeno53Prim : public Reconstructor<Dim> {
 
   size_t ghost_zone_size() const override { return 3; }
 
-  using reconstruction_argument_tags = tmpl::list<
-      ::Tags::Variables<prims_tags>, hydro::Tags::EquationOfStateBase,
-      domain::Tags::Element<Dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
-      evolution::dg::subcell::Tags::Mesh<Dim>>;
+  using reconstruction_argument_tags =
+      tmpl::list<::Tags::Variables<prims_tags>,
+                 hydro::Tags::EquationOfStateBase, domain::Tags::Element<Dim>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
+                 evolution::dg::subcell::Tags::Mesh<Dim>>;
 
   template <size_t ThermodynamicDim, typename TagsList>
   void reconstruct(
@@ -115,9 +116,9 @@ class AoWeno53Prim : public Reconstructor<Dim> {
       const Element<Dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(Dim),
-          std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
-          neighbor_data,
+          std::pair<Direction<Dim>, ElementId<Dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& ghost_data,
       const Mesh<Dim>& subcell_mesh) const;
 
   /// Called by an element doing DG when the neighbor is doing subcell.
@@ -129,9 +130,9 @@ class AoWeno53Prim : public Reconstructor<Dim> {
       const Element<Dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(Dim),
-          std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
-          neighbor_data,
+          std::pair<Direction<Dim>, ElementId<Dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& ghost_data,
       const Mesh<Dim>& subcell_mesh,
       const Direction<Dim> direction_to_reconstruct) const;
 

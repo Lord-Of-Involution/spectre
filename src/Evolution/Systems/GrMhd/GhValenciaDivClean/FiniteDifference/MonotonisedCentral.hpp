@@ -18,17 +18,17 @@
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/FiniteDifference/Reconstructor.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/System.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/Tags.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -52,6 +52,9 @@ class not_null;
 namespace PUP {
 class er;
 }  // namespace PUP
+namespace evolution::dg::subcell {
+class GhostData;
+}  // namespace evolution::dg::subcell
 /// \endcond
 
 namespace grmhd::GhValenciaDivClean::fd {
@@ -93,12 +96,12 @@ class MonotonisedCentralPrim : public Reconstructor {
 
   size_t ghost_zone_size() const override { return 2; }
 
-  using reconstruction_argument_tags = tmpl::list<
-      ::Tags::Variables<hydro::grmhd_tags<DataVector>>,
-      typename System::variables_tag, hydro::Tags::EquationOfStateBase,
-      domain::Tags::Element<dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<dim>,
-      evolution::dg::subcell::Tags::Mesh<dim>>;
+  using reconstruction_argument_tags =
+      tmpl::list<::Tags::Variables<hydro::grmhd_tags<DataVector>>,
+                 typename System::variables_tag,
+                 hydro::Tags::EquationOfStateBase, domain::Tags::Element<dim>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<dim>,
+                 evolution::dg::subcell::Tags::Mesh<dim>>;
 
   template <size_t ThermodynamicDim, typename TagsList>
   void reconstruct(
@@ -111,9 +114,9 @@ class MonotonisedCentralPrim : public Reconstructor {
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh) const;
 
   /// Called by an element doing DG when the neighbor is doing subcell.
@@ -128,9 +131,9 @@ class MonotonisedCentralPrim : public Reconstructor {
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh,
       const Direction<dim> direction_to_reconstruct) const;
 };

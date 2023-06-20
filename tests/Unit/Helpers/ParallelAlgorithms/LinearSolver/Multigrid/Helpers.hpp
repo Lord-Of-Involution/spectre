@@ -14,6 +14,9 @@
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/DynamicMatrix.hpp"
 #include "DataStructures/Variables.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/CreateInitialMesh.hpp"
 #include "Domain/Structure/ElementId.hpp"
@@ -21,7 +24,7 @@
 #include "Helpers/ParallelAlgorithms/LinearSolver/DistributedLinearSolverAlgorithmTestHelpers.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
@@ -200,7 +203,6 @@ struct CollectOperatorAction {
     const size_t number_of_grid_points =
         get<LinearOperator>(box)[multigrid_level][0].columns();
     db::mutate<OperatorAppliedToOperandTag>(
-        make_not_null(&box),
         [&operator_applied_to_operand_global_data, &number_of_grid_points,
          &element_index](auto operator_applied_to_operand) {
           operator_applied_to_operand->initialize(number_of_grid_points);
@@ -209,7 +211,8 @@ struct CollectOperatorAction {
                 operator_applied_to_operand_global_data
                     .data()[i + element_index * number_of_grid_points];
           }
-        });
+        },
+        make_not_null(&box));
     // Proceed with algorithm
     Parallel::get_parallel_component<ParallelComponent>(cache)[element_id]
         .perform_algorithm(true);

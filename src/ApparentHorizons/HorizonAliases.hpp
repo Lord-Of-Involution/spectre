@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ApparentHorizons/TagsDeclarations.hpp"
+#include "Evolution/Systems/GeneralizedHarmonic/ConstraintDamping/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/TagsDeclarations.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Tags.hpp"
@@ -20,20 +21,20 @@ struct DataVector;
 
 namespace ah {
 template <size_t Dim>
-using source_vars = tmpl::list<
-    gr::Tags::SpacetimeMetric<Dim, ::Frame::Inertial>,
-    GeneralizedHarmonic::Tags::Pi<Dim, ::Frame::Inertial>,
-    GeneralizedHarmonic::Tags::Phi<Dim, ::Frame::Inertial>,
-    ::Tags::deriv<GeneralizedHarmonic::Tags::Phi<Dim, Frame::Inertial>,
-                  tmpl::size_t<Dim>, Frame::Inertial>>;
+using source_vars =
+    tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+               gh::Tags::Pi<DataVector, Dim>, gh::Tags::Phi<DataVector, Dim>,
+               ::Tags::deriv<gh::Tags::Phi<DataVector, Dim>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               gh::ConstraintDamping::Tags::ConstraintGamma1>;
 
 template <size_t Dim, typename Frame>
 using vars_to_interpolate_to_target =
-    tmpl::list<gr::Tags::SpatialMetric<Dim, Frame, DataVector>,
-               gr::Tags::InverseSpatialMetric<Dim, Frame>,
-               gr::Tags::ExtrinsicCurvature<Dim, Frame>,
-               gr::Tags::SpatialChristoffelSecondKind<Dim, Frame>,
-               gr::Tags::SpatialRicci<Dim, Frame>>;
+    tmpl::list<gr::Tags::SpatialMetric<DataVector, Dim, Frame>,
+               gr::Tags::InverseSpatialMetric<DataVector, Dim, Frame>,
+               gr::Tags::ExtrinsicCurvature<DataVector, Dim, Frame>,
+               gr::Tags::SpatialChristoffelSecondKind<DataVector, Dim, Frame>,
+               gr::Tags::SpatialRicci<DataVector, Dim, Frame>>;
 
 template <typename Frame>
 using tags_for_observing =
@@ -57,8 +58,8 @@ using compute_items_on_target = tmpl::append<
                StrahlkorperTags::DxRadiusCompute<Frame>,
                StrahlkorperTags::D2xRadiusCompute<Frame>,
                StrahlkorperTags::NormalOneFormCompute<Frame>,
-               StrahlkorperTags::OneOverOneFormMagnitudeCompute<Dim, Frame,
-                                                                DataVector>,
+               StrahlkorperTags::OneOverOneFormMagnitudeCompute<DataVector, Dim,
+                                                                Frame>,
                StrahlkorperTags::TangentsCompute<Frame>,
                StrahlkorperTags::UnitNormalOneFormCompute<Frame>,
                StrahlkorperTags::UnitNormalVectorCompute<Frame>,

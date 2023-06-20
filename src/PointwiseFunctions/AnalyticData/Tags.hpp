@@ -4,9 +4,9 @@
 #pragma once
 
 #include "DataStructures/DataBox/Tag.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/Serialize.hpp"
+#include "Options/String.hpp"
 #include "Utilities/PrettyType.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 
 namespace OptionTags {
 /// \ingroup OptionGroupsGroup

@@ -6,14 +6,15 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <iosfwd>
 #include <limits>
+#include <optional>
 #include <unordered_map>
 
+#include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/Structure/Direction.hpp"
-#include "Utilities/MakeArray.hpp"
+#include "Domain/Structure/ElementId.hpp"
 
 /// \cond
 namespace PUP {
@@ -39,7 +40,7 @@ class ExcisionSphere {
   /// \param abutting_directions the set of blocks that touch the excision
   /// sphere, along with the direction in which they touch it.
   ExcisionSphere(
-      double radius, std::array<double, VolumeDim> center,
+      double radius, tnsr::I<double, VolumeDim, Frame::Grid> center,
       std::unordered_map<size_t, Direction<VolumeDim>> abutting_directions);
 
   /// Default constructor needed for Charm++ serialization.
@@ -56,7 +57,9 @@ class ExcisionSphere {
   double radius() const { return radius_; }
 
   /// The coodinate center of the ExcisionSphere.
-  const std::array<double, VolumeDim>& center() const { return center_; }
+  const tnsr::I<double, VolumeDim, Frame::Grid>& center() const {
+    return center_;
+  }
 
   /// The set of blocks that touch the excision sphere, along with the direction
   /// in which they touch it
@@ -64,14 +67,18 @@ class ExcisionSphere {
       const {
     return abutting_directions_;
   }
+  /// Checks whether an element abuts the excision sphere. If it does, returns
+  /// the corresponding direction. Else, `nullopt` is returned.
+  std::optional<Direction<VolumeDim>> abutting_direction(
+      const ElementId<VolumeDim>& element_id) const;
 
   // NOLINTNEXTLINE(google-runtime-references)
   void pup(PUP::er& p);
 
  private:
   double radius_{std::numeric_limits<double>::signaling_NaN()};
-  std::array<double, VolumeDim> center_{
-      make_array<VolumeDim>(std::numeric_limits<double>::signaling_NaN())};
+  tnsr::I<double, VolumeDim, Frame::Grid> center_{
+      std::numeric_limits<double>::signaling_NaN()};
   std::unordered_map<size_t, Direction<VolumeDim>> abutting_directions_{};
 };
 

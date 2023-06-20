@@ -11,11 +11,11 @@
 #include "Evolution/Systems/Cce/AnalyticSolutions/WorldtubeData.hpp"
 #include "Evolution/Systems/Cce/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Literals.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -113,8 +113,7 @@ struct BouncingBlackHole : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::aa<DataVector, 3>*> spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<
-          gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>> /*meta*/)
+      tmpl::type_<gr::Tags::SpacetimeMetric<DataVector, 3>> /*meta*/)
       const override;
 
   /*!
@@ -142,8 +141,9 @@ struct BouncingBlackHole : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::aa<DataVector, 3>*> dt_spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<::Tags::dt<gr::Tags::SpacetimeMetric<
-          3, ::Frame::Inertial, DataVector>>> /*meta*/) const override;
+      tmpl::type_<
+          ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>> /*meta*/)
+      const override;
 
   /*!
    * \brief The implementation function that computes the first spatial
@@ -172,9 +172,7 @@ struct BouncingBlackHole : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::iaa<DataVector, 3>*> d_spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<
-          GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>> /*meta*/)
-      const override;
+      tmpl::type_<gh::Tags::Phi<DataVector, 3>> /*meta*/) const override;
 
   /// The News in the bouncing black hole solution vanishes, as the oscillation
   /// comes entirely from a coordinate transform.

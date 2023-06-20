@@ -13,23 +13,23 @@
 
 namespace gr {
 namespace Tags {
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpacetimeMetric : db::SimpleTag {
   using type = tnsr::aa<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct InverseSpacetimeMetric : db::SimpleTag {
   using type = tnsr::AA<DataType, Dim, Frame>;
 };
 
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpatialMetric : db::SimpleTag {
   using type = tnsr::ii<DataType, Dim, Frame>;
 };
 /*!
  * \brief Inverse of the spatial metric.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct InverseSpatialMetric : db::SimpleTag {
   using type = tnsr::II<DataType, Dim, Frame>;
 };
@@ -47,18 +47,18 @@ struct SqrtDetSpatialMetric : db::SimpleTag {
 /*!
  * \brief Derivative of the determinant of the spatial metric.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct DerivDetSpatialMetric : db::SimpleTag {
   using type = tnsr::i<DataType, Dim, Frame>;
 };
 /*!
  * \brief Spatial derivative of the inverse of the spatial metric.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct DerivInverseSpatialMetric : db::SimpleTag {
   using type = tnsr::iJJ<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct Shift : db::SimpleTag {
   using type = tnsr::I<DataType, Dim, Frame>;
 };
@@ -73,37 +73,47 @@ struct Lapse : db::SimpleTag {
  * \f$\partial_a g_{bc}\f$ assembled from the spatial and temporal
  * derivatives of evolved 3+1 variables.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct DerivativesOfSpacetimeMetric : db::SimpleTag {
   using type = tnsr::abb<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpacetimeChristoffelFirstKind : db::SimpleTag {
   using type = tnsr::abb<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpacetimeChristoffelSecondKind : db::SimpleTag {
   using type = tnsr::Abb<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpatialChristoffelFirstKind : db::SimpleTag {
   using type = tnsr::ijj<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpatialChristoffelSecondKind : db::SimpleTag {
   using type = tnsr::Ijj<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpacetimeNormalOneForm : db::SimpleTag {
   using type = tnsr::a<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpacetimeNormalVector : db::SimpleTag {
   using type = tnsr::A<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct TraceSpacetimeChristoffelFirstKind : db::SimpleTag {
   using type = tnsr::a<DataType, Dim, Frame>;
+};
+/*!
+ * \brief Trace of the spacetime Christoffel symbols of the second kind
+ * \f$\Gamma^{i} = \Gamma^i_{jk}g^{jk}\f$, where \f$\Gamma^i_{jk}\f$ are
+ * Christoffel symbols of the second kind and \f$g^{jk}\f$ is the
+ * inverse spacetime metric.
+ */
+template <typename DataType, size_t Dim, typename Frame>
+struct TraceSpacetimeChristoffelSecondKind : db::SimpleTag {
+  using type = tnsr::A<DataType, Dim, Frame>;
 };
 /*!
  * \brief Trace of the spatial Christoffel symbols of the first kind
@@ -111,22 +121,22 @@ struct TraceSpacetimeChristoffelFirstKind : db::SimpleTag {
  * Christoffel symbols of the first kind and \f$\gamma^{jk}\f$ is the
  * inverse spatial metric.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct TraceSpatialChristoffelFirstKind : db::SimpleTag {
   using type = tnsr::i<DataType, Dim, Frame>;
 };
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct TraceSpatialChristoffelSecondKind : db::SimpleTag {
   using type = tnsr::I<DataType, Dim, Frame>;
 };
 /// Contraction of the first two indices of the spatial Christoffel symbols:
 /// \f$\Gamma^i_{ij}\f$. Useful for covariant divergences.
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpatialChristoffelSecondKindContracted : db::SimpleTag {
   using type = tnsr::i<DataType, Dim, Frame>;
 };
 
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct ExtrinsicCurvature : db::SimpleTag {
   using type = tnsr::ii<DataType, Dim, Frame>;
 };
@@ -136,10 +146,28 @@ struct TraceExtrinsicCurvature : db::SimpleTag {
 };
 
 /*!
+ * \brief Holds a quantity that's similar to the shift, but isn't the shift.
+ *
+ * \details This holds
+ *
+ * \f{equation}{
+ * \beta^i \frac{\partial x^\hat{i}}{\partial x^i} =
+ * \hat{beta}^\hat{i} + \frac{\partial x^\hat{i}}{\partial t}
+ * \f}
+ *
+ * where hatted quantities are in the distorted frame and non-hatted quantities
+ * are in the grid frame.
+ */
+template <typename DataType, size_t Dim, typename Frame>
+struct ShiftyQuantity : db::SimpleTag {
+  using type = tnsr::I<DataType, Dim, Frame>;
+};
+
+/*!
  * \brief Computes the spatial Ricci tensor from the spatial
  * Christoffel symbol of the second kind and its derivative.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct SpatialRicci : db::SimpleTag {
   using type = tnsr::ii<DataType, Dim, Frame>;
 };
@@ -182,7 +210,7 @@ struct StressTrace : db::SimpleTag {
  * \brief The spatial momentum density \f$S^i=-\gamma^{ij}n^aT_{aj}\f$, where
  * \f$n_a\f$ denotes the normal to the spatial hypersurface
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct MomentumDensity : db::SimpleTag {
   using type = tnsr::I<DataType, Dim, Frame>;
 };
@@ -203,7 +231,7 @@ struct HamiltonianConstraint : db::SimpleTag {
 /// \f$\nabla_j (K^{ij} - \gamma^{ij} K) - 8 \pi S^i\f$, where
 /// \f$\nabla\f$ denotes the covariant derivative associated with the spatial
 /// metric \f$\gamma_{ij}\f$ (see e.g. Eq. (2.133) in \cite BaumgarteShapiro).
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct MomentumConstraint : db::SimpleTag {
   using type = tnsr::I<DataType, Dim, Frame>;
 };
@@ -214,7 +242,7 @@ struct MomentumConstraint : db::SimpleTag {
  * the spatial Ricci tensor, \f$K_{ij}\f$ is the extrinsic curvature, and
  * \f$K\f$ is the trace of \f$K_{ij}\f$.
  */
-template <size_t Dim, typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct WeylElectric : db::SimpleTag {
   using type = tnsr::ii<DataType, Dim, Frame>;
 };
@@ -222,9 +250,9 @@ struct WeylElectric : db::SimpleTag {
 /*!
  * \brief The magnetic part of the Weyl tensor in vacuum \f$B_{ij}\f$.
  */
-template <typename Frame, typename DataType>
+template <typename DataType, size_t Dim, typename Frame>
 struct WeylMagnetic : db::SimpleTag {
-  using type = tnsr::ii<DataType, 3, Frame>;
+  using type = tnsr::ii<DataType, Dim, Frame>;
 };
 
 /*!
@@ -249,34 +277,34 @@ struct WeylMagneticScalar : db::SimpleTag {
 
 /// GR Tags commonly needed for the evolution of hydro systems
 template <size_t Dim, typename DataType>
-using tags_for_hydro = tmpl::list<
-    gr::Tags::Lapse<DataType>, gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-    gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-    gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataType>,
-    gr::Tags::SqrtDetSpatialMetric<DataType>,
-    ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
-                  Frame::Inertial>,
-    ::Tags::deriv<gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    ::Tags::deriv<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataType>>;
+using tags_for_hydro =
+    tmpl::list<gr::Tags::Lapse<DataType>, gr::Tags::Shift<DataType, Dim>,
+               gr::Tags::SpatialMetric<DataType, Dim>,
+               gr::Tags::InverseSpatialMetric<DataType, Dim>,
+               gr::Tags::SqrtDetSpatialMetric<DataType>,
+               ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               ::Tags::deriv<gr::Tags::Shift<DataType, Dim>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               ::Tags::deriv<gr::Tags::SpatialMetric<DataType, Dim>,
+                             tmpl::size_t<Dim>, Frame::Inertial>,
+               gr::Tags::ExtrinsicCurvature<DataType, Dim>>;
 
 /// The tags for the variables returned by GR analytic solutions.
 template <size_t Dim, typename DataType>
-using analytic_solution_tags = tmpl::list<
-    gr::Tags::Lapse<DataType>, ::Tags::dt<gr::Tags::Lapse<DataType>>,
-    ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
-                  Frame::Inertial>,
-    gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-    ::Tags::dt<gr::Tags::Shift<Dim, Frame::Inertial, DataType>>,
-    ::Tags::deriv<gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-    ::Tags::dt<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>>,
-    ::Tags::deriv<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    gr::Tags::SqrtDetSpatialMetric<DataType>,
-    gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataType>,
-    gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataType>>;
+using analytic_solution_tags =
+    tmpl::list<gr::Tags::Lapse<DataType>, ::Tags::dt<gr::Tags::Lapse<DataType>>,
+               ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               gr::Tags::Shift<DataType, Dim>,
+               ::Tags::dt<gr::Tags::Shift<DataType, Dim>>,
+               ::Tags::deriv<gr::Tags::Shift<DataType, Dim>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               gr::Tags::SpatialMetric<DataType, Dim>,
+               ::Tags::dt<gr::Tags::SpatialMetric<DataType, Dim>>,
+               ::Tags::deriv<gr::Tags::SpatialMetric<DataType, Dim>,
+                             tmpl::size_t<Dim>, Frame::Inertial>,
+               gr::Tags::SqrtDetSpatialMetric<DataType>,
+               gr::Tags::ExtrinsicCurvature<DataType, Dim>,
+               gr::Tags::InverseSpatialMetric<DataType, Dim>>;
 }  // namespace gr

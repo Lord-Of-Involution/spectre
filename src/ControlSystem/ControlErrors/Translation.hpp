@@ -7,15 +7,17 @@
 #include <cstddef>
 #include <pup.h>
 
-#include "ApparentHorizons/ObjectLabel.hpp"
 #include "ControlSystem/ControlErrors/Expansion.hpp"
 #include "ControlSystem/ControlErrors/Rotation.hpp"
 #include "ControlSystem/DataVectorHelpers.hpp"
 #include "ControlSystem/Protocols/ControlError.hpp"
-#include "ControlSystem/Tags.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
+#include "Domain/Creators/Tags/ObjectCenter.hpp"
 #include "Domain/FunctionsOfTime/QuaternionHelpers.hpp"
-#include "Options/Options.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -71,6 +73,9 @@ namespace ControlErrors {
 struct Translation : tt::ConformsTo<protocols::ControlError> {
   static constexpr size_t expected_number_of_excisions = 2;
 
+  using object_centers =
+      domain::object_list<domain::ObjectLabel::A, domain::ObjectLabel::B>;
+
   using options = tmpl::list<>;
   static constexpr Options::String help{
       "Computes the control error for translation control. This should not "
@@ -83,7 +88,6 @@ struct Translation : tt::ConformsTo<protocols::ControlError> {
                         const double time,
                         const std::string& /*function_of_time_name*/,
                         const tuples::TaggedTuple<TupleTags...>& measurements) {
-    const auto& domain = get<domain::Tags::Domain<3>>(cache);
     const auto& functions_of_time = get<domain::Tags::FunctionsOfTime>(cache);
 
     using quat = boost::math::quaternion<double>;
@@ -93,14 +97,15 @@ struct Translation : tt::ConformsTo<protocols::ControlError> {
     const double expansion_factor =
         functions_of_time.at("Expansion")->func(time)[0][0];
 
-    using center_A = control_system::QueueTags::Center<::ah::ObjectLabel::A>;
+    using center_A =
+        control_system::QueueTags::Center<::domain::ObjectLabel::A>;
 
-    ASSERT(domain.excision_spheres().count("ObjectAExcisionSphere") == 1,
-           "Excision sphere for ObjectA not in the domain but is needed to "
-           "compute Translation control error.");
-
-    const DataVector grid_position_of_A = array_to_datavector(
-        domain.excision_spheres().at("ObjectAExcisionSphere").center());
+    const tnsr::I<double, 3, Frame::Grid>& grid_position_of_A_tnsr =
+        Parallel::get<domain::Tags::ObjectCenter<domain::ObjectLabel::A>>(
+            cache);
+    const DataVector grid_position_of_A{{grid_position_of_A_tnsr[0],
+                                         grid_position_of_A_tnsr[1],
+                                         grid_position_of_A_tnsr[2]}};
     const DataVector& current_position_of_A = get<center_A>(measurements);
 
     const DataVector rotation_error =

@@ -9,13 +9,13 @@ Homepage: https://spectre-code.org
 
 GitHub: sxs-collaboration/spectre
 
-Version: 2022.12.16
+Version: 2023.06.19
 
-PublicationDate: 2022-12-16
+PublicationDate: 2023-06-19
 
-Doi: 10.5281/zenodo.7447992
+Doi: 10.5281/zenodo.8056569
 
-ZenodoId: 7447992
+ZenodoId: 8056569
 
 Description: |
   SpECTRE is an open-source code for multi-scale, multi-physics problems
@@ -179,10 +179,10 @@ Authors:
         Orcid: 0000-0002-1791-0743
         Affiliations: [*cornell]
         GitHub: carmaza
-      - Name: Bonilla, Gabriel S.
+      - Name: Bonilla, Marceline S.
         Orcid: 0000-0003-4502-528X
-        Affiliations: [*cornell]
-        GitHub: gsb76
+        Affiliations: [*fullerton]
+        GitHub: mar-celine
       - Name: Kim, Yoonsoo
         Orcid: 0000-0002-4305-6026
         Affiliations: [*caltech]
@@ -289,6 +289,10 @@ Authors:
         Orcid: 0000-0002-7244-1900
         Affiliations: [*cornell]
         GitHub: "10220"
+      - Name: Jones, Ken Z.
+        Orcid: 0009-0003-1034-0498
+        Affiliations: [*fullerton]
+        GitHub: "kenzenjones"
       - Name: Legred, Isaac
         Orcid: 0000-0002-9523-9617
         Affiliations: [*caltech]
@@ -313,10 +317,18 @@ Authors:
         Orcid: 0000-0002-0491-1210
         Affiliations: [*princeton, *ias]
         GitHub: ermost
+      - Name: Nee, Peter James
+        Orcid: 0000-0002-2362-5420
+        Affiliations: [*aei]
+        GitHub: PunJustice
       - Name: Pajkos, Michael A.
         Orcid: 0000-0002-4983-4589
         Affiliations: [*caltech]
-        Github: pajkosmi
+        GitHub: pajkosmi
+      - Name: Pannone, Kyle
+        Orcid: 0009-0005-8607-2113
+        Affiliations: [*fullerton]
+        GitHub: Bronoulli
       - Name: Ramirez, Teresita
         Orcid: 0000-0003-0994-115X
         Affiliations: [*fullerton]
@@ -337,6 +349,10 @@ Authors:
         Orcid: 0000-0001-7559-9597
         Affiliations: [*umiss]
         GitHub: duetosymmetry
+      - Name: Tellez, Daniel
+        Orcid: 0009-0008-7784-2528
+        Affiliations: [*fullerton]
+        GitHub: daniel20tellez
       - Name: Thomas, Sierra
         Orcid: 0000-0003-3574-2090
         Affiliations: [*fullerton]
@@ -353,3 +369,27 @@ Authors:
         Orcid: 0000-0002-5287-4389
         Affiliations: [*cornell]
         GitHub: DavidWu421
+
+References:
+  Description: |
+    SpECTRE depends on these references. The keys refer to entries in the
+    'BibliographyFile'. We use BibTeX for our references so we can also cite
+    them in publications.
+  BibliographyFile: docs/Dependencies.bib
+  List:
+    - Blaze1
+    - Blaze2
+    - Charmpp1
+    - Charmpp2
+    - Charmpp3
+    - Gsl
+    - Hdf5
+    - Libsharp
+    - Libxsmm
+    - MatplotLib1
+    - MatplotLib2
+    - NumPy
+    - Paraview1
+    - Paraview2
+    - Pybind11
+    - Yamlcpp

@@ -23,13 +23,14 @@
 #include "PointwiseFunctions/GeneralRelativity/SpacetimeNormalOneForm.hpp"
 #include "PointwiseFunctions/GeneralRelativity/SpacetimeNormalVector.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
+#include "Utilities/CallWithDynamicType.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
-namespace GeneralizedHarmonic::gauges {
+namespace gh::gauges {
 AnalyticChristoffel::AnalyticChristoffel(const AnalyticChristoffel& rhs)
     : GaugeCondition{dynamic_cast<const GaugeCondition&>(rhs)},
       analytic_prescription_(rhs.analytic_prescription_->get_clone()) {}
@@ -71,13 +72,13 @@ void AnalyticChristoffel::gauge_and_spacetime_derivative(
                           Frame::Inertial>& inverse_jacobian) const {
   ASSERT(analytic_prescription_ != nullptr,
          "The analytic prescription cannot be nullptr.");
-  using solution_tags = tmpl::list<
-      GeneralizedHarmonic::Tags::Pi<SpatialDim, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::Phi<SpatialDim, Frame::Inertial>,
-      gr::Tags::SpacetimeMetric<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialMetric<SpatialDim, Frame::Inertial, DataVector>>;
+  using solution_tags =
+      tmpl::list<gh::Tags::Pi<DataVector, SpatialDim>,
+                 gh::Tags::Phi<DataVector, SpatialDim>,
+                 gr::Tags::SpacetimeMetric<DataVector, SpatialDim>,
+                 gr::Tags::Lapse<DataVector>,
+                 gr::Tags::Shift<DataVector, SpatialDim>,
+                 gr::Tags::SpatialMetric<DataVector, SpatialDim>>;
   const auto [pi, phi, spacetime_metric, lapse, shift, spatial_metric] =
       call_with_dynamic_type<tuples::tagged_tuple_from_typelist<solution_tags>,
                              solutions_including_matter<SpatialDim>>(
@@ -96,25 +97,20 @@ void AnalyticChristoffel::gauge_and_spacetime_derivative(
             }
           });
   // Now compute Gamma_a
-  Variables<tmpl::list<
-      gr::Tags::SpacetimeNormalVector<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalOneForm<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<SpatialDim, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpacetimeMetric<SpatialDim, Frame::Inertial,
-                                       DataVector>>>
+  Variables<
+      tmpl::list<gr::Tags::SpacetimeNormalVector<DataVector, SpatialDim>,
+                 gr::Tags::SpacetimeNormalOneForm<DataVector, SpatialDim>,
+                 gr::Tags::InverseSpatialMetric<DataVector, SpatialDim>,
+                 gr::Tags::InverseSpacetimeMetric<DataVector, SpatialDim>>>
       temp_vars(mesh.number_of_grid_points());
-  auto& spacetime_normal_vector = get<
-      gr::Tags::SpacetimeNormalVector<SpatialDim, Frame::Inertial, DataVector>>(
-      temp_vars);
+  auto& spacetime_normal_vector =
+      get<gr::Tags::SpacetimeNormalVector<DataVector, SpatialDim>>(temp_vars);
   auto& spacetime_normal_one_form =
-      get<gr::Tags::SpacetimeNormalOneForm<SpatialDim, Frame::Inertial,
-                                           DataVector>>(temp_vars);
-  auto& inverse_spatial_metric = get<
-      gr::Tags::InverseSpatialMetric<SpatialDim, Frame::Inertial, DataVector>>(
-      temp_vars);
+      get<gr::Tags::SpacetimeNormalOneForm<DataVector, SpatialDim>>(temp_vars);
+  auto& inverse_spatial_metric =
+      get<gr::Tags::InverseSpatialMetric<DataVector, SpatialDim>>(temp_vars);
   auto& inverse_spacetime_metric =
-      get<gr::Tags::InverseSpacetimeMetric<SpatialDim, Frame::Inertial,
-                                           DataVector>>(temp_vars);
+      get<gr::Tags::InverseSpacetimeMetric<DataVector, SpatialDim>>(temp_vars);
   {
     Scalar<DataVector> det_buffer{};
     get(det_buffer)
@@ -130,9 +126,9 @@ void AnalyticChristoffel::gauge_and_spacetime_derivative(
                                 lapse);
   gr::spacetime_normal_vector(make_not_null(&spacetime_normal_vector), lapse,
                               shift);
-  GeneralizedHarmonic::trace_christoffel(
-      gauge_h, spacetime_normal_one_form, spacetime_normal_vector,
-      inverse_spatial_metric, inverse_spacetime_metric, pi, phi);
+  gh::trace_christoffel(gauge_h, spacetime_normal_one_form,
+                        spacetime_normal_vector, inverse_spatial_metric,
+                        inverse_spacetime_metric, pi, phi);
   for (auto& component : *gauge_h) {
     component *= -1.0;
   }
@@ -171,4 +167,4 @@ PUP::able::PUP_ID AnalyticChristoffel::my_PUP_ID = 0;
 GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3))
 
 #undef INSTANTIATE
-}  // namespace GeneralizedHarmonic::gauges
+}  // namespace gh::gauges

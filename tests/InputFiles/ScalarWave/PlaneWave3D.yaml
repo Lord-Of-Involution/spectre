@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarWave3D
-# Check: parse;execute
+Executable: EvolveScalarWave3D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -21,12 +24,12 @@ PhaseChangeAndTriggers:
 
 Evolution:
   InitialTime: 0.0
-  InitialTimeStep: 0.001
+  # Test backwards evolution in an integration test
+  InitialTimeStep: -0.001
   InitialSlabSize: 0.01
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  StepController: BinaryFraction
   StepChoosers:
     - Constant: 0.05
     - Increase:
@@ -41,7 +44,9 @@ DomainCreator:
     InitialRefinement: [1, 1, 1]
     InitialGridPoints: [5, 5, 5]
     TimeDependence: None
-    BoundaryCondition: Periodic
+    BoundaryConditionInX: Periodic
+    BoundaryConditionInY: Periodic
+    BoundaryConditionInZ: Periodic
 
 SpatialDiscretization:
   BoundaryCorrection:
@@ -55,12 +60,27 @@ SpatialDiscretization:
 #   ExpFilter0:
 #     Alpha: 12
 #     HalfPower: 32
+#     Enable: false
+#     BlocksToFilter: All
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Times:
         Specified:
-          Values: [5]
-    - - Completion
+          Values: [&final_time -0.05]
+    Events:
+      - Completion
+  - Trigger: Always
+    Events:
+      - ChangeSlabSize:
+          DelayChange: 0
+          StepChoosers:
+            - Increase:
+                Factor: 1.1
+            - StepToTimes:
+                Times:
+                  Specified:
+                    Values: [*final_time]
 
 EventsAndDenseTriggers:
 

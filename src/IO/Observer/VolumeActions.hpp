@@ -11,7 +11,7 @@
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/Index.hpp"
-#include "Domain/Domain.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/Tags.hpp"
 #include "IO/H5/AccessType.hpp"
@@ -29,11 +29,11 @@
 #include "Parallel/Invoke.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
-#include "Parallel/Serialize.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -67,7 +67,6 @@ struct ContributeVolumeData {
                     const observers::ArrayComponentId& sender_array_id,
                     ElementVolumeData&& received_volume_data) {
     db::mutate<Tags::TensorData, Tags::ContributorsOfTensorData>(
-        make_not_null(&box),
         [&array_index, &cache, &received_volume_data, &observation_id,
          &sender_array_id, &subfile_name](
             const gsl::not_null<std::unordered_map<
@@ -142,6 +141,7 @@ struct ContributeVolumeData {
             volume_data->erase(observation_id);
           }
         },
+        make_not_null(&box),
         db::get<Tags::ExpectedContributorsForObservations>(box));
   }
 };
@@ -226,7 +226,6 @@ struct ContributeVolumeDataToWriter {
       const std::lock_guard hold_lock(*node_lock);
       db::mutate<TensorDataTag, Tags::ContributorsOfTensorData,
                  Tags::VolumeDataLock, Tags::H5FileLock>(
-          make_not_null(&box),
           [&observation_id, &observations_registered_with_id,
            &observer_group_id, &all_volume_data, &volume_observers_contributed,
            &volume_data_lock, &volume_file_lock](
@@ -257,6 +256,7 @@ struct ContributeVolumeDataToWriter {
                 observations_registered.at(key).size();
             volume_file_lock = &*volume_file_lock_ptr;
           },
+          make_not_null(&box),
           db::get<Tags::ExpectedContributorsForObservations>(box));
     }
 
@@ -357,13 +357,13 @@ struct ContributeVolumeDataToWriter {
         auto& volume_file =
             h5file.try_insert<h5::VolumeData>(subfile_name, version_number);
 
-        // Serialize domain, ignoring versioning for now. See issue:
-        // https://github.com/sxs-collaboration/spectre/issues/3937
+        // Serialize domain. See `Domain` docs for details on the serialization.
         // The domain is retrieved from the global cache using the standard
         // domain tag. If more flexibility is required here later, then the
         // domain can be passed along with the `ContributeVolumeData` action.
         const auto serialized_domain = serialize(
-            db::get<domain::Tags::Domain<Metavariables::volume_dim>>(box));
+            Parallel::get<domain::Tags::Domain<Metavariables::volume_dim>>(
+                cache));
         const auto serialized_functions_of_time =
             [&cache]() -> std::optional<std::vector<char>> {
           // Functions-of-time are in the _mutable_ global cache, so they aren't

@@ -30,7 +30,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \ingroup GeneralRelativityGroup
@@ -47,7 +47,7 @@ namespace GeneralizedHarmonic {
  * \f}
  * See Eqs. 8 and 9 of \cite Lindblom2005qh
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void gauge_source(
     gsl::not_null<tnsr::a<DataType, SpatialDim, Frame>*> gauge_source_h,
     const Scalar<DataType>& lapse, const Scalar<DataType>& dt_lapse,
@@ -59,7 +59,7 @@ void gauge_source(
     const Scalar<DataType>& trace_extrinsic_curvature,
     const tnsr::i<DataType, SpatialDim, Frame>& trace_christoffel_last_indices);
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::a<DataType, SpatialDim, Frame> gauge_source(
     const Scalar<DataType>& lapse, const Scalar<DataType>& dt_lapse,
     const tnsr::i<DataType, SpatialDim, Frame>& deriv_lapse,
@@ -77,24 +77,25 @@ namespace Tags {
  * quantities.
  *
  * \details See `gauge_source()`. Can be retrieved using
- * `GeneralizedHarmonic::Tags::GaugeH`.
+ * `gh::Tags::GaugeH`.
  */
 template <size_t SpatialDim, typename Frame>
-struct GaugeHImplicitFrom3p1QuantitiesCompute : GaugeH<SpatialDim, Frame>,
-                                                db::ComputeTag {
+struct GaugeHImplicitFrom3p1QuantitiesCompute
+    : GaugeH<DataVector, SpatialDim, Frame>,
+      db::ComputeTag {
   using argument_tags =
       tmpl::list<gr::Tags::Lapse<DataVector>,
                  ::Tags::dt<gr::Tags::Lapse<DataVector>>,
                  ::Tags::deriv<gr::Tags::Lapse<DataVector>,
                                tmpl::size_t<SpatialDim>, Frame>,
-                 gr::Tags::Shift<SpatialDim, Frame, DataVector>,
-                 ::Tags::dt<gr::Tags::Shift<SpatialDim, Frame, DataVector>>,
-                 ::Tags::deriv<gr::Tags::Shift<SpatialDim, Frame, DataVector>,
+                 gr::Tags::Shift<DataVector, SpatialDim, Frame>,
+                 ::Tags::dt<gr::Tags::Shift<DataVector, SpatialDim, Frame>>,
+                 ::Tags::deriv<gr::Tags::Shift<DataVector, SpatialDim, Frame>,
                                tmpl::size_t<SpatialDim>, Frame>,
-                 gr::Tags::SpatialMetric<SpatialDim, Frame, DataVector>,
+                 gr::Tags::SpatialMetric<DataVector, SpatialDim, Frame>,
                  gr::Tags::TraceExtrinsicCurvature<DataVector>,
-                 gr::Tags::TraceSpatialChristoffelFirstKind<SpatialDim, Frame,
-                                                            DataVector>>;
+                 gr::Tags::TraceSpatialChristoffelFirstKind<DataVector,
+                                                            SpatialDim, Frame>>;
 
   using return_type = tnsr::a<DataVector, SpatialDim, Frame>;
 
@@ -107,9 +108,9 @@ struct GaugeHImplicitFrom3p1QuantitiesCompute : GaugeH<SpatialDim, Frame>,
       const tnsr::iJ<DataVector, SpatialDim, Frame>&,
       const tnsr::ii<DataVector, SpatialDim, Frame>&, const Scalar<DataVector>&,
       const tnsr::i<DataVector, SpatialDim, Frame>&)>(
-      &gauge_source<SpatialDim, Frame, DataVector>);
+      &gauge_source<DataVector, SpatialDim, Frame>);
 
-  using base = GaugeH<SpatialDim, Frame>;
+  using base = GaugeH<DataVector, SpatialDim, Frame>;
 };
 
 /*!
@@ -117,15 +118,16 @@ struct GaugeHImplicitFrom3p1QuantitiesCompute : GaugeH<SpatialDim, Frame>,
  * from its spatial and time derivatives.
  *
  * \details Can be retrieved using
- * `GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH`.
+ * `gh::Tags::SpacetimeDerivGaugeH`.
  */
 template <size_t SpatialDim, typename Frame>
-struct SpacetimeDerivGaugeHCompute : SpacetimeDerivGaugeH<SpatialDim, Frame>,
-                                     db::ComputeTag {
-  using argument_tags = tmpl::list<
-      ::Tags::dt<GeneralizedHarmonic::Tags::GaugeH<SpatialDim, Frame>>,
-      ::Tags::deriv<GeneralizedHarmonic::Tags::GaugeH<SpatialDim, Frame>,
-                    tmpl::size_t<SpatialDim>, Frame>>;
+struct SpacetimeDerivGaugeHCompute
+    : SpacetimeDerivGaugeH<DataVector, SpatialDim, Frame>,
+      db::ComputeTag {
+  using argument_tags =
+      tmpl::list<::Tags::dt<gh::Tags::GaugeH<DataVector, SpatialDim, Frame>>,
+                 ::Tags::deriv<gh::Tags::GaugeH<DataVector, SpatialDim, Frame>,
+                               tmpl::size_t<SpatialDim>, Frame>>;
 
   using return_type = tnsr::ab<DataVector, SpatialDim, Frame>;
 
@@ -145,7 +147,7 @@ struct SpacetimeDerivGaugeHCompute : SpacetimeDerivGaugeH<SpatialDim, Frame>,
     }
   }
 
-  using base = SpacetimeDerivGaugeH<SpatialDim, Frame>;
+  using base = SpacetimeDerivGaugeH<DataVector, SpatialDim, Frame>;
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

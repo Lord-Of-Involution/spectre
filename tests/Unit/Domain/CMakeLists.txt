@@ -8,6 +8,7 @@ add_subdirectory(Tags)
 set(LIBRARY "Test_Domain")
 
 set(LIBRARY_SOURCES
+  Test_AreaElement.cpp
   Test_Block.cpp
   Test_BlockAndElementLogicalCoordinates.cpp
   Test_CoordinatesTag.cpp
@@ -18,17 +19,21 @@ set(LIBRARY_SOURCES
   Test_DomainTestHelpers.cpp
   Test_ElementDistribution.cpp
   Test_ElementMap.cpp
+  Test_ElementToBlockLogicalMap.cpp
   Test_FaceNormal.cpp
+  Test_FlatLogicalMetric.cpp
   Test_InterfaceHelpers.cpp
   Test_InterfaceItems.cpp
   Test_InterfaceLogicalCoordinates.cpp
+  Test_JacobianDiagnostic.cpp
   Test_MinimumGridSpacing.cpp
   Test_Protocols.cpp
+  Test_RadiallyCompressedCoordinates.cpp
   Test_SizeOfElement.cpp
   Test_Tags.cpp
   Test_TagsCharacteristicSpeeds.cpp
   Test_TagsTimeDependent.cpp
-  )
+)
 
 add_subdirectory(Amr)
 add_subdirectory(BoundaryConditions)
@@ -46,9 +51,12 @@ add_test_library(
 target_link_libraries(
   ${LIBRARY}
   PRIVATE
+  CoordinateMaps
   Domain
   DomainBoundaryConditionsHelpers
   DomainCreators
   DomainHelpers
+  GeneralRelativitySolutions
+  LinearOperators
   Utilities
   )

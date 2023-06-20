@@ -22,16 +22,17 @@
 #include "IO/Observer/ReductionActions.hpp"
 #include "IO/Observer/TypeOfObservation.hpp"
 #include "NumericalAlgorithms/LinearOperators/DefiniteIntegral.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/ArrayIndex.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/Reduction.hpp"
+#include "ParallelAlgorithms/Events/Tags.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/Functional.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -118,11 +119,12 @@ class ObserveVolumeIntegrals<
   using compute_tags_for_observation_box =
       tmpl::list<Tensors..., NonTensorComputeTags...>;
 
-  using argument_tags = tmpl::list<
-      ::Tags::ObservationBox, ObservationValueTag,
-      domain::Tags::Mesh<VolumeDim>,
-      domain::Tags::DetInvJacobian<Frame::ElementLogical, Frame::Inertial>,
-      Tensors...>;
+  using argument_tags =
+      tmpl::list<::Tags::ObservationBox, ObservationValueTag,
+                 ::Events::Tags::ObserverMesh<VolumeDim>,
+                 ::Events::Tags::ObserverDetInvJacobian<Frame::ElementLogical,
+                                                        Frame::Inertial>,
+                 Tensors...>;
 
   template <typename DataBoxType, typename ComputeTagsList,
             typename Metavariables, typename ArrayIndex,

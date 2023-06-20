@@ -22,9 +22,8 @@
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
 #include "Evolution/VariableFixing/Tags.hpp"
 #include "Options/FactoryHelpers.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
+#include "Options/String.hpp"
 #include "ParallelAlgorithms/Interpolation/Actions/CleanUpInterpolator.hpp"
 #include "ParallelAlgorithms/Interpolation/Actions/InitializeInterpolationTarget.hpp"
 #include "ParallelAlgorithms/Interpolation/Actions/InterpolationTargetReceiveVars.hpp"
@@ -43,12 +42,13 @@
 #include "ParallelAlgorithms/Interpolation/Targets/ApparentHorizon.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/Factory.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/RegisterDerivedWithCharm.hpp"
-#include "Time/StepControllers/Factory.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 template <typename InitialData, typename... InterpolationTargetTags>
@@ -85,10 +85,11 @@ struct EvolutionMetavars
         tmpl::list<StrahlkorperGr::Tags::AreaCompute<domain_frame>>;
     using compute_vars_to_interpolate = ah::ComputeHorizonVolumeQuantities;
     using vars_to_interpolate_to_target = tmpl::list<
-        gr::Tags::SpatialMetric<volume_dim, domain_frame, DataVector>,
-        gr::Tags::InverseSpatialMetric<volume_dim, domain_frame>,
-        gr::Tags::ExtrinsicCurvature<volume_dim, domain_frame>,
-        gr::Tags::SpatialChristoffelSecondKind<volume_dim, domain_frame>>;
+        gr::Tags::SpatialMetric<DataVector, volume_dim, domain_frame>,
+        gr::Tags::InverseSpatialMetric<DataVector, volume_dim, domain_frame>,
+        gr::Tags::ExtrinsicCurvature<DataVector, volume_dim, domain_frame>,
+        gr::Tags::SpatialChristoffelSecondKind<DataVector, volume_dim,
+                                               domain_frame>>;
     using compute_items_on_target = tmpl::append<
         tmpl::list<StrahlkorperGr::Tags::AreaElementCompute<domain_frame>>,
         tags_to_observe>;
@@ -103,10 +104,10 @@ struct EvolutionMetavars
   };
 
   using interpolation_target_tags = tmpl::list<AhA>;
-  using interpolator_source_vars =
-      tmpl::list<gr::Tags::SpacetimeMetric<volume_dim, domain_frame>,
-                 GeneralizedHarmonic::Tags::Pi<volume_dim, domain_frame>,
-                 GeneralizedHarmonic::Tags::Phi<volume_dim, domain_frame>>;
+  using interpolator_source_vars = tmpl::list<
+      gr::Tags::SpacetimeMetric<DataVector, volume_dim, domain_frame>,
+      gh::Tags::Pi<DataVector, volume_dim, domain_frame>,
+      gh::Tags::Phi<DataVector, volume_dim, domain_frame>>;
 
   using observe_fields =
       typename GhValenciaDivCleanTemplateBase<EvolutionMetavars,
@@ -130,18 +131,18 @@ struct EvolutionMetavars
                                               use_dg_subcell>::initial_data_tag;
 
   using const_global_cache_tags = tmpl::flatten<tmpl::list<
-      GeneralizedHarmonic::gauges::Tags::GaugeCondition,
+      gh::gauges::Tags::GaugeCondition,
       tmpl::conditional_t<evolution::is_numeric_initial_data_v<initial_data>,
                           tmpl::list<>, initial_data_tag>,
       grmhd::ValenciaDivClean::Tags::ConstraintDampingParameter,
       typename GhValenciaDivCleanTemplateBase<
           EvolutionMetavars, use_dg_subcell>::equation_of_state_tag,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma0<
-          volume_dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma1<
-          volume_dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma2<
-          volume_dim, Frame::Grid>>>;
+      gh::ConstraintDamping::Tags::DampingFunctionGamma0<volume_dim,
+                                                         Frame::Grid>,
+      gh::ConstraintDamping::Tags::DampingFunctionGamma1<volume_dim,
+                                                         Frame::Grid>,
+      gh::ConstraintDamping::Tags::DampingFunctionGamma2<volume_dim,
+                                                         Frame::Grid>>>;
 
   using observed_reduction_data_tags = observers::collect_reduction_data_tags<
       tmpl::at<typename factory_creation::factory_classes, Event>>;
@@ -173,9 +174,9 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &domain::FunctionsOfTime::register_derived_with_charm,
     &grmhd::GhValenciaDivClean::BoundaryCorrections::
         register_derived_with_charm,
-    &GeneralizedHarmonic::ConstraintDamping::register_derived_with_charm,
+    &gh::ConstraintDamping::register_derived_with_charm,
     &EquationsOfState::register_derived_with_charm,
-    &Parallel::register_factory_classes_with_charm<metavariables>};
+    &register_factory_classes_with_charm<metavariables>};
 
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};

@@ -24,7 +24,8 @@
 #include "Domain/Creators/Disk.hpp"
 #include "Domain/Creators/Interval.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/ElementId.hpp"
@@ -164,11 +165,11 @@ struct MockMetavariables {
     using temporal_id = ::Tags::Time;
     using vars_to_interpolate_to_target =
         tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<volume_dim, Frame::Inertial>,
+                   gr::Tags::SpatialMetric<DataVector, volume_dim>,
                    domain::Tags::Coordinates<volume_dim, Frame::Inertial>>;
     using compute_items_on_target = tmpl::list<Tags::SquareCompute>;
     using compute_target_points =
-        intrp::TargetPoints::LineSegment<LineA, volume_dim>;
+        intrp::TargetPoints::LineSegment<LineA, volume_dim, Frame::Inertial>;
     using post_interpolation_callback = intrp::callbacks::ObserveLineSegment<
         tmpl::append<vars_to_interpolate_to_target, compute_items_on_target>,
         LineA>;
@@ -178,11 +179,11 @@ struct MockMetavariables {
     using temporal_id = ::Tags::TimeStepId;
     using vars_to_interpolate_to_target =
         tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<volume_dim, Frame::Inertial>,
+                   gr::Tags::SpatialMetric<DataVector, volume_dim>,
                    domain::Tags::Coordinates<volume_dim, Frame::Inertial>>;
     using compute_items_on_target = tmpl::list<Tags::SquareCompute>;
     using compute_target_points =
-        intrp::TargetPoints::LineSegment<LineB, volume_dim>;
+        intrp::TargetPoints::LineSegment<LineB, volume_dim, Frame::Inertial>;
     using post_interpolation_callback = intrp::callbacks::ObserveLineSegment<
         tmpl::append<vars_to_interpolate_to_target, compute_items_on_target>,
         LineB>;
@@ -192,7 +193,7 @@ struct MockMetavariables {
 
   using interpolator_source_vars =
       tmpl::list<Tags::TestSolution,
-                 gr::Tags::SpatialMetric<volume_dim, Frame::Inertial>,
+                 gr::Tags::SpatialMetric<DataVector, volume_dim>,
                  domain::Tags::Coordinates<volume_dim, Frame::Inertial>>;
   using interpolation_target_tags = tmpl::list<LineA, LineB>;
   using component_list =
@@ -326,7 +327,7 @@ void run_test(gsl::not_null<Generator*> generator,
       target_a_component, intrp::Actions::AddTemporalIdsToInterpolationTarget<
                               typename metavars::LineA>>(
       make_not_null(&runner), 0,
-      std::vector<double>{temporal_id.substep_time().value()});
+      std::vector<double>{temporal_id.substep_time()});
   ActionTesting::simple_action<
       target_b_component, intrp::Actions::AddTemporalIdsToInterpolationTarget<
                               typename metavars::LineB>>(
@@ -357,17 +358,17 @@ void run_test(gsl::not_null<Generator*> generator,
     get<>(get<Tags::TestSolution>(output_vars)) =
         test_function(inertial_coords);
 
-    get<gr::Tags::SpatialMetric<Dim, Frame::Inertial>>(output_vars) =
-        get<gr::Tags::SpatialMetric<Dim, Frame::Inertial>>(spacetime.variables(
+    get<gr::Tags::SpatialMetric<DataVector, Dim>>(output_vars) =
+        get<gr::Tags::SpatialMetric<DataVector, Dim>>(spacetime.variables(
             inertial_coords, 0.0,
-            tmpl::list<gr::Tags::SpatialMetric<Dim, Frame::Inertial>>{}));
+            tmpl::list<gr::Tags::SpatialMetric<DataVector, Dim>>{}));
 
     // Call the InterpolatorReceiveVolumeData action on each element_id.
     ActionTesting::simple_action<interp_component,
                                  intrp::Actions::InterpolatorReceiveVolumeData<
                                      typename metavars::LineA::temporal_id>>(
         make_not_null(&runner), mock_core_for_each_element.at(element_id),
-        temporal_id.substep_time().value(), element_id, mesh, output_vars);
+        temporal_id.substep_time(), element_id, mesh, output_vars);
     ActionTesting::simple_action<interp_component,
                                  intrp::Actions::InterpolatorReceiveVolumeData<
                                      typename metavars::LineB::temporal_id>>(
@@ -427,9 +428,9 @@ void run_test(gsl::not_null<Generator*> generator,
     }
 
     const auto interpolated_metric =
-        get<gr::Tags::SpatialMetric<Dim, Frame::Inertial>>(spacetime.variables(
+        get<gr::Tags::SpatialMetric<DataVector, Dim>>(spacetime.variables(
             interpolated_coords, 0.0,
-            tmpl::list<gr::Tags::SpatialMetric<Dim, Frame::Inertial>>{}));
+            tmpl::list<gr::Tags::SpatialMetric<DataVector, Dim>>{}));
     for (size_t i = 0; i < interpolated_metric.size(); ++i) {
       const auto& written_component = vol_file.get_tensor_component(
           obs_ids.at(0),
@@ -461,13 +462,13 @@ void run_test(gsl::not_null<Generator*> generator,
 
   const auto& data_box_a =
       ActionTesting::get_databox<target_a_component>(runner, 0);
-  const auto interpolated_coords_a =
-      intrp::TargetPoints::LineSegment<typename metavars::LineA, Dim>::points(
+  const auto interpolated_coords_a = intrp::TargetPoints::
+      LineSegment<typename metavars::LineA, Dim, Frame::Inertial>::points(
           data_box_a, tmpl::type_<metavars>{});
   const auto& data_box_b =
       ActionTesting::get_databox<target_b_component>(runner, 0);
-  const auto interpolated_coords_b =
-      intrp::TargetPoints::LineSegment<typename metavars::LineB, Dim>::points(
+  const auto interpolated_coords_b = intrp::TargetPoints::
+      LineSegment<typename metavars::LineB, Dim, Frame::Inertial>::points(
           data_box_b, tmpl::type_<metavars>{});
 
   check_file_contents("/LineA", interpolated_coords_a);
@@ -483,10 +484,11 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.ObserveLineSegment",
   domain::creators::register_derived_with_charm();
   MAKE_GENERATOR(generator);
 
-  const auto interval = domain::creators::Interval({{0.}}, {{4.}}, {{1}},
-                                                   {{12}}, {{true}}, nullptr);
+  const auto interval =
+      domain::creators::Interval({{0.}}, {{4.}}, {{1}}, {{12}}, {{true}});
   const auto disk = domain::creators::Disk(0.9, 4.9, 1, {{12, 12}}, false);
-  const auto shell = domain::creators::Shell(0.9, 4.9, 1, {{12, 12}}, false);
+  const auto shell = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 12_st, false);
 
   intrp::OptionHolders::LineSegment<1> line_segment_opts_A_1d({{0.0}}, {{1.0}},
                                                               10);

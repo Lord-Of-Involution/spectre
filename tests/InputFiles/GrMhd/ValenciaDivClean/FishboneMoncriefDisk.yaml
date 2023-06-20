@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveValenciaDivCleanFishboneMoncriefDisk
-# Check: parse;execute
+Executable: EvolveValenciaDivCleanFishboneMoncriefDisk
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -17,8 +20,7 @@ Evolution:
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  # StepController and StepChoosers are needed only for local time stepping
-  # StepController: BinaryFraction
+  # StepChoosers are needed only for local time stepping
   # StepChoosers:
   #   - Constant: 0.05
   #   - Increase:
@@ -29,12 +31,14 @@ Evolution:
   # InitialSlabSize: 0.01
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
        EvenlySpaced:
          # Current implementation checks wallclock at these global syncs
          Interval: 100
          Offset: 0
-    - - CheckpointAndExitAfterWallclock:
+    PhaseChanges:
+      - CheckpointAndExitAfterWallclock:
           WallclockHours: None
 
 DomainCreator:
@@ -44,7 +48,9 @@ DomainCreator:
     InitialRefinement: [0, 0, 0]
     InitialGridPoints: [5, 5, 5]
     TimeDependence: None
-    BoundaryCondition: DirichletAnalytic
+    BoundaryConditionInX: DirichletAnalytic
+    BoundaryConditionInY: DirichletAnalytic
+    BoundaryConditionInZ: DirichletAnalytic
 
 SpatialDiscretization:
   BoundaryCorrection:
@@ -62,6 +68,9 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
     TciOptions:
       MinimumValueOfD: 1.0e-20
       MinimumValueOfYe: 1.0e-20
@@ -101,15 +110,19 @@ VariableFixing:
     MaxVelocityMagnitude: 1.0e-4
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
-  - - Slabs:
+    Events:
+      - Completion
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1
           Offset: 0
-    - - ChangeSlabSize:
+    Events:
+      - ChangeSlabSize:
           # DelayChange: 0 forces a synchronization after every slab.
           # It is more efficient to use a higher value.  This is for
           # testing.
@@ -124,6 +137,8 @@ EventsAndTriggers:
 
 EventsAndDenseTriggers:
 
+EventsRunAtCleanup:
+
 Observers:
   VolumeFileName: "ValenciaDivCleanFishboneMoncriefDiskVolume"
   ReductionFileName: "ValenciaDivCleanFishboneMoncriefDiskReductions"
@@ -133,7 +148,7 @@ Interpolator:
 
 InterpolationTargets:
   KerrHorizon:
-    Lmax: 10
+    LMax: 10
     Center: [0.0, 0.0, 0.0]
     Mass: *BhMass
     DimensionlessSpin: [0.0, 0.0, *BhDimlessSpin]

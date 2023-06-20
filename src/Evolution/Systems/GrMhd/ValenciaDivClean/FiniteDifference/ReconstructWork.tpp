@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <iterator>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/FixedHashMap.hpp"
@@ -22,6 +21,7 @@
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/ConservativeFromPrimitive.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
@@ -45,7 +45,8 @@ void compute_conservatives_for_reconstruction(
   // 6. conserved variables
   // - note: spatial metric, inv spatial metric, lapse, and shift are
   //         all already in vars_on_face
-  const auto& spatial_metric = get<gr::Tags::SpatialMetric<3>>(*vars_on_face);
+  const auto& spatial_metric =
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(*vars_on_face);
   const auto& lorentz_factor_times_spatial_velocity =
       get<hydro::Tags::LorentzFactorTimesSpatialVelocity<DataVector, 3>>(
           *vars_on_face);
@@ -97,12 +98,12 @@ void compute_conservatives_for_reconstruction(
       make_not_null(
           &get<ValenciaDivClean::Tags::TildeB<Frame::Inertial>>(*vars_on_face)),
       make_not_null(&get<ValenciaDivClean::Tags::TildePhi>(*vars_on_face)),
-      rest_mass_density, electron_fraction, specific_internal_energy,
-      specific_enthalpy, pressure, spatial_velocity, lorentz_factor,
+      rest_mass_density, electron_fraction, specific_internal_energy, pressure,
+      spatial_velocity, lorentz_factor,
       get<hydro::Tags::MagneticField<DataVector, 3, Frame::Inertial>>(
           *vars_on_face),
       get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(*vars_on_face),
-      get<gr::Tags::SpatialMetric<3>>(*vars_on_face),
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(*vars_on_face),
       get<hydro::Tags::DivergenceCleaningField<DataVector>>(*vars_on_face));
 }
 
@@ -232,8 +233,8 @@ void reconstruct_fd_neighbor_work(
     const Element<3>& element,
     const FixedHashMap<
         maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
-        std::vector<double>,
-        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& neighbor_data,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<3>, ElementId<3>>>>& ghost_data,
     const Mesh<3>& subcell_mesh, const Direction<3>& direction_to_reconstruct,
     const size_t ghost_zone_size, const bool compute_conservatives) {
   const std::pair mortar_id{
@@ -243,10 +244,11 @@ void reconstruct_fd_neighbor_work(
   ghost_data_extents[direction_to_reconstruct.dimension()] = ghost_zone_size;
   Variables<PrimsTagsSentByNeighbor> neighbor_prims{};
   {
-    ASSERT(neighbor_data.contains(mortar_id),
+    ASSERT(ghost_data.contains(mortar_id),
            "The neighbor data does not contain the mortar: ("
                << mortar_id.first << ',' << mortar_id.second << ")");
-    const auto& neighbor_data_on_mortar = neighbor_data.at(mortar_id);
+    const DataVector& neighbor_data_on_mortar =
+        ghost_data.at(mortar_id).neighbor_ghost_data_for_reconstruction();
     neighbor_prims.set_data_ref(
         const_cast<double*>(neighbor_data_on_mortar.data()),
         neighbor_prims.number_of_independent_components *

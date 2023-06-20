@@ -6,9 +6,11 @@
 #include <array>
 #include <cstddef>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
+#include "DataStructures/DataBox/PrefixHelpers.hpp"
+#include "DataStructures/DataBox/Prefixes.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Index.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
@@ -20,8 +22,10 @@
 #include "Evolution/DgSubcell/RdmpTci.hpp"
 #include "Evolution/DgSubcell/RdmpTciData.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
+#include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
+#include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Tags/NeighborMesh.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Utilities/Algorithm.hpp"
@@ -53,34 +57,57 @@ namespace evolution::dg::subcell {
  * elide any slicing or projection cost in that direction.
  */
 template <typename Metavariables, typename DbTagsList, size_t Dim>
-auto prepare_neighbor_data(const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
-                           const gsl::not_null<db::DataBox<DbTagsList>*> box)
-    -> DirectionMap<Metavariables::volume_dim, std::vector<double>> {
+void prepare_neighbor_data(
+    const gsl::not_null<DirectionMap<Dim, DataVector>*>
+        all_neighbor_data_for_reconstruction,
+    const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
+    const gsl::not_null<db::DataBox<DbTagsList>*> box,
+    [[maybe_unused]] const Variables<db::wrap_tags_in<
+        ::Tags::Flux, typename Metavariables::system::flux_variables,
+        tmpl::size_t<Dim>, Frame::Inertial>>& volume_fluxes) {
   const Mesh<Dim>& dg_mesh = db::get<::domain::Tags::Mesh<Dim>>(*box);
   const Mesh<Dim>& subcell_mesh =
       db::get<::evolution::dg::subcell::Tags::Mesh<Dim>>(*box);
   const auto& element = db::get<::domain::Tags::Element<Dim>>(*box);
 
-  DirectionMap<Dim, bool> directions_to_slice{};
-  for (const auto& [direction, neighbors_in_direction] : element.neighbors()) {
-    if (neighbors_in_direction.size() == 0) {
-      directions_to_slice[direction] = false;
-    } else {
-      directions_to_slice[direction] = true;
-    }
-  }
+  const std::unordered_set<Direction<Dim>>& directions_to_slice =
+      element.internal_boundaries();
+
   const auto& neighbor_meshes =
       db::get<evolution::dg::Tags::NeighborMesh<Dim>>(*box);
   const subcell::RdmpTciData& rdmp_data =
       db::get<subcell::Tags::DataForRdmpTci>(*box);
+  const ::fd::DerivativeOrder fd_derivative_order =
+      get<evolution::dg::subcell::Tags::SubcellOptions<Dim>>(*box)
+          .finite_difference_derivative_order();
   const size_t rdmp_size = rdmp_data.max_variables_values.size() +
                            rdmp_data.min_variables_values.size();
+  const size_t extra_size_for_ghost_data =
+      (fd_derivative_order == ::fd::DerivativeOrder::Two
+           ? 0
+           : volume_fluxes.size());
 
-  const auto ghost_variables = db::mutate_apply(
-      typename Metavariables::SubcellOptions::GhostVariables{}, box);
-
-  DirectionMap<Dim, std::vector<double>> all_neighbor_data_for_reconstruction{};
-  if (alg::all_of(neighbor_meshes,
+  if (DataVector ghost_variables =
+          [&box, &extra_size_for_ghost_data, &rdmp_size, &volume_fluxes]() {
+            if (extra_size_for_ghost_data == 0) {
+              return db::mutate_apply(
+                  typename Metavariables::SubcellOptions::GhostVariables{}, box,
+                  rdmp_size);
+            } else {
+              DataVector ghost_vars = db::mutate_apply(
+                  typename Metavariables::SubcellOptions::GhostVariables{}, box,
+                  rdmp_size + extra_size_for_ghost_data);
+              std::copy(
+                  volume_fluxes.data(),
+                  std::next(volume_fluxes.data(),
+                            static_cast<std::ptrdiff_t>(volume_fluxes.size())),
+                  std::prev(ghost_vars.end(),
+                            static_cast<std::ptrdiff_t>(
+                                rdmp_size + extra_size_for_ghost_data)));
+              return ghost_vars;
+            }
+          }();
+      alg::all_of(neighbor_meshes,
                   [](const auto& directional_element_id_and_mesh) {
                     ASSERT(directional_element_id_and_mesh.second.basis(0) !=
                                Spectral::Basis::Chebyshev,
@@ -89,38 +116,65 @@ auto prepare_neighbor_data(const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
                            Spectral::Basis::Legendre;
                   })) {
     *ghost_data_mesh = dg_mesh;
-    for (const auto& [direction, slice] : directions_to_slice) {
-      if (slice) {
-        std::vector<double> data{};
-        data.reserve(ghost_variables.size() + rdmp_size);
-        data.resize(ghost_variables.size());
-        std::copy(ghost_variables.data(),
-                  ghost_variables.data() + ghost_variables.size(),
-                  data.begin());
-        [[maybe_unused]] const auto insert_result =
-            all_neighbor_data_for_reconstruction.insert(
-                std::pair{direction, std::move(data)});
-        ASSERT(insert_result.second,
-               "Failed to insert the neighbor data in direction " << direction);
-      }
+    const size_t total_to_slice = directions_to_slice.size();
+    size_t slice_count = 0;
+    for (const auto& direction : directions_to_slice) {
+      ++slice_count;
+      // Move instead of copy on the last iteration. Elides a memory
+      // allocation and copy.
+      [[maybe_unused]] const auto insert_result =
+          UNLIKELY(slice_count == total_to_slice)
+              ? all_neighbor_data_for_reconstruction->insert_or_assign(
+                    direction, std::move(ghost_variables))
+              : all_neighbor_data_for_reconstruction->insert_or_assign(
+                    direction, ghost_variables);
+      ASSERT(all_neighbor_data_for_reconstruction->size() == total_to_slice or
+                 insert_result.second,
+             "Failed to insert the neighbor data in direction " << direction);
     }
   } else {
     *ghost_data_mesh = subcell_mesh;
     const size_t ghost_zone_size =
         Metavariables::SubcellOptions::ghost_zone_size(*box);
 
-    all_neighbor_data_for_reconstruction = subcell::slice_data(
-        evolution::dg::subcell::fd::project(ghost_variables, dg_mesh,
-                                            subcell_mesh.extents()),
-        db::get<subcell::Tags::Mesh<Dim>>(*box).extents(), ghost_zone_size,
-        directions_to_slice, rdmp_size);
+    const DataVector data_to_project{};
+    make_const_view(make_not_null(&data_to_project), ghost_variables, 0,
+                    ghost_variables.size() - rdmp_size);
+    const DataVector projected_data = evolution::dg::subcell::fd::project(
+        data_to_project, dg_mesh, subcell_mesh.extents());
+    *all_neighbor_data_for_reconstruction = subcell::slice_data(
+        projected_data, db::get<subcell::Tags::Mesh<Dim>>(*box).extents(),
+        ghost_zone_size, directions_to_slice, rdmp_size);
+
+    const auto& subcell_options = db::get<Tags::SubcellOptions<Dim>>(*box);
+
+    const bool bordering_dg_block = alg::any_of(
+        element.neighbors(),
+        [&subcell_options](const auto& direction_and_neighbor) {
+          const size_t first_block_id =
+              direction_and_neighbor.second.ids().begin()->block_id();
+          return alg::found(subcell_options.only_dg_block_ids(),
+                            first_block_id);
+        });
+
+    // Subcell allowed if not in a DG only block, and not bordering
+    // a DG only block.
+    const bool subcell_allowed_in_element =
+        not std::binary_search(subcell_options.only_dg_block_ids().begin(),
+                               subcell_options.only_dg_block_ids().end(),
+                               element.id().block_id()) and
+        not bordering_dg_block;
 
     for (const auto& [direction, neighbors] : element.neighbors()) {
       const auto& orientation = neighbors.orientation();
       // Note: this currently orients the data for _each_ neighbor. We can
       // instead just orient the data once for all in a particular direction.
-      ASSERT(neighbors.ids().size() == 1,
-             "Can only have one neighbor per direction right now.");
+
+      // Only subcell elements check for multiple neighbors
+      ASSERT(not subcell_allowed_in_element or neighbors.ids().size() == 1,
+             "Subcell elements can only have one neighbor per direction "
+             "right now.");
+
       if (not orientation.is_aligned()) {
         std::array<size_t, Dim> slice_extents{};
         for (size_t d = 0; d < Dim; ++d) {
@@ -131,11 +185,18 @@ auto prepare_neighbor_data(const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
 
         // Only hash the direction once.
         auto& neighbor_data =
-            all_neighbor_data_for_reconstruction.at(direction);
-        DataVector local_orientation_data(neighbor_data.size());
-        std::copy(neighbor_data.begin(), neighbor_data.end(),
+            all_neighbor_data_for_reconstruction->at(direction);
+        // Make a copy of the local orientation data, then we can re-orient
+        // directly into the send buffer.
+        DataVector local_orientation_data(neighbor_data.size() - rdmp_size);
+        std::copy(neighbor_data.begin(),
+                  std::prev(neighbor_data.end(), static_cast<int>(rdmp_size)),
                   local_orientation_data.data());
-        DataVector oriented_data(neighbor_data.data(), neighbor_data.size());
+        // Orient variables expects only the neighbor data, not neighbor data +
+        // rdmp data, so create a non-owning DataVector to just the neighbor
+        // data
+        DataVector oriented_data{neighbor_data.data(),
+                                 neighbor_data.size() - rdmp_size};
         orient_variables(make_not_null(&oriented_data), local_orientation_data,
                          Index<Dim>{slice_extents}, orientation);
       }
@@ -149,21 +210,16 @@ auto prepare_neighbor_data(const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
     // Add the RDMP TCI data to what we will be sending.
     // Note that this is added _after_ the reconstruction data has been
     // re-oriented (in the case where we have neighbors doing FD).
-    std::vector<double>& neighbor_data =
-        all_neighbor_data_for_reconstruction.at(direction);
-    ASSERT(
-        neighbor_data.capacity() == neighbor_data.size() + rdmp_size,
-        "Neighbor data capacity does not account for RDMP data. RDMP size is "
-            << rdmp_size << " capacity is " << neighbor_data.capacity()
-            << " size is " << neighbor_data.size());
-    neighbor_data.insert(neighbor_data.end(),
-                         rdmp_data.max_variables_values.begin(),
-                         rdmp_data.max_variables_values.end());
-    neighbor_data.insert(neighbor_data.end(),
-                         rdmp_data.min_variables_values.begin(),
-                         rdmp_data.min_variables_values.end());
+    DataVector& neighbor_data =
+        all_neighbor_data_for_reconstruction->at(direction);
+    std::copy(rdmp_data.max_variables_values.begin(),
+              rdmp_data.max_variables_values.end(),
+              std::prev(neighbor_data.end(), static_cast<int>(rdmp_size)));
+    std::copy(
+        rdmp_data.min_variables_values.begin(),
+        rdmp_data.min_variables_values.end(),
+        std::prev(neighbor_data.end(),
+                  static_cast<int>(rdmp_data.min_variables_values.size())));
   }
-
-  return all_neighbor_data_for_reconstruction;
 }
 }  // namespace evolution::dg::subcell

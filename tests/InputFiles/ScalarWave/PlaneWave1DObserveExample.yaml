@@ -1,11 +1,14 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarWave1D
-# Check: parse
-# ExpectedOutput:
-#   ScalarWavePlaneWave1DObserveExampleVolume.h5
-#   ScalarWavePlaneWave1DObserveExampleReductions.h5
+Executable: EvolveScalarWave1D
+Testing:
+  Check: parse
+ExpectedOutput:
+  - ScalarWavePlaneWave1DObserveExampleVolume.h5
+  - ScalarWavePlaneWave1DObserveExampleReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -30,7 +33,6 @@ Evolution:
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  StepController: BinaryFraction
   StepChoosers:
     - Constant: 0.05
     - Increase:
@@ -42,6 +44,8 @@ DomainCreator:
   Interval:
     LowerBound: [0.0]
     UpperBound: [6.283185307179586]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [2]
     InitialGridPoints: [7]
     TimeDependence:
@@ -60,16 +64,21 @@ SpatialDiscretization:
     Quadrature: GaussLobatto
 
 # If filtering is enabled in the executable the filter can be controlled using:
-# ExpFilter0:
-#   Alpha: 12
-#   HalfPower: 32
+# Filtering:
+#   ExpFilter0:
+#     Alpha: 12
+#     HalfPower: 32
+#     Enable: false
+#     BlocksToFilter: All
 
 # [observe_event_trigger]
 EventsAndDenseTriggers:
-  - - Times:
+  - Trigger:
+      Times:
         Specified:
           Values: [0.0, 1.0]
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
             - Name: Error(Psi)
@@ -83,20 +92,25 @@ EventsAndDenseTriggers:
               Components: Sum
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [100]
-    - - Completion
-  - - Slabs:
+    Events:
+      - Completion
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 50
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumePsiPiPhiEvery50Slabs
           VariablesToObserve: ["Psi", "Pi", "Phi"]
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double, Float, Float]
+          OverrideObservationValue: None
 # [observe_event_trigger]
 
 Observers:

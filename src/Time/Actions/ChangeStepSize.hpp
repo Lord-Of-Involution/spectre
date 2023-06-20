@@ -11,7 +11,10 @@
 #include "DataStructures/DataBox/Prefixes.hpp"  // IWYU pragma: keep  // for Tags::Next
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Time/Actions/UpdateU.hpp"
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
+#include "Time/ChooseLtsStepSize.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TMPL.hpp"
@@ -47,7 +50,6 @@ template <typename StepChoosersToUse = AllStepChoosers, typename DbTags>
 bool change_step_size(const gsl::not_null<db::DataBox<DbTags>*> box) {
   const LtsTimeStepper& time_stepper = db::get<Tags::TimeStepper<>>(*box);
   const auto& step_choosers = db::get<Tags::StepChoosers>(*box);
-  const auto& step_controller = db::get<Tags::StepController>(*box);
 
   const auto& next_time_id = db::get<Tags::Next<Tags::TimeStepId>>(*box);
   using history_tags = ::Tags::get_all_history_tags<DbTags>;
@@ -95,28 +97,26 @@ bool change_step_size(const gsl::not_null<db::DataBox<DbTags>*> box) {
   }
 
   const auto new_step =
-      step_controller.choose_step(next_time_id.step_time(), desired_step);
+      choose_lts_step_size(next_time_id.step_time(), desired_step);
   db::mutate<Tags::Next<Tags::TimeStep>>(
-      box, [&new_step](const gsl::not_null<TimeDelta*> next_step) {
+      [&new_step](const gsl::not_null<TimeDelta*> next_step) {
         *next_step = new_step;
-      });
+      },
+      box);
   // if step accepted, just proceed. Otherwise, change Time::Next and jump
   // back to the first instance of `UpdateU`.
   if (step_accepted) {
     return true;
   } else {
     db::mutate<Tags::Next<Tags::TimeStepId>, Tags::TimeStep>(
-        box,
-        [&time_stepper, &step_controller, &desired_step](
+        [&time_stepper, &desired_step](
             const gsl::not_null<TimeStepId*> local_next_time_id,
             const gsl::not_null<TimeDelta*> time_step,
             const TimeStepId& time_id) {
-          *time_step = step_controller.choose_step(
-              time_id.step_time(), desired_step);
-          *local_next_time_id = time_stepper.next_time_id(
-              time_id, *time_step);
+          *time_step = choose_lts_step_size(time_id.step_time(), desired_step);
+          *local_next_time_id = time_stepper.next_time_id(time_id, *time_step);
         },
-        db::get<Tags::TimeStepId>(*box));
+        box, db::get<Tags::TimeStepId>(*box));
     return false;
   }
 }
@@ -136,7 +136,6 @@ namespace Actions {
 /// Uses:
 /// - DataBox:
 ///   - Tags::StepChoosers<StepChooserRegistrars>
-///   - Tags::StepController
 ///   - Tags::HistoryEvolvedVariables
 ///   - Tags::TimeStep
 ///   - Tags::TimeStepId
@@ -165,9 +164,19 @@ struct ChangeStepSize {
         "ChangeStepSize action.");
     const bool step_successful =
         change_step_size<StepChoosersToUse>(make_not_null(&box));
+    // We should update
+    // AdaptiveSteppingDiagnostics::number_of_step_fraction_changes,
+    // but with the inter-action step unwinding it's hard to tell
+    // whether that happened.  Most executables use take_step instead
+    // of this action, anyway.
     if (step_successful) {
       return {Parallel::AlgorithmExecution::Continue, std::nullopt};
     } else {
+      db::mutate<Tags::AdaptiveSteppingDiagnostics>(
+          [](const gsl::not_null<AdaptiveSteppingDiagnostics*> diags) {
+            ++diags->number_of_step_rejections;
+          },
+          make_not_null(&box));
       return {Parallel::AlgorithmExecution::Continue,
               tmpl::index_if<ActionList,
                              tt::is_a<Actions::UpdateU, tmpl::_1>>::value};

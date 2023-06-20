@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -16,16 +15,17 @@
 #include "Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Domain/BoundaryConditions/None.hpp"
 #include "Domain/BoundaryConditions/Periodic.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryConditions/Type.hpp"
+#include "Evolution/DgSubcell/Tags/CellCenteredFlux.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryConditions/BoundaryCondition.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryConditions/Factory.hpp"
@@ -113,6 +113,14 @@ void BoundaryConditionGhostData::apply(
     num_prims_tensor_components += tmpl::type_from<decltype(tag)>::type::size();
   });
 
+  using flux_variables =
+      typename grmhd::ValenciaDivClean::System::flux_variables;
+  const bool compute_cell_centered_flux =
+      db::get<
+          evolution::dg::subcell::Tags::CellCenteredFlux<flux_variables, 3>>(
+          *box)
+          .has_value();
+
   for (const auto& direction : element.external_boundaries()) {
     const auto& boundary_condition_at_direction =
         *external_boundary_condition.at(direction);
@@ -122,10 +130,36 @@ void BoundaryConditionGhostData::apply(
 
     // Allocate a vector to store the computed FD ghost data and assign a
     // non-owning Variables on it.
-    std::vector<double> boundary_ghost_data(num_prims_tensor_components *
-                                            ghost_zone_size * num_face_pts);
+    using FluxVars =
+        Variables<db::wrap_tags_in<::Tags::Flux, flux_variables,
+                                    tmpl::size_t<3>, Frame::Inertial>>;
+    const size_t prims_size =
+        num_prims_tensor_components * ghost_zone_size * num_face_pts;
+    const size_t fluxes_size =
+        (compute_cell_centered_flux ? FluxVars::number_of_independent_components
+         : 0) *
+        ghost_zone_size * num_face_pts;
+
+    auto& all_ghost_data = db::get_mutable_reference<
+        evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(box);
+    // Put the computed ghost data into neighbor data with {direction,
+    // ElementId::external_boundary_id()} as the mortar_id key
+    const std::pair mortar_id{direction, ElementId<3>::external_boundary_id()};
+
+    all_ghost_data[mortar_id] = evolution::dg::subcell::GhostData{1};
+    DataVector& boundary_ghost_data =
+        all_ghost_data.at(mortar_id).neighbor_ghost_data_for_reconstruction();
+    boundary_ghost_data.destructive_resize(prims_size + fluxes_size);
     Variables<prims_for_reconstruction> ghost_data_vars{
-        boundary_ghost_data.data(), boundary_ghost_data.size()};
+        boundary_ghost_data.data(), prims_size};
+    std::optional<FluxVars> cell_centered_ghost_fluxes{};
+    if (compute_cell_centered_flux) {
+      cell_centered_ghost_fluxes = FluxVars{};
+      cell_centered_ghost_fluxes.value().set_data_ref(
+          std::next(boundary_ghost_data.data(),
+                    static_cast<std::ptrdiff_t>(prims_size)),
+          fluxes_size);
+    }
 
     // We don't need to care about boundary ghost data when using the periodic
     // condition, so exclude it from the type list
@@ -142,7 +176,8 @@ void BoundaryConditionGhostData::apply(
     // Now apply subcell boundary conditions
     call_with_dynamic_type<void, derived_boundary_conditions_for_subcell>(
         &boundary_condition_at_direction,
-        [&box, &direction, &ghost_data_vars](const auto* boundary_condition) {
+        [&box, &cell_centered_ghost_fluxes, &direction,
+         &ghost_data_vars](const auto* boundary_condition) {
           using BoundaryCondition = std::decay_t<decltype(*boundary_condition)>;
           using bcondition_interior_evolved_vars_tags =
               typename BoundaryCondition::fd_interior_evolved_variables_tags;
@@ -162,7 +197,7 @@ void BoundaryConditionGhostData::apply(
           if constexpr (BoundaryCondition::bc_type ==
                         evolution::BoundaryConditions::Type::Ghost) {
             const auto apply_fd_ghost =
-                [&boundary_condition, &direction,
+                [&boundary_condition, &cell_centered_ghost_fluxes, &direction,
                  &ghost_data_vars](const auto&... boundary_ghost_data_args) {
                   (*boundary_condition)
                       .fd_ghost(
@@ -175,7 +210,8 @@ void BoundaryConditionGhostData::apply(
                           make_not_null(&get<MagneticField>(ghost_data_vars)),
                           make_not_null(
                               &get<DivergenceCleaningField>(ghost_data_vars)),
-                          direction, boundary_ghost_data_args...);
+                          make_not_null(&cell_centered_ghost_fluxes), direction,
+                          boundary_ghost_data_args...);
                 };
             apply_subcell_boundary_condition_impl(apply_fd_ghost, box,
                                                   bcondition_interior_tags{});
@@ -200,8 +236,9 @@ void BoundaryConditionGhostData::apply(
                     normal_covector_and_magnitude.at(direction).value());
 
             const auto apply_fd_demand_outgoing_char_speeds =
-                [&boundary_condition, &direction, &face_mesh_velocity,
-                 &ghost_data_vars, &outward_directed_normal_covector](
+                [&boundary_condition, &cell_centered_ghost_fluxes, &direction,
+                 &face_mesh_velocity, &ghost_data_vars,
+                 &outward_directed_normal_covector](
                     const auto&... boundary_ghost_data_args) {
                   return (*boundary_condition)
                       .fd_demand_outgoing_char_speeds(
@@ -214,8 +251,8 @@ void BoundaryConditionGhostData::apply(
                           make_not_null(&get<MagneticField>(ghost_data_vars)),
                           make_not_null(
                               &get<DivergenceCleaningField>(ghost_data_vars)),
-                          direction, face_mesh_velocity,
-                          outward_directed_normal_covector,
+                          make_not_null(&cell_centered_ghost_fluxes), direction,
+                          face_mesh_velocity, outward_directed_normal_covector,
                           boundary_ghost_data_args...);
                 };
             apply_subcell_boundary_condition_impl(
@@ -228,15 +265,6 @@ void BoundaryConditionGhostData::apply(
                   << pretty_type::short_name<BoundaryCondition>()
                   << " when using finite-difference");
           }
-        });
-
-    // Put the computed ghost data into neighbor data with {direction,
-    // ElementId::external_boundary_id()} as the mortar_id key
-    const std::pair mortar_id{direction, ElementId<3>::external_boundary_id()};
-
-    db::mutate<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
-        box, [&mortar_id, &boundary_ghost_data](auto neighbor_data) {
-          (*neighbor_data)[mortar_id] = std::move(boundary_ghost_data);
         });
   }
 }

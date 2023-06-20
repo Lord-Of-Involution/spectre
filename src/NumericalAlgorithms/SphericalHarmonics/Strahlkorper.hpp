@@ -7,8 +7,8 @@
 #include <cstddef>
 
 #include "DataStructures/DataVector.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
-#include "Options/Options.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
+#include "Options/String.hpp"
 #include "Utilities/ForceInline.hpp"
 
 namespace PUP {
@@ -20,10 +20,10 @@ class er;
 template <typename Frame>
 class Strahlkorper {
  public:
-  struct Lmax {
+  struct LMax {
     using type = size_t;
     static constexpr Options::String help = {
-        "Strahlkorper is expanded in Ylms up to l=Lmax"};
+        "Strahlkorper is expanded in Ylms up to l=LMax"};
   };
   struct Radius {
     using type = double;
@@ -35,13 +35,13 @@ class Strahlkorper {
     static constexpr Options::String help = {
         "Center of spherical Strahlkorper"};
   };
-  using options = tmpl::list<Lmax, Radius, Center>;
+  using options = tmpl::list<LMax, Radius, Center>;
 
   static constexpr Options::String help{
       "A star-shaped surface expressed as an expansion in spherical "
       "harmonics.\n"
       "Currently only a spherical Strahlkorper can be constructed from\n"
-      "Options.  To do this, specify parameters Center, Radius, and Lmax."};
+      "Options.  To do this, specify parameters Center, Radius, and LMax."};
 
   // Pup needs default constructor
   Strahlkorper() = default;
@@ -61,7 +61,7 @@ class Strahlkorper {
   /// will not be exactly `radius_at_collocation_points`.  Instead,
   /// the constructed Strahlkorper will match the shape given by
   /// `radius_at_collocation_points` only to order (`l_max`,`m_max`).
-  /// This is because the YlmSpherepack representation of the
+  /// This is because the ylm::Spherepack representation of the
   /// Strahlkorper has more collocation points than spectral
   /// coefficients.  Specifically, `radius_at_collocation_points` has
   /// \f$(l_{\rm max} + 1) (2 m_{\rm max} + 1)\f$ degrees of freedom,
@@ -144,7 +144,7 @@ class Strahlkorper {
 
   /// Radius at a particular angle \f$(\theta,\phi)\f$.
   /// This is inefficient if done at multiple points many times.
-  /// See YlmSpherepack for alternative ways of computing this.
+  /// See ylm::Spherepack for alternative ways of computing this.
   double radius(double theta, double phi) const;
 
   /// Determine if a point `x` is contained inside the surface.
@@ -153,13 +153,13 @@ class Strahlkorper {
   /// This is inefficient if done at multiple points many times.
   bool point_is_contained(const std::array<double, 3>& x) const;
 
-  SPECTRE_ALWAYS_INLINE const YlmSpherepack& ylm_spherepack() const {
+  SPECTRE_ALWAYS_INLINE const ylm::Spherepack& ylm_spherepack() const {
     return ylm_;
   }
 
  private:
   size_t l_max_{2}, m_max_{2};
-  YlmSpherepack ylm_{2, 2};
+  ylm::Spherepack ylm_{2, 2};
   std::array<double, 3> center_{{0.0, 0.0, 0.0}};
   DataVector strahlkorper_coefs_ = DataVector(ylm_.spectral_size(), 0.0);
 };

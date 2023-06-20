@@ -32,8 +32,6 @@
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/DormandPrince5.hpp"
@@ -153,6 +151,9 @@ struct test_metavariables {
                  Cce::Tags::ScriPlus<Cce::Tags::Psi3>,
                  Cce::Tags::TimeIntegral<Cce::Tags::ScriPlus<Cce::Tags::Psi4>>,
                  Cce::Tags::ScriPlusFactor<Cce::Tags::Psi4>>;
+  using ccm_psi0 = tmpl::list<
+      Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+      Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 
   using component_list =
       tmpl::list<mock_analytic_worldtube_boundary<test_metavariables>,
@@ -163,9 +164,8 @@ struct test_metavariables {
 SPECTRE_TEST_CASE(
     "Unit.Evolution.Systems.Cce.Actions.AnalyticBoundaryCommunication",
     "[Unit][Cce]") {
-  Parallel::register_classes_with_charm<
-      Cce::Solutions::RotatingSchwarzschild>();
-  Parallel::register_classes_with_charm<TimeSteppers::DormandPrince5>();
+  register_classes_with_charm<Cce::Solutions::RotatingSchwarzschild>();
+  register_classes_with_charm<TimeSteppers::DormandPrince5>();
   using evolution_component = mock_characteristic_evolution<test_metavariables>;
   using worldtube_component =
       mock_analytic_worldtube_boundary<test_metavariables>;
@@ -197,8 +197,6 @@ SPECTRE_TEST_CASE(
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size, scri_plus_interpolation_order,
       serialize_and_deserialize(analytic_manager));
   // Serialize and deserialize to get around the lack of implicit copy

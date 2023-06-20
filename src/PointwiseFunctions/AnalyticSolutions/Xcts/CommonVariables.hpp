@@ -22,12 +22,12 @@ using common_tags = tmpl::push_back<
     Tags::ConformalFactor<DataType>, Tags::LapseTimesConformalFactor<DataType>,
     Tags::ShiftExcess<DataType, 3, Frame::Inertial>,
     // ADM variables
-    gr::Tags::Lapse<DataType>, gr::Tags::Shift<3, Frame::Inertial, DataType>,
-    gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>,
-    gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataType>,
-    ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>,
-                  tmpl::size_t<3>, Frame::Inertial>,
-    gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataType>,
+    gr::Tags::Lapse<DataType>, gr::Tags::Shift<DataType, 3>,
+    gr::Tags::SpatialMetric<DataType, 3>,
+    gr::Tags::InverseSpatialMetric<DataType, 3>,
+    ::Tags::deriv<gr::Tags::SpatialMetric<DataType, 3>, tmpl::size_t<3>,
+                  Frame::Inertial>,
+    gr::Tags::ExtrinsicCurvature<DataType, 3>,
     // Derivatives of solved variables
     ::Tags::deriv<Tags::ConformalFactor<DataType>, tmpl::size_t<3>,
                   Frame::Inertial>,
@@ -44,6 +44,10 @@ using common_tags = tmpl::push_back<
     Tags::LongitudinalShiftMinusDtConformalMetricSquare<DataType>,
     Tags::LongitudinalShiftMinusDtConformalMetricOverLapseSquare<DataType>,
     Tags::ShiftDotDerivExtrinsicCurvatureTrace<DataType>>;
+
+/// Tags for hydro variables that are typically retrieved from a hydro solution
+template <typename DataType>
+using hydro_tags = AnalyticData::hydro_tags<DataType>;
 
 /// Implementations for variables that solutions can share
 template <typename DataType, typename Cache>
@@ -70,17 +74,16 @@ struct CommonVariables : AnalyticData::CommonVariables<DataType, Cache> {
   virtual void operator()(
       gsl::not_null<tnsr::ii<DataType, Dim>*> spatial_metric,
       gsl::not_null<Cache*> cache,
-      gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType> /*meta*/) const;
+      gr::Tags::SpatialMetric<DataType, Dim> /*meta*/) const;
   virtual void operator()(
       gsl::not_null<tnsr::II<DataType, Dim>*> inv_spatial_metric,
       gsl::not_null<Cache*> cache,
-      gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataType> /*meta*/)
-      const;
+      gr::Tags::InverseSpatialMetric<DataType, Dim> /*meta*/) const;
   virtual void operator()(
       gsl::not_null<tnsr::ijj<DataType, Dim>*> deriv_spatial_metric,
       gsl::not_null<Cache*> cache,
-      ::Tags::deriv<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-                    tmpl::size_t<Dim>, Frame::Inertial> /*meta*/) const;
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataType, Dim>, tmpl::size_t<Dim>,
+                    Frame::Inertial> /*meta*/) const;
   virtual void operator()(
       gsl::not_null<tnsr::i<DataType, Dim>*> deriv_conformal_factor,
       gsl::not_null<Cache*> cache,
@@ -110,14 +113,13 @@ struct CommonVariables : AnalyticData::CommonVariables<DataType, Cache> {
       gsl::not_null<Cache*> cache,
       Tags::LongitudinalShiftExcess<DataType, Dim, Frame::Inertial> /*meta*/)
       const;
-  virtual void operator()(
-      gsl::not_null<tnsr::I<DataType, Dim>*> shift, gsl::not_null<Cache*> cache,
-      gr::Tags::Shift<Dim, Frame::Inertial, DataType> /*meta*/) const;
+  virtual void operator()(gsl::not_null<tnsr::I<DataType, Dim>*> shift,
+                          gsl::not_null<Cache*> cache,
+                          gr::Tags::Shift<DataType, Dim> /*meta*/) const;
   virtual void operator()(
       gsl::not_null<tnsr::ii<DataType, Dim>*> extrinsic_curvature,
       gsl::not_null<Cache*> cache,
-      gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataType> /*meta*/)
-      const = 0;
+      gr::Tags::ExtrinsicCurvature<DataType, Dim> /*meta*/) const = 0;
   virtual void operator()(
       gsl::not_null<Scalar<DataType>*>
           longitudinal_shift_minus_dt_conformal_metric_square,

@@ -8,17 +8,16 @@
 #include <limits>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/FixedHashMap.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/FiniteDifference/Reconstructor.hpp"
 #include "NumericalAlgorithms/FiniteDifference/FallbackReconstructorType.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -45,6 +44,9 @@ class er;
 }  // namespace PUP
 template <typename TagsList>
 class Variables;
+namespace evolution::dg::subcell {
+class GhostData;
+}  // namespace evolution::dg::subcell
 /// \endcond
 
 namespace grmhd::ValenciaDivClean::fd {
@@ -119,15 +121,17 @@ class Wcns5zPrim : public Reconstructor {
 
   auto get_clone() const -> std::unique_ptr<Reconstructor> override;
 
+  static constexpr bool use_adaptive_order = false;
+
   void pup(PUP::er& p) override;
 
   size_t ghost_zone_size() const override { return 3; }
 
-  using reconstruction_argument_tags = tmpl::list<
-      ::Tags::Variables<hydro::grmhd_tags<DataVector>>,
-      hydro::Tags::EquationOfStateBase, domain::Tags::Element<dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<dim>,
-      evolution::dg::subcell::Tags::Mesh<dim>>;
+  using reconstruction_argument_tags =
+      tmpl::list<::Tags::Variables<hydro::grmhd_tags<DataVector>>,
+                 hydro::Tags::EquationOfStateBase, domain::Tags::Element<dim>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<dim>,
+                 evolution::dg::subcell::Tags::Mesh<dim>>;
 
   template <size_t ThermodynamicDim, typename TagsList>
   void reconstruct(
@@ -138,9 +142,9 @@ class Wcns5zPrim : public Reconstructor {
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh) const;
 
   template <size_t ThermodynamicDim, typename TagsList>
@@ -151,9 +155,9 @@ class Wcns5zPrim : public Reconstructor {
       const Element<dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(dim),
-          std::pair<Direction<dim>, ElementId<dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>&
-          neighbor_data,
+          std::pair<Direction<dim>, ElementId<dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<dim>, ElementId<dim>>>>& ghost_data,
       const Mesh<dim>& subcell_mesh,
       const Direction<dim> direction_to_reconstruct) const;
 

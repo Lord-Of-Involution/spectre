@@ -16,11 +16,13 @@ set(LIBRARY_SOURCES
   Test_IndexToSliceAt.cpp
   Test_InitialElementIds.cpp
   Test_Neighbors.cpp
+  Test_ObjectLabel.cpp
   Test_OrientationMap.cpp
   Test_OrientationMapHelpers.cpp
   Test_SegmentId.cpp
   Test_Side.cpp
   Test_TrimMap.cpp
+  Test_ZCurve.cpp
   )
 
 add_test_library(

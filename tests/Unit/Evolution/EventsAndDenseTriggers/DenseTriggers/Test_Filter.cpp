@@ -15,9 +15,9 @@
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/Evolution/EventsAndDenseTriggers/DenseTriggers/TestTrigger.hpp"
-#include "Options/Options.hpp"
+#include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Trigger.hpp"
 #include "Time/Slab.hpp"
@@ -25,6 +25,7 @@
 #include "Time/TimeSequence.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/Triggers/TimeCompares.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -159,7 +160,7 @@ Filter:
 
 SPECTRE_TEST_CASE("Unit.Evolution.EventsAndDenseTriggers.DenseTriggers.Filter",
                   "[Unit][Evolution]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   for (const auto& next_check : {std::optional{3.5}, std::optional<double>{}}) {
     check(std::nullopt, next_check, std::nullopt, false);

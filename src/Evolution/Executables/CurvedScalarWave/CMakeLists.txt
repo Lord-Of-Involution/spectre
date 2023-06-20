@@ -19,6 +19,7 @@ set(LIBS_TO_LINK
   Options
   Parallel
   PhaseControl
+  Serialization
   Time
   Utilities
   WaveEquationSolutions
@@ -73,4 +74,12 @@ add_interpolating_curved_scalar_wave_executable(
   3
   gr::Solutions::KerrSchild
   CurvedScalarWave::AnalyticData::PureSphericalHarmonic
+)
+
+add_spectre_parallel_executable(
+  "EvolveWorldtubeCurvedScalarWaveKerrSchild3D"
+  EvolveWorldtubeCurvedScalarWave
+  Evolution/Executables/CurvedScalarWave
+  "EvolutionMetavars<gr::Solutions::KerrSchild,ScalarWave::Solutions::PlaneWave<3>>"
+  "${LIBS_TO_LINK};${INTERPOLATION_LIBS_TO_LINK};ScalarWaveWorldtube"
 )

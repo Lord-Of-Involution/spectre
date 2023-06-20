@@ -13,7 +13,7 @@ namespace {
 // Wrap `wrap_spacetime_deriv_of_power_log_factor_metric_lapse` here to make its
 // last argument a double, allowing for `pypp::check_with_random_values` to
 // work.
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::a<DataType, SpatialDim, Frame>
 wrap_spacetime_deriv_of_power_log_factor_metric_lapse(
     const Scalar<DataType>& lapse,
@@ -27,7 +27,7 @@ wrap_spacetime_deriv_of_power_log_factor_metric_lapse(
     const double d_exponent) {
   const auto exponent = static_cast<int>(d_exponent);
   tnsr::a<DataType, SpatialDim, Frame> d4_powlogfac{};
-  GeneralizedHarmonic::gauges::DampedHarmonicGauge_detail::
+  gh::gauges::DampedHarmonicGauge_detail::
       spacetime_deriv_of_power_log_factor_metric_lapse(
           make_not_null(&d4_powlogfac), lapse, shift, spacetime_unit_normal,
           inverse_spatial_metric, sqrt_det_spatial_metric, dt_spatial_metric,
@@ -39,8 +39,8 @@ template <size_t SpatialDim, typename Frame, typename DataType>
 void test_detail_functions(const DataType& used_for_size) {
   // weight_function
   pypp::check_with_random_values<2>(
-      &::GeneralizedHarmonic::gauges::DampedHarmonicGauge_detail::
-          spatial_weight_function<SpatialDim, Frame, DataType>,
+      &::gh::gauges::DampedHarmonicGauge_detail::spatial_weight_function<
+          DataType, SpatialDim, Frame>,
       "Evolution.Systems.GeneralizedHarmonic.GaugeSourceFunctions."
       "DampedWaveHelpers",
       {"spatial_weight_function"},
@@ -48,9 +48,9 @@ void test_detail_functions(const DataType& used_for_size) {
       used_for_size);
   // spacetime_deriv_of_spatial_weight_function
   pypp::check_with_random_values<3>(
-      &::GeneralizedHarmonic::gauges::DampedHarmonicGauge_detail::
-          spacetime_deriv_of_spatial_weight_function<SpatialDim, Frame,
-                                                     DataType>,
+      &::gh::gauges::DampedHarmonicGauge_detail::
+          spacetime_deriv_of_spatial_weight_function<DataType, SpatialDim,
+                                                     Frame>,
       "Evolution.Systems.GeneralizedHarmonic.GaugeSourceFunctions."
       "DampedWaveHelpers",
       {"spacetime_deriv_spatial_weight_function"},
@@ -62,8 +62,8 @@ void test_detail_functions(const DataType& used_for_size) {
   pypp::check_with_random_values<1>(
       static_cast<Scalar<DataType> (*)(const Scalar<DataType>&,
                                        const Scalar<DataType>&, const double)>(
-          &::GeneralizedHarmonic::gauges::DampedHarmonicGauge_detail::
-              log_factor_metric_lapse<DataType>),
+          &::gh::gauges::DampedHarmonicGauge_detail::log_factor_metric_lapse<
+              DataType>),
       "Evolution.Systems.GeneralizedHarmonic.GaugeSourceFunctions."
       "DampedWaveHelpers",
       "log_fac", {{{std::numeric_limits<double>::denorm_min(), 10.}}},
@@ -77,9 +77,9 @@ void test_detail_functions(const DataType& used_for_size) {
           const tnsr::ii<DataType, SpatialDim, Frame>&,
           const tnsr::aa<DataType, SpatialDim, Frame>&,
           const tnsr::iaa<DataType, SpatialDim, Frame>&, const double)>(
-          &::GeneralizedHarmonic::gauges::DampedHarmonicGauge_detail::
-              spacetime_deriv_of_log_factor_metric_lapse<SpatialDim, Frame,
-                                                         DataType>),
+          &::gh::gauges::DampedHarmonicGauge_detail::
+              spacetime_deriv_of_log_factor_metric_lapse<DataType, SpatialDim,
+                                                         Frame>),
       "Evolution.Systems.GeneralizedHarmonic.GaugeSourceFunctions."
       "DampedWaveHelpers",
       "spacetime_deriv_log_fac",
@@ -87,8 +87,8 @@ void test_detail_functions(const DataType& used_for_size) {
       1.0e-11);
   // spacetime_deriv_of_power_log_factor_metric_lapse
   pypp::check_with_random_values<1>(
-      &wrap_spacetime_deriv_of_power_log_factor_metric_lapse<SpatialDim, Frame,
-                                                             DataType>,
+      &wrap_spacetime_deriv_of_power_log_factor_metric_lapse<DataType,
+                                                             SpatialDim, Frame>,
       "Evolution.Systems.GeneralizedHarmonic.GaugeSourceFunctions."
       "DampedWaveHelpers",
       "spacetime_deriv_pow_log_fac",

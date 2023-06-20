@@ -14,7 +14,6 @@
 #include "Helpers/Evolution/EventsAndDenseTriggers/DenseTriggers/TestTrigger.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/GlobalCache.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
@@ -23,6 +22,7 @@
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/PrettyType.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -151,12 +151,14 @@ void do_test(const bool time_runs_forward, const bool add_event) {
   const int* component = nullptr;
 
   std::string creation_string =
-      "- - BoxTrigger<A>\n"
-      "  - - TestEvent<A>\n";
+      "- Trigger: BoxTrigger<A>\n"
+      "  Events:\n"
+      "    - TestEvent<A>\n";
   if (not add_event) {
     creation_string +=
-        "- - BoxTrigger<B>\n"
-        "  - - TestEvent<B>\n"
+        "- Trigger: BoxTrigger<B>\n"
+        "  Events:\n"
+        "    - TestEvent<B>\n"
         "    - TestEvent<C>\n";
   }
 
@@ -183,10 +185,11 @@ void do_test(const bool time_runs_forward, const bool add_event) {
 
   const auto set_tag = [&box](auto tag_v, const auto value) {
     using Tag = decltype(tag_v);
-    db::mutate<Tag>(make_not_null(&box),
-                    [&value](const gsl::not_null<typename Tag::type*> var) {
-                      *var = value;
-                    });
+    db::mutate<Tag>(
+        [&value](const gsl::not_null<typename Tag::type*> var) {
+          *var = value;
+        },
+        make_not_null(&box));
   };
 
   const auto check_events = [](const bool expected_a, const bool expected_b,
@@ -317,7 +320,7 @@ void do_test(const bool time_runs_forward, const bool add_event) {
 
 SPECTRE_TEST_CASE("Unit.Evolution.EventsAndDenseTriggers",
                   "[Unit][Evolution]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   do_test(true, false);
   do_test(false, false);

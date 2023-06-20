@@ -33,7 +33,7 @@ namespace {
 template <typename Generator>
 void test_gh_local_time_stepping_interface_manager(
     const gsl::not_null<Generator*> gen) {
-  Parallel::register_derived_classes_with_charm<intrp::SpanInterpolator>();
+  register_derived_classes_with_charm<intrp::SpanInterpolator>();
   // the frequency has to be small to be kind to the time stepper for the ~.1
   // step size in this test
   UniformCustomDistribution<double> value_dist{0.1, 1.0};
@@ -87,9 +87,9 @@ void test_gh_local_time_stepping_interface_manager(
         const auto current_time_step_id = source_time_steps[index];
         std::optional<double> previous_time;
         if (index != 0) {
-          previous_time = source_time_steps[index - 1].substep_time().value();
+          previous_time = source_time_steps[index - 1].substep_time();
         }
-        const double current_time = current_time_step_id.substep_time().value();
+        const double current_time = current_time_step_id.substep_time();
 
         tnsr::aa<DataVector, 3> current_spacetime_metric{5_st};
         tnsr::iaa<DataVector, 3> current_phi{5_st};
@@ -117,7 +117,7 @@ void test_gh_local_time_stepping_interface_manager(
           }
         }
         local_interface_manager->insert_gh_data(
-            LinkedMessageId<double>{current_time_step_id.substep_time().value(),
+            LinkedMessageId<double>{current_time_step_id.substep_time(),
                                     previous_time},
             current_spacetime_metric, current_phi, current_pi);
       };
@@ -138,7 +138,7 @@ void test_gh_local_time_stepping_interface_manager(
                                        local_interface_manager,
                                    const size_t index,
                                    Approx local_approx = approx) {
-    const double current_time = target_time_steps[index].substep_time().value();
+    const double current_time = target_time_steps[index].substep_time();
     tnsr::aa<DataVector, 3> expected_spacetime_metric{5_st};
     tnsr::iaa<DataVector, 3> expected_phi{5_st};
     tnsr::aa<DataVector, 3> expected_pi{5_st};
@@ -166,17 +166,14 @@ void test_gh_local_time_stepping_interface_manager(
         local_interface_manager->retrieve_and_remove_first_ready_gh_data();
     REQUIRE(static_cast<bool>(retrieved_data));
     CHECK_ITERABLE_CUSTOM_APPROX(
-        SINGLE_ARG(
-            get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
-                get<1>(*retrieved_data))),
+        SINGLE_ARG(get<gr::Tags::SpacetimeMetric<DataVector, 3>>(
+            get<1>(*retrieved_data))),
         expected_spacetime_metric, local_approx);
     CHECK_ITERABLE_CUSTOM_APPROX(
-        SINGLE_ARG(get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(
-            get<1>(*retrieved_data))),
+        SINGLE_ARG(get<gh::Tags::Pi<DataVector, 3>>(get<1>(*retrieved_data))),
         expected_pi, local_approx);
     CHECK_ITERABLE_CUSTOM_APPROX(
-        SINGLE_ARG(get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-            get<1>(*retrieved_data))),
+        SINGLE_ARG(get<gh::Tags::Phi<DataVector, 3>>(get<1>(*retrieved_data))),
         expected_phi, local_approx);
   };
 

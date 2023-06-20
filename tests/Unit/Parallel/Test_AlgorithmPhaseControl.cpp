@@ -19,8 +19,8 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataBox/DataBoxTag.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Algorithms/AlgorithmArray.hpp"
 #include "Parallel/Algorithms/AlgorithmNodegroup.hpp"
@@ -37,15 +37,16 @@
 #include "Parallel/PhaseControl/PhaseControlTags.hpp"
 #include "Parallel/PhaseControl/VisitAndReturn.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -238,13 +239,14 @@ struct RecordPhaseIteration {
       const ArrayIndex& /*array_index*/, const ActionList /*meta*/,
       const ParallelComponent* const /*meta*/) {
     db::mutate<Tags::PhaseRecord>(
-        make_not_null(&box), [](const gsl::not_null<std::string*> phase_log) {
+        [](const gsl::not_null<std::string*> phase_log) {
           *phase_log += MakeString{} << "Running phase: " << Phase << "\n";
-        });
+        },
+        make_not_null(&box));
     if (Phase == Parallel::Phase::Evolve) {
       db::mutate<Tags::Step>(
-          make_not_null(&box),
-          [](const gsl::not_null<size_t*> step) { ++(*step); });
+          [](const gsl::not_null<size_t*> step) { ++(*step); },
+          make_not_null(&box));
     }
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
@@ -279,17 +281,17 @@ struct TerminateAndRestart {
             Parallel::get_parallel_component<OtherComponent>(cache));
 
         db::mutate<Tags::PhaseRecord>(
-            make_not_null(&box),
             [](const gsl::not_null<std::string*> phase_log) {
               *phase_log += "Terminate and Restart\n";
-            });
+            },
+            make_not_null(&box));
         return {Parallel::AlgorithmExecution::Pause, std::nullopt};
       } else {
         db::mutate<Tags::PhaseRecord>(
-            make_not_null(&box),
             [](const gsl::not_null<std::string*> phase_log) {
               *phase_log += "Terminate Completion\n";
-            });
+            },
+            make_not_null(&box));
         return {Parallel::AlgorithmExecution::Halt, std::nullopt};
       }
     }
@@ -433,9 +435,9 @@ struct TestMetavariables {
 // [charm_init_funcs_example]
 static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting,
-    &Parallel::register_factory_classes_with_charm<TestMetavariables>};
+    &register_factory_classes_with_charm<TestMetavariables>};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 // [charm_init_funcs_example]
 
 // [charm_main_example]

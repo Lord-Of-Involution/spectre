@@ -6,13 +6,15 @@
 #include <limits>
 #include <ostream>
 
-#include "NumericalAlgorithms/Interpolation/BarycentricRational.hpp"
 #include "NumericalAlgorithms/Interpolation/CubicSpline.hpp"
-#include "Options/Options.hpp"
-#include "Options/ParseOptions.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/EquationOfState.hpp"
 
 /// \cond
+namespace Options {
+struct Option;
+template <typename T>
+struct create_from_yaml;
+}  // namespace Options
 namespace PUP {
 class er;
 }  // namespace PUP
@@ -134,7 +136,7 @@ class TovSolution {
       double central_mass_density,
       const TovCoordinates coordinate_system = TovCoordinates::Schwarzschild,
       double log_enthalpy_at_outer_radius = 0.0,
-      double absolute_tolerance = 1.0e-14, double relative_tolerance = 1.0e-14);
+      double absolute_tolerance = 1.e-18, double relative_tolerance = 1.0e-14);
 
   TovSolution() = default;
   TovSolution(const TovSolution& /*rhs*/) = default;
@@ -234,6 +236,16 @@ class TovSolution {
   template <typename DataType>
   DataType conformal_factor(const DataType& r) const;
 
+  const intrp::CubicSpline& mass_over_radius_interpolant() const {
+    return mass_over_radius_interpolant_;
+  }
+  const intrp::CubicSpline& log_specific_enthalpy_interpolant() const {
+    return log_enthalpy_interpolant_;
+  }
+  const intrp::CubicSpline& conformal_factor_interpolant() const {
+    return conformal_factor_interpolant_;
+  }
+
   // NOLINTNEXTLINE(google-runtime-references)
   void pup(PUP::er& p);
 
@@ -251,7 +263,7 @@ class TovSolution {
   double injection_energy_{std::numeric_limits<double>::signaling_NaN()};
   intrp::CubicSpline mass_over_radius_interpolant_;
   intrp::CubicSpline log_enthalpy_interpolant_;
-  intrp::BarycentricRational conformal_factor_interpolant_;
+  intrp::CubicSpline conformal_factor_interpolant_;
 };
 
 }  // namespace RelativisticEuler::Solutions

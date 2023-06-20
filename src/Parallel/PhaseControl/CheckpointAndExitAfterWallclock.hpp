@@ -12,13 +12,14 @@
 #include "Options/Auto.hpp"
 #include "Options/Options.hpp"
 #include "Parallel/AlgorithmMetafunctions.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Parallel/ExitCode.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseControl/ContributeToPhaseChangeReduction.hpp"
 #include "Parallel/PhaseControl/PhaseChange.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Functional.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -76,6 +77,9 @@ struct CheckpointAndExitRequested {
  * \brief Phase control object that runs the WriteCheckpoint and Exit phases
  * after a specified amount of wallclock time has elapsed.
  *
+ * When the executable exits from here, it does so with
+ * `Parallel::ExitCode::ContinueFromCheckpoint`.
+ *
  * This phase control is useful for running SpECTRE executables performing
  * lengthy computations that may exceed a supercomputer's wallclock limits.
  * Writing a single checkpoint at the end of the job's allocated time allows
@@ -122,7 +126,8 @@ struct CheckpointAndExitAfterWallclock : public PhaseChange {
   using options = tmpl::list<WallclockHours>;
   static constexpr Options::String help{
       "Once the wallclock time has exceeded the specified amount, trigger "
-      "writing a checkpoint and then exit."};
+      "writing a checkpoint and then exit with the 'ContinueFromCheckpoint' "
+      "exit code."};
 
   using argument_tags = tmpl::list<>;
   using return_tags = tmpl::list<>;
@@ -204,6 +209,8 @@ CheckpointAndExitAfterWallclock::arbitrate_phase_change_impl(
   auto& wallclock_hours_at_checkpoint =
       tuples::get<Tags::WallclockHoursAtCheckpoint>(
           *phase_change_decision_data);
+  auto& exit_code =
+      tuples::get<Parallel::Tags::ExitCode>(*phase_change_decision_data);
   if (restart_phase.has_value()) {
     ASSERT(wallclock_hours_at_checkpoint.has_value(),
            "Consistency error: Should have recorded the Wallclock time "
@@ -215,6 +222,7 @@ CheckpointAndExitAfterWallclock::arbitrate_phase_change_impl(
     // - restart_phase, if the time is small
     if (elapsed_hours >= wallclock_hours_at_checkpoint.value()) {
       // Preserve restart_phase for use after restarting from the checkpoint
+      exit_code = Parallel::ExitCode::ContinueFromCheckpoint;
       return std::make_pair(Parallel::Phase::Exit,
                             ArbitrationStrategy::RunPhaseImmediately);
     } else {

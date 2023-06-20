@@ -22,7 +22,7 @@
 #include "NumericalAlgorithms/Spectral/SwshCollocation.hpp"
 #include "NumericalAlgorithms/Spectral/SwshDerivatives.hpp"
 #include "NumericalAlgorithms/Spectral/SwshFiltering.hpp"
-#include "Options/Options.hpp"
+#include "Options/Context.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Utilities/Gsl.hpp"
@@ -51,17 +51,13 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.RobinsonTrautman",
 
   const auto boundary_data = boundary_solution.variables(
       l_max, time,
-      tmpl::list<
-          Tags::Dr<Tags::CauchyCartesianCoords>,
-          gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>,
-          ::Tags::dt<
-              gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>,
-          GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>, Tags::News>{});
+      tmpl::list<Tags::Dr<Tags::CauchyCartesianCoords>,
+                 gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>,
+                 gh::Tags::Phi<DataVector, 3>, Tags::News>{});
 
   const auto& spacetime_metric =
-      get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
-          boundary_data);
-
+      get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_data);
 
   CartesianiSphericalJ inverse_jacobian{get<0, 0>(spacetime_metric).size()};
   boundary_solution.inverse_jacobian(make_not_null(&inverse_jacobian), l_max);
@@ -70,9 +66,8 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.RobinsonTrautman",
       TestHelpers::extract_bondi_scalars_from_cartesian_metric(
           spacetime_metric, inverse_jacobian, extraction_radius);
 
-  const auto& dt_spacetime_metric = get<
-      ::Tags::dt<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>>(
-      boundary_data);
+  const auto& dt_spacetime_metric =
+      get<::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>>(boundary_data);
   const auto dt_bondi_quantities =
       TestHelpers::extract_dt_bondi_scalars_from_cartesian_metric(
           dt_spacetime_metric, spacetime_metric, inverse_jacobian,
@@ -81,7 +76,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.RobinsonTrautman",
   boundary_solution.dr_inverse_jacobian(make_not_null(&dr_inverse_jacobian),
                                         l_max);
   const auto& d_spacetime_metric =
-      get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(boundary_data);
+      get<gh::Tags::Phi<DataVector, 3>>(boundary_data);
   const auto& dr_cartesian_coordinates =
       get<Tags::Dr<Tags::CauchyCartesianCoords>>(boundary_data);
   tnsr::aa<DataVector, 3> dr_spacetime_metric{

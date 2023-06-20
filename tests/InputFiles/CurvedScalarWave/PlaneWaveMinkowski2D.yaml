@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveCurvedScalarWavePlaneWaveMinkowski2D
-# Check: parse;execute
+Executable: EvolveCurvedScalarWavePlaneWaveMinkowski2D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -29,7 +32,6 @@ Evolution:
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  StepController: BinaryFraction
   StepChoosers:
     - Constant: 0.05
     - Increase:
@@ -57,13 +59,16 @@ Filtering:
   ExpFilter0:
     Alpha: 12
     HalfPower: 32
-    DisableForDebugging: true
+    Enable: false
+    BlocksToFilter: All
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [100]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

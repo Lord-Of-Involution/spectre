@@ -51,8 +51,8 @@ namespace callbacks {
  * vars on each of the target spheres are:
  *
  * - `gr::Tags::SpacetimeMetric`
- * - `GeneralizedHarmonic::Tags::Pi`
- * - `GeneralizedHarmonic::Tags::Phi`
+ * - `gh::Tags::Pi`
+ * - `gh::Tags::Phi`
  *
  * This callback will write a new `H5` file for each extraction radius in the
  * Sphere target. The name of this file will be a file prefix specified by the
@@ -92,9 +92,8 @@ struct DumpBondiSachsOnWorldtube
                  Cce::Tags::BondiU, Cce::Tags::BondiW>>;
 
   using gh_source_vars_for_cce =
-      tmpl::list<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>;
 
   using gh_source_vars_from_interpolation =
       typename InterpolationTargetTag::vars_to_interpolate_to_target;
@@ -147,11 +146,9 @@ struct DumpBondiSachsOnWorldtube
         db::get<::Tags::Variables<gh_source_vars_from_interpolation>>(box);
 
     const auto& all_spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial>>(all_gh_vars);
-    const auto& all_pi =
-        get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(all_gh_vars);
-    const auto& all_phi =
-        get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(all_gh_vars);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(all_gh_vars);
+    const auto& all_pi = get<gh::Tags::Pi<DataVector, 3>>(all_gh_vars);
+    const auto& all_phi = get<gh::Tags::Phi<DataVector, 3>>(all_gh_vars);
 
     const tnsr::aa<DataVector, 3, ::Frame::Inertial> spacetime_metric;
     const tnsr::aa<DataVector, 3, ::Frame::Inertial> pi;

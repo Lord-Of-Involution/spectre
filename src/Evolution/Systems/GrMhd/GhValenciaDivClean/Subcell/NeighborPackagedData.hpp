@@ -31,8 +31,8 @@
 #include "Evolution/DgSubcell/Reconstruction.hpp"
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
@@ -69,9 +69,9 @@ namespace grmhd::GhValenciaDivClean::subcell {
  */
 struct NeighborPackagedData {
   template <typename DbTagsList>
-  static FixedHashMap<
-      maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
-      std::vector<double>, boost::hash<std::pair<Direction<3>, ElementId<3>>>>
+  static FixedHashMap<maximum_number_of_neighbors(3),
+                      std::pair<Direction<3>, ElementId<3>>, DataVector,
+                      boost::hash<std::pair<Direction<3>, ElementId<3>>>>
   apply(const db::DataBox<DbTagsList>& box,
         const std::vector<std::pair<Direction<3>, ElementId<3>>>&
             mortars_to_reconstruct_to) {
@@ -92,21 +92,21 @@ struct NeighborPackagedData {
            "re-slicing/projecting.");
 
     FixedHashMap<maximum_number_of_neighbors(3),
-                 std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+                 std::pair<Direction<3>, ElementId<3>>, DataVector,
                  boost::hash<std::pair<Direction<3>, ElementId<3>>>>
         neighbor_package_data{};
     if (mortars_to_reconstruct_to.empty()) {
       return neighbor_package_data;
     }
 
-    const auto& neighbor_subcell_data =
-        db::get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
+    const auto& ghost_subcell_data =
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(
             box);
     const Mesh<3>& subcell_mesh =
         db::get<evolution::dg::subcell::Tags::Mesh<3>>(box);
     const Mesh<3>& dg_mesh = db::get<domain::Tags::Mesh<3>>(box);
     const auto& subcell_options =
-        db::get<evolution::dg::subcell::Tags::SubcellOptions>(box);
+        db::get<evolution::dg::subcell::Tags::SubcellOptions<3>>(box);
     const auto& evolved_vars = db::get<evolved_vars_tag>(box);
 
     const Variables<Tags::spacetime_reconstruction_tags> volume_spacetime_vars =
@@ -133,12 +133,12 @@ struct NeighborPackagedData {
         db::get<grmhd::GhValenciaDivClean::fd::Tags::Reconstructor>(box);
     const auto& base_boundary_correction =
         db::get<evolution::Tags::BoundaryCorrection<System>>(box);
-    using derived_boundary_corrections = typename std::decay_t<
-        decltype(base_boundary_correction)>::creatable_classes;
+    using derived_boundary_corrections = typename std::decay_t<decltype(
+        base_boundary_correction)>::creatable_classes;
     call_with_dynamic_type<void, derived_boundary_corrections>(
         &base_boundary_correction,
         [&box, &dg_mesh, &mortars_to_reconstruct_to, &neighbor_package_data,
-         &neighbor_subcell_data, &recons, &subcell_mesh, &subcell_options,
+         &ghost_subcell_data, &recons, &subcell_mesh, &subcell_options,
          &volume_prims,
          &volume_spacetime_vars](const auto* gh_grmhd_correction) {
           using DerivedCorrection =
@@ -151,10 +151,10 @@ struct NeighborPackagedData {
           using dg_package_data_argument_tags = tmpl::append<
               evolved_vars_tags, recons_prim_tags, fluxes_tags,
               tmpl::remove_duplicates<tmpl::push_back<
-                  dg_package_data_temporary_tags, gr::Tags::SpatialMetric<3>,
+                  dg_package_data_temporary_tags,
+                  gr::Tags::SpatialMetric<DataVector, 3>,
                   gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                  gr::Tags::InverseSpatialMetric<3, Frame::Inertial,
-                                                 DataVector>,
+                  gr::Tags::InverseSpatialMetric<DataVector, 3>,
                   evolution::dg::Actions::detail::NormalVector<3>>>>;
 
           const auto& element = db::get<domain::Tags::Element<3>>(box);
@@ -185,13 +185,13 @@ struct NeighborPackagedData {
             call_with_dynamic_type<void,
                                    typename grmhd::GhValenciaDivClean::fd::
                                        Reconstructor::creatable_classes>(
-                &recons, [&element, &eos, &mortar_id, &neighbor_subcell_data,
+                &recons, [&element, &eos, &mortar_id, &ghost_subcell_data,
                           &subcell_mesh, &vars_on_face, &volume_prims,
                           &volume_spacetime_vars](const auto& reconstructor) {
                   reconstructor->reconstruct_fd_neighbor(
                       make_not_null(&vars_on_face), volume_prims,
-                      volume_spacetime_vars, eos, element,
-                      neighbor_subcell_data, subcell_mesh, mortar_id.first);
+                      volume_spacetime_vars, eos, element, ghost_subcell_data,
+                      subcell_mesh, mortar_id.first);
                 });
 
             grmhd::ValenciaDivClean::subcell::compute_fluxes(
@@ -204,28 +204,27 @@ struct NeighborPackagedData {
             //   packaged data?
             {
               Scalar<DataVector> gamma_on_dg_face = data_on_slice(
-                  get<GeneralizedHarmonic::ConstraintDamping::Tags::
-                          ConstraintGamma1>(box),
+                  get<gh::ConstraintDamping::Tags::ConstraintGamma1>(box),
                   dg_mesh.extents(), direction.dimension(),
                   direction.side() == Side::Lower
                       ? 0
                       : (dg_mesh.extents(direction.dimension()) - 1));
               evolution::dg::subcell::fd::project(
                   make_not_null(
-                      &get(get<GeneralizedHarmonic::ConstraintDamping::Tags::
-                                   ConstraintGamma1>(vars_on_face))),
+                      &get(get<gh::ConstraintDamping::Tags::ConstraintGamma1>(
+                          vars_on_face))),
                   get(gamma_on_dg_face), dg_face_mesh, subcell_face_extents);
-              data_on_slice(make_not_null(&gamma_on_dg_face),
-                            get<GeneralizedHarmonic::ConstraintDamping::Tags::
-                                    ConstraintGamma2>(box),
-                            dg_mesh.extents(), direction.dimension(),
-                            direction.side() == Side::Lower
-                                ? 0
-                                : (dg_mesh.extents(direction.dimension()) - 1));
+              data_on_slice(
+                  make_not_null(&gamma_on_dg_face),
+                  get<gh::ConstraintDamping::Tags::ConstraintGamma2>(box),
+                  dg_mesh.extents(), direction.dimension(),
+                  direction.side() == Side::Lower
+                      ? 0
+                      : (dg_mesh.extents(direction.dimension()) - 1));
               evolution::dg::subcell::fd::project(
                   make_not_null(
-                      &get(get<GeneralizedHarmonic::ConstraintDamping::Tags::
-                                   ConstraintGamma2>(vars_on_face))),
+                      &get(get<gh::ConstraintDamping::Tags::ConstraintGamma2>(
+                          vars_on_face))),
                   get(gamma_on_dg_face), dg_face_mesh, subcell_face_extents);
             }
 
@@ -250,7 +249,7 @@ struct NeighborPackagedData {
             // Need to renormalize the normal vector with the neighbor's
             // inverse spatial metric.
             const auto& inverse_spatial_metric =
-                get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial>>(
+                get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
                     vars_on_face);
             const auto normal_magnitude =
                 magnitude(normal_covector, inverse_spatial_metric);
@@ -284,10 +283,10 @@ struct NeighborPackagedData {
             // Really we should be solving the boundary correction and
             // then reconstructing, but away from a shock this doesn't
             // matter.
-            std::vector<double> dg_data(
+            DataVector dg_data{
                 Variables<
                     dg_package_field_tags>::number_of_independent_components *
-                dg_face_mesh.number_of_grid_points());
+                dg_face_mesh.number_of_grid_points()};
             Variables<dg_package_field_tags> dg_packaged_data{dg_data.data(),
                                                               dg_data.size()};
             evolution::dg::subcell::fd::reconstruct(

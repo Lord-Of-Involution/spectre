@@ -123,7 +123,7 @@ auto corners_for_rectilinear_domains(
     -> std::vector<std::array<size_t, two_to_the(VolumeDim)>>;
 
 /// \ingroup ComputationalDomainGroup
-/// The number of wedges to include in the Shell domain.
+/// The number of wedges to include in the Sphere domain.
 enum class ShellWedges {
   /// Use the entire shell
   All,
@@ -134,22 +134,39 @@ enum class ShellWedges {
 };
 
 /// \ingroup ComputationalDomainGroup
-/// These are the CoordinateMaps of the Wedge<3>s used in the Sphere, Shell, and
-/// binary compact object DomainCreators. This function can also be used to
-/// wrap the Sphere or Shell in a cube made of six Wedge<3>s.
-/// The argument `x_coord_of_shell_center` specifies a translation of the Shell
-/// in the x-direction in the TargetFrame. For example, the BBH DomainCreator
-/// uses this to set the position of each BH.
-/// When the argument `use_half_wedges` is set to `true`, the wedges in the
-/// +z,-z,+y,-y directions are cut in half along their xi-axes. The resulting
-/// ten CoordinateMaps are used for the outermost Blocks of the BBH Domain.
-/// The argument `aspect_ratio` sets the equatorial compression factor,
-/// used by the EquatorialCompression maps which get composed with the Wedges.
-/// This is done if `aspect_ratio` is set to something other than the default
-/// value of one. The `radial_partitioning` specifies the radial boundaries of
-/// sub-shells between `inner_radius` and `outer_radius`. Set the
-/// `radial_distribution` to select the radial distribution of grid points in
-/// the spherical shells.
+/// The first index in the list "UpperZ", "LowerZ", "UpperY", "LowerY", "UpperX"
+/// "LowerX" that is included in `which_wedges`. It is 0 for `ShellWedges::All`,
+/// 2 for `ShellWedges::FourOnEquator`, and 5 for `ShellWedges::OneAlongMinusX`.
+size_t which_wedge_index(const ShellWedges& which_wedges);
+
+/*!
+ * \ingroup ComputationalDomainGroup
+ * These are the CoordinateMaps of the Wedge<3>s used in the Sphere and
+ * binary compact object DomainCreators. This function can also be used to
+ * wrap the Sphere in a cube made of six Wedge<3>s.
+ *
+ * \param inner_radius Radius of the inner boundary of the shell, or the
+ * radius circumscribing the inner cube of a sphere.
+ * \param outer_radius Outer radius of the shell or sphere.
+ * \param inner_sphericity Specifies if the wedges form a spherical inner
+ * boundary (1.0) or a cubical inner boundary (0.0).
+ * \param outer_sphericity Specifies if the wedges form a spherical outer
+ * boundary (1.0) or a cubical outer boundary (0.0).
+ * \param use_equiangular_map Toggles the equiangular map of the Wedge map.
+ * \param use_half_wedges When `true`, the wedges in the +z,-z,+y,-y directions
+ * are cut in half along their xi-axes. The resulting ten CoordinateMaps are
+ * used for the outermost Blocks of the BBH Domain.
+ * \param radial_partitioning Specifies the radial boundaries of sub-shells
+ * between `inner_radius` and `outer_radius`. If the inner and outer
+ * sphericities are different, the innermost shell does the transition.
+ * \param radial_distribution Select the radial distribution of grid points in
+ * the spherical shells.
+ * \param which_wedges Select a subset of wedges.
+ * \param opening_angle sets the combined opening angle of the two half wedges
+ * that open up along the y-z plane. The endcap wedges are then given an angle
+ * of pi minus this opening angle. This parameter only has an effect if
+ * `use_half_wedges` is set to `true`.
+ */
 std::vector<domain::CoordinateMaps::Wedge<3>> sph_wedge_coordinate_maps(
     double inner_radius, double outer_radius, double inner_sphericity,
     double outer_sphericity, bool use_equiangular_map,
@@ -157,7 +174,7 @@ std::vector<domain::CoordinateMaps::Wedge<3>> sph_wedge_coordinate_maps(
     const std::vector<double>& radial_partitioning = {},
     const std::vector<domain::CoordinateMaps::Distribution>&
         radial_distribution = {domain::CoordinateMaps::Distribution::Linear},
-    ShellWedges which_wedges = ShellWedges::All);
+    ShellWedges which_wedges = ShellWedges::All, double opening_angle = M_PI_2);
 
 /// \ingroup ComputationalDomainGroup
 /// These are the ten Frustums used in the DomainCreators for binary compact
@@ -170,24 +187,32 @@ std::vector<domain::CoordinateMaps::Wedge<3>> sph_wedge_coordinate_maps(
 /// that moves the center of the two joined inner cubes away from the origin
 /// and to `-origin_preimage`. `projective_scale_factor` acts to change the
 /// gridpoint distribution in the radial direction. \see Frustum for details.
+/// The value for `sphericity` determines whether the outer surface is a cube
+/// (value of 0), a sphere (value of 1) or somewhere in between.
+/// The value for `opening_angle` determines the gridpoint distribution used
+/// in the Frustums such that they conform to the outer sphere of Wedges with
+/// the same value for `opening_angle`.
 std::vector<domain::CoordinateMaps::Frustum> frustum_coordinate_maps(
     double length_inner_cube, double length_outer_cube,
     bool use_equiangular_map,
     const std::array<double, 3>& origin_preimage = {{0.0, 0.0, 0.0}},
-    double projective_scale_factor = 1.0, double sphericity = 0.0);
+    double projective_scale_factor = 1.0, double sphericity = 0.0,
+    double opening_angle = M_PI_2);
 
 /// \ingroup ComputationalDomainGroup
 /// \brief The corners for a domain with radial layers.
 ///
 /// Generates the corners for a Domain which is made of one or more layers
-/// of Blocks fully enveloping an interior volume, e.g. Shell or Sphere. The
-/// `number_of_layers` specifies how many of these layers of Blocks to have
+/// of Blocks fully enveloping an interior volume, e.g. Sphere.
+///
+/// \param number_of_layers specifies how many layers of Blocks to have
 /// in the final domain.
-/// `include_central_block` is set to `true` in Sphere, where the interior
-/// volume is filled with a central Block, and `false` in Shell, where the
+/// \param include_central_block set to `true` where the interior
+/// volume is filled with a central Block, and `false` where the
 /// interior volume is left empty.
-/// The `central_block_corners` are used as seed values to generate the corners
+/// \param central_block_corners are used as seed values to generate the corners
 /// for the surrounding Blocks.
+/// \param which_wedges can be used to exclude a subset of the wedges.
 std::vector<std::array<size_t, 8>> corners_for_radially_layered_domains(
     size_t number_of_layers, bool include_central_block,
     const std::array<size_t, 8>& central_block_corners = {{1, 2, 3, 4, 5, 6, 7,

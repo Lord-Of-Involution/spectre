@@ -28,13 +28,12 @@ namespace control_system {
  *
  * \details The columns of data written are:
  * - %Time
- * - Lambda
- * - dtLambda
- * - d2tLambda
+ * - FunctionOfTime
+ * - dtFunctionOfTime
+ * - d2tFunctionOfTime
  * - ControlError
  * - dtControlError
- *
- * where "Lambda" is the function of time value.
+ * - DampingTimescale
  *
  * Data will be stored in the reduction file. All subfiles for the control
  * system within the H5 file will be under the group "/ControlSystems".
@@ -62,7 +61,7 @@ void write_components_to_disk(
     const double time, Parallel::GlobalCache<Metavariables>& cache,
     const std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>&
         function_of_time,
-    const std::array<DataVector, 2>& q_and_dtq) {
+    const std::array<DataVector, 2>& q_and_dtq, const DataVector& timescales) {
   auto& observer_writer_proxy = Parallel::get_parallel_component<
       observers::ObserverWriter<Metavariables>>(cache);
 
@@ -104,9 +103,13 @@ void write_components_to_disk(
     // everything with ControlSystems/
     const std::string subfile_name{"/ControlSystems/" + ControlSystem::name() +
                                    "/" + *component_name_opt};
-    std::vector<std::string> legend{"Time",         "Lambda",
-                                    "dtLambda",     "d2tLambda",
-                                    "ControlError", "dtControlError"};
+    std::vector<std::string> legend{"Time",
+                                    "FunctionOfTime",
+                                    "dtFunctionOfTime",
+                                    "d2tFunctionOfTime",
+                                    "ControlError",
+                                    "dtControlError",
+                                    "DampingTimescale"};
 
     Parallel::threaded_action<
         observers::ThreadedActions::WriteReductionDataRow>(
@@ -119,7 +122,8 @@ void write_components_to_disk(
             function_at_current_time[1][i],
             function_at_current_time[2][i],
             q_and_dtq[0][i],
-            q_and_dtq[1][i])
+            q_and_dtq[1][i],
+            timescales[i])
         // clang-format on
     );
   }

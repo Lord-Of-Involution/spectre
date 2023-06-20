@@ -14,10 +14,10 @@
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryCorrections/Factory.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/System.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Formulation.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/PrettyType.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace grmhd::GhValenciaDivClean::BoundaryCorrections {
@@ -156,12 +156,10 @@ class ProductOfCorrections final : public BoundaryCorrection {
       DerivedGhCorrection, DerivedValenciaCorrection,
       typename DerivedGhCorrection::dg_package_field_tags,
       typename DerivedValenciaCorrection::dg_package_field_tags,
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
+      typename gh::System<3_st>::variables_tag::tags_list,
       typename grmhd::ValenciaDivClean::System::variables_tag::tags_list,
-      db::wrap_tags_in<
-          ::Tags::Flux,
-          typename GeneralizedHarmonic::System<3_st>::flux_variables,
-          tmpl::size_t<3_st>, Frame::Inertial>,
+      db::wrap_tags_in<::Tags::Flux, typename gh::System<3_st>::flux_variables,
+                       tmpl::size_t<3_st>, Frame::Inertial>,
       db::wrap_tags_in<::Tags::Flux,
                        typename grmhd::ValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,

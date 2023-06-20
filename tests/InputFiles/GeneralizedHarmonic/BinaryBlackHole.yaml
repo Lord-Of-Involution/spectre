@@ -1,33 +1,20 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveGhBinaryBlackHole
-# Check: parse
+Executable: EvolveGhBinaryBlackHole
+Testing:
+  Check: parse
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
-  Singletons:
-    AhA:
-      Proc: Auto
-      Exclusive: true
-    AhB:
-      Proc: Auto
-      Exclusive: true
-    ControlSystemAhA:
-      Proc: Auto
-      Exclusive: true
-    ControlSystemAhB:
-      Proc: Auto
-      Exclusive: true
-    MemoryMonitor: Auto
-    Rotation: Auto
-    Expansion: Auto
+  Singletons: Auto
 
 Evolution:
   InitialTime: 0.0
   InitialTimeStep: 0.0002
   InitialSlabSize: 0.25
-  StepController: BinaryFraction
   StepChoosers:
     - Increase:
         Factor: 2
@@ -61,40 +48,41 @@ DomainCreator:
         ExciseWithBoundaryCondition:
           DemandOutgoingCharSpeeds:
       UseLogarithmicMap: true
-    EnvelopingCube:
+    Envelope:
       Radius: 100.0
       UseProjectiveMap: true
-      Sphericity: 0.0
     OuterShell:
-      InnerRadius: Auto
-      OuterRadius: 1493.0
+      Radius: 1493.0
       RadialDistribution: Logarithmic
+      OpeningAngle: 120.0
       BoundaryCondition:
         ConstraintPreservingBjorhus:
           Type: ConstraintPreservingPhysical
+    UseEquiangularMap: True
     InitialRefinement:
       ObjectAShell:   [3, 3, 4]
       ObjectACube:    [2, 2, 1]
       ObjectBShell:   [3, 3, 4]
       ObjectBCube:    [2, 2, 1]
-      EnvelopingCube: [2, 2, 3]
-      CubedShell:     [2, 2, 2]
+      Envelope:       [2, 2, 3]
       OuterShell:     [2, 2, 5]
     InitialGridPoints: 5
     TimeDependentMaps:
       InitialTime: 0.0
       ExpansionMap:
-        InitialExpansion: 1.0
-        InitialExpansionVelocity: 0.0
-        OuterBoundary: 1493.0
+        InitialValues: [1.0, 0.0]
         AsymptoticVelocityOuterBoundary: -1.0e-6
         DecayTimescaleOuterBoundaryVelocity: 50.0
       RotationMap:
         InitialAngularVelocity: [0.0, 0.0, 0.0]
-      SizeMap:
-        InitialValues: [0.0, 0.0]
-        InitialVelocities: [0.0, 0.0]
-        InitialAccelerations: [0.0, 0.0]
+      SizeMapA:
+        InitialValues: [0.0, 0.0, 0.0]
+      SizeMapB:
+        InitialValues: [0.0, 0.0, 0.0]
+      ShapeMapA:
+        LMax: &LMax 10
+      ShapeMapB:
+        LMax: *LMax
 
 EventsAndDenseTriggers:
 
@@ -165,15 +153,17 @@ Filtering:
   ExpFilter0:
     Alpha: 36.0
     HalfPower: 24
-    DisableForDebugging: True
-
+    Enable: false
+    BlocksToFilter: All
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1
           Offset: 0
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Norms
           TensorsToObserve:
           - Name: Lapse
@@ -188,11 +178,13 @@ EventsAndTriggers:
           - Name: PointwiseL2Norm(FourIndexConstraint)
             NormType: L2Norm
             Components: Sum
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1000
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve:
             - Lapse
@@ -203,22 +195,31 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
-  - - Slabs:
+          OverrideObservationValue: None
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1
           Offset: 0
-    - - AhA
-      - AhB
-  - - Slabs:
+    Events:
+      - ObservationAhA
+      - ObservationAhB
+      - ObservationExcisionBoundaryA
+      - ObservationExcisionBoundaryB
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 100
           Offset: 0
-    - - MonitorMemory:
+    Events:
+      - MonitorMemory:
           ComponentsToMonitor: All
-  - - TimeCompares:
+  - Trigger:
+      TimeCompares:
         Comparison: GreaterThan
         Value: 0.02
-    - - Completion
+    Events:
+      - Completion
 
 Observers:
   VolumeFileName: "GhBinaryBlackHoleVolumeData"
@@ -229,9 +230,9 @@ Interpolator:
   DumpVolumeDataOnFailure: false
 
 ApparentHorizons:
-  AhA: &AhA
+  ObservationAhA: &AhA
     InitialGuess:
-      Lmax: 10
+      LMax: *LMax
       Radius: 2.2
       Center: [*XCoordA, 0.0, 0.0]
     FastFlow: &DefaultFastFlow
@@ -244,9 +245,9 @@ ApparentHorizons:
       DivergenceIter: 5
       MaxIts: 100
     Verbosity: Verbose
-  AhB: &AhB
+  ObservationAhB: &AhB
     InitialGuess:
-      Lmax: 10
+      LMax: *LMax
       Radius: 2.2
       Center: [*XCoordB, 0.0, 0.0]
     FastFlow: *DefaultFastFlow
@@ -254,9 +255,30 @@ ApparentHorizons:
   ControlSystemAhA: *AhA
   ControlSystemAhB: *AhB
 
+InterpolationTargets:
+  BondiSachsInterpolation:
+    LMax: 16
+    Radius: [100, 150, 200]
+    Center: [0, 0, 0]
+    AngularOrdering: Cce
+  ObservationExcisionBoundaryA:
+    LMax: *LMax
+    Center: [0., 0., 0.]
+    Radius: 2.0
+    AngularOrdering: "Strahlkorper"
+  ObservationExcisionBoundaryB:
+    LMax: *LMax
+    Center: [0., 0., 0.]
+    Radius: 2.0
+    AngularOrdering: "Strahlkorper"
+
+Cce:
+  BondiSachsOutputFilePrefix: "BondiSachs"
+
 ControlSystems:
   WriteDataToDisk: true
   MeasurementsPerUpdate: 4
+  Verbosity: Silent
   Expansion:
     IsActive: true
     Averager:
@@ -289,9 +311,26 @@ ControlSystems:
       IncreaseFactor: 1.01
       DecreaseFactor: 0.98
     ControlError:
+  ShapeA: &ShapeControl
+    IsActive: true
+    Averager:
+      AverageTimescaleFraction: 0.25
+      Average0thDeriv: false
+    Controller:
+      UpdateFraction: 0.03
+    TimescaleTuner:
+      InitialTimescales: 0.2
+      MinTimescale: 1.0e-2
+      MaxTimescale: 10.0
+      IncreaseThreshold: 2.5e-4
+      DecreaseThreshold: 1.0e-3
+      IncreaseFactor: 1.01
+      DecreaseFactor: 0.98
+    ControlError:
+  ShapeB: *ShapeControl
 
-# initial_data.h5 should contain numerical initial data
-# on the same grid as specified by the domain given above
+# initial_data.h5 should contain numerical initial data on a grid that covers
+# the domain given above
 # - One way to produce initial data is with the `SolveXcts` executable. See the
 #   example in `docs/Examples/BbhInitialData`.
 # - You can also produce initial data with SpEC, interpolate it (using SpEC) to
@@ -299,11 +338,14 @@ ControlSystems:
 #   coordinates of all grid points in the domain), and then load it here by
 #   selecting either the GH variables (`SpacetimeMetric`, `Pi`, `Phi`) or the
 #   ADM variables (`Lapse`, `Shift`, `SpatialMetric`, `ExtrinsicCurvature`).
-Importers:
+#   In this case, set `Interpolate: False` because the data is already given
+#   on this exact grid.
+InitialData:
   NumericInitialData:
     FileGlob: "/path/to/initial_data.h5"
     Subgroup: "VolumeData"
     ObservationValue: Last
+    Interpolate: True
     Variables:
       Lapse: Lapse
       # Load a shift that is not corotating. See `docs/Examples/BbhInitialData`

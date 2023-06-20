@@ -14,8 +14,10 @@
 #include "Evolution/Systems/Cce/OptionTags.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
+#include "Time/ChooseLtsStepSize.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
@@ -43,7 +45,7 @@ namespace Actions {
  *  - `Tags::Next<Tags::TimeStepId>`
  *  - `Tags::TimeStep`
  *  - `Tags::Time`
- *  -
+ *  - `Tags::AdaptiveSteppingDiagnostics`
  * ```
  * Tags::HistoryEvolvedVariables<
  * metavariables::evolved_coordinates_variables_tag,
@@ -65,7 +67,6 @@ struct InitializeCharacteristicEvolutionTime {
       tmpl::list<Initialization::Tags::InitialSlabSize<local_time_stepping>,
                  Tags::CceEvolutionPrefix<::Tags::TimeStepper<LtsTimeStepper>>,
                  Tags::CceEvolutionPrefix<::Tags::StepChoosers>,
-                 Tags::CceEvolutionPrefix<::Tags::StepController>,
                  ::Initialization::Tags::InitialTimeDelta>>;
 
   using const_global_cache_tags = tmpl::list<>;
@@ -75,10 +76,9 @@ struct InitializeCharacteristicEvolutionTime {
   using simple_tags = tmpl::list<
       ::Tags::TimeStepId, ::Tags::Next<::Tags::TimeStepId>, ::Tags::TimeStep,
       ::Tags::Next<::Tags::TimeStep>, ::Tags::Time,
+      ::Tags::AdaptiveSteppingDiagnostics,
       ::Tags::HistoryEvolvedVariables<EvolvedCoordinatesVariablesTag>,
-      ::Tags::HistoryEvolvedVariables<evolved_swsh_variables_tag>,
-      ::Tags::RollbackValue<EvolvedCoordinatesVariablesTag>,
-      ::Tags::RollbackValue<evolved_swsh_variables_tag>>;
+      ::Tags::HistoryEvolvedVariables<evolved_swsh_variables_tag>>;
   using compute_tags = tmpl::list<>;
 
   template <typename DbTags, typename... InboxTags, typename Metavariables,
@@ -103,8 +103,7 @@ struct InitializeCharacteristicEvolutionTime {
         db::get<Initialization::Tags::InitialTimeDelta>(box);
     if constexpr (local_time_stepping) {
       initial_time_step =
-          db::get<Tags::CceEvolutionPrefix<::Tags::StepController>>(box)
-              .choose_step(initial_time, initial_time_delta);
+          choose_lts_step_size(initial_time, initial_time_delta);
     } else {
       (void)initial_time_delta;
       initial_time_step = initial_time.slab().duration();

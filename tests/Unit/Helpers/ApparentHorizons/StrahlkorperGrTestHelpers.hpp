@@ -9,7 +9,9 @@
 #include "DataStructures/Tensor/TypeAliases.hpp"
 
 /// \cond
-class YlmSpherepack;
+namespace ylm {
+class Spherepack;
+}  // namespace ylm
 /// \endcond
 
 namespace TestHelpers {
@@ -24,7 +26,7 @@ namespace Schwarzschild {
  * where \f$r = x_i x_j \delta^{ij}\f$, \f$x_i\f$ is the
  * position vector in Cartesian coordinates, and M is the mass.
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::ii<DataType, SpatialDim, Frame> spatial_ricci(
     const tnsr::I<DataType, SpatialDim, Frame>& x, double mass);
 }  // namespace Schwarzschild
@@ -40,7 +42,7 @@ namespace Minkowski {
  * where \f$r = x_i x_j \delta^{ij}\f$ and \f$x_i\f$ is the
  * position vector in Cartesian coordinates.
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::ii<DataType, SpatialDim, Frame> extrinsic_curvature_sphere(
     const tnsr::I<DataType, SpatialDim, Frame>& x);
 }  // namespace Minkowski
@@ -71,7 +73,7 @@ Scalar<DataType> horizon_ricci_scalar(const Scalar<DataType>& horizon_radius,
 template <typename DataType>
 Scalar<DataType> horizon_ricci_scalar(
     const Scalar<DataType>& horizon_radius_with_spin_on_z_axis,
-    const YlmSpherepack& ylm_with_spin_on_z_axis, const YlmSpherepack& ylm,
+    const ylm::Spherepack& ylm_with_spin_on_z_axis, const ylm::Spherepack& ylm,
     double mass, const std::array<double, 3>& dimensionless_spin);
 
 }  // namespace Kerr

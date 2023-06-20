@@ -30,10 +30,13 @@
 #include "Domain/Creators/RotatedBricks.hpp"
 #include "Domain/Creators/RotatedIntervals.hpp"
 #include "Domain/Creators/RotatedRectangles.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
+#include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Elliptic/Actions/InitializeBackgroundFields.hpp"
 #include "Elliptic/BoundaryConditions/AnalyticSolution.hpp"
 #include "Elliptic/BoundaryConditions/BoundaryCondition.hpp"
@@ -54,10 +57,8 @@
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/SetData.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "ParallelAlgorithms/LinearSolver/Schwarz/ElementCenteredSubdomainData.hpp"
@@ -69,6 +70,8 @@
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeWithValue.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -148,7 +151,6 @@ struct InitializeRandomSubdomainData {
     using SubdomainData = typename SubdomainDataTag<Dim, Fields>::type;
 
     db::mutate<SubdomainDataTag<Dim, Fields>>(
-        make_not_null(&box),
         [](const auto subdomain_data, const auto& mesh, const auto& element,
            const auto& all_overlap_meshes, const auto& all_overlap_extents) {
           MAKE_GENERATOR(gen);
@@ -175,7 +177,7 @@ struct InitializeRandomSubdomainData {
             }
           }
         },
-        db::get<domain::Tags::Mesh<Dim>>(box),
+        make_not_null(&box), db::get<domain::Tags::Mesh<Dim>>(box),
         db::get<domain::Tags::Element<Dim>>(box),
         db::get<LinearSolver::Schwarz::Tags::Overlaps<domain::Tags::Mesh<Dim>,
                                                       Dim, DummyOptionsGroup>>(
@@ -222,8 +224,7 @@ struct RandomBackground : elliptic::analytic_data::Background {
   // NOLINTEND(readability-convert-member-functions-to-static)
   static tnsr::II<DataVector, Dim> variables(
       const tnsr::I<DataVector, Dim>& x,
-      gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial,
-                                     DataVector> /*meta*/) {
+      gr::Tags::InverseSpatialMetric<DataVector, Dim> /*meta*/) {
     tnsr::II<DataVector, Dim> inv_metric{x.begin()->size()};
     const DataVector r = get(magnitude(x));
     for (size_t i = 0; i < Dim; ++i) {
@@ -236,8 +237,8 @@ struct RandomBackground : elliptic::analytic_data::Background {
   }
   static tnsr::i<DataVector, Dim> variables(
       const tnsr::I<DataVector, Dim>& x,
-      gr::Tags::SpatialChristoffelSecondKindContracted<Dim, Frame::Inertial,
-                                                       DataVector> /*meta*/) {
+      gr::Tags::SpatialChristoffelSecondKindContracted<DataVector,
+                                                       Dim> /*meta*/) {
     tnsr::i<DataVector, Dim> result{x.begin()->size()};
     const DataVector r = get(magnitude(x));
     for (size_t i = 0; i < Dim; ++i) {
@@ -293,10 +294,10 @@ struct ApplySubdomainOperator {
 
     // Store result in the DataBox for checks
     db::mutate<SubdomainOperatorAppliedToDataTag<Dim, Fields>>(
-        make_not_null(&box),
         [&subdomain_result](const auto subdomain_operator_applied_to_data) {
           *subdomain_operator_applied_to_data = std::move(subdomain_result);
-        });
+        },
+        make_not_null(&box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -464,7 +465,7 @@ void test_subdomain_operator(
   using subdomain_operator_applied_to_fields_tag =
       typename element_array::subdomain_operator_applied_to_fields_tag;
 
-  Parallel::register_factory_classes_with_charm<metavariables>();
+  register_factory_classes_with_charm<metavariables>();
 
   // Select randomly which iteration of the loops below perform expensive tests.
   MAKE_GENERATOR(gen);
@@ -686,8 +687,7 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.SubdomainOperator", "[Unit][Elliptic]") {
           make_boundary_condition<system>(
               elliptic::BoundaryConditionType::Dirichlet),
           make_boundary_condition<system>(
-              elliptic::BoundaryConditionType::Neumann),
-          nullptr};
+              elliptic::BoundaryConditionType::Neumann)};
       for (const bool use_massive_dg_operator : {false, true}) {
         test_subdomain_operator<system>(domain_creator,
                                         use_massive_dg_operator);
@@ -715,6 +715,10 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.SubdomainOperator", "[Unit][Elliptic]") {
           {{2., 1., 1.}},
           {{1, 0, 1}},
           {{3, 3, 3}},
+          make_boundary_condition<system>(
+              elliptic::BoundaryConditionType::Dirichlet),
+          make_boundary_condition<system>(
+              elliptic::BoundaryConditionType::Dirichlet),
           make_boundary_condition<system>(
               elliptic::BoundaryConditionType::Dirichlet),
           nullptr};
@@ -893,6 +897,10 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.SubdomainOperator", "[Unit][Elliptic]") {
         {{2., 1., 1.}},
         {{1, 1, 1}},
         {{3, 3, 3}},
+        make_boundary_condition<system>(
+            elliptic::BoundaryConditionType::Dirichlet),
+        make_boundary_condition<system>(
+            elliptic::BoundaryConditionType::Dirichlet),
         make_boundary_condition<system>(
             elliptic::BoundaryConditionType::Dirichlet),
         nullptr};

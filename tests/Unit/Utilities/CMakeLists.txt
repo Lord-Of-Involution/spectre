@@ -9,6 +9,7 @@ set(LIBRARY_SOURCES
   Test_Blas.cpp
   Test_CachedFunction.cpp
   Test_CallWithDynamicType.cpp
+  Test_CartesianProduct.cpp
   Test_CleanupRoutine.cpp
   Test_CloneUniquePtrs.cpp
   Test_ConstantExpressions.cpp
@@ -39,6 +40,7 @@ set(LIBRARY_SOURCES
   Test_StaticCache.cpp
   Test_StdArrayHelpers.cpp
   Test_StdHelpers.cpp
+  Test_StlBoilerplate.cpp
   Test_TaggedTuple.cpp
   Test_TMPL.cpp
   Test_TMPLDocumentation.cpp
@@ -49,10 +51,22 @@ set(LIBRARY_SOURCES
   )
 
 add_subdirectory(TypeTraits)
+add_subdirectory(Serialization)
 
 add_test_library(
   ${LIBRARY}
   "Utilities"
   "${LIBRARY_SOURCES}"
-  "Boost::boost;DataStructures;Options;Utilities"
+  ""
   )
+
+target_link_libraries(
+  ${LIBRARY}
+  PRIVATE
+  Boost::boost
+  CoordinateMaps
+  DataStructures
+  Options
+  Serialization
+  Utilities
+)

@@ -20,6 +20,7 @@
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/Translation.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
 #include "Domain/Tags.hpp"
@@ -137,8 +138,8 @@ void test() {
   check_helper();
 
   db::mutate<Tags::Time>(
-      make_not_null(&box),
-      [](const gsl::not_null<double*> local_time) { *local_time = 4.5; });
+      [](const gsl::not_null<double*> local_time) { *local_time = 4.5; },
+      make_not_null(&box));
   check_helper();
 }
 }  // namespace

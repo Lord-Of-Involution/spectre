@@ -16,10 +16,10 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/BlockId.hpp"
-#include "Domain/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
@@ -153,7 +153,8 @@ struct Metavariables {
         tmpl::list<gr::Tags::Lapse<DataVector>>;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
-        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3>;
+        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3,
+                                           Frame::Inertial>;
     using post_interpolation_callback =
         intrp::callbacks::ObserveTimeSeriesOnSurface<tmpl::list<>,
                                                      InterpolationTargetA>;
@@ -174,8 +175,8 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.ReceivePoints",
       mock_interpolation_target<metavars,
                                 typename metavars::InterpolationTargetA>;
   using interp_component = mock_interpolator<metavars>;
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{7, 7}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 7_st, false);
 
   ActionTesting::MockRuntimeSystem<metavars> runner{
       {domain_creator.create_domain()}};

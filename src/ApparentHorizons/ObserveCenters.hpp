@@ -13,9 +13,9 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "IO/Observer/ObserverComponent.hpp"
 #include "IO/Observer/ReductionActions.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Tags.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
@@ -26,6 +26,7 @@
 /// \cond
 namespace Frame {
 struct Grid;
+struct Distorted;
 struct Inertial;
 }  // namespace Frame
 /// \endcond
@@ -34,8 +35,8 @@ namespace ah {
 namespace callbacks {
 /*!
  * \brief Writes the center of an apparent horizon to disk in both the
- * Frame::Grid frame and Frame::Inertial frame. Intended to be used in the
- * `post_horizon_find_callbacks` list of an InterpolationTargetTag.
+ * `Frame` template parameter frame and Frame::Inertial frame. Intended to be
+ * used in the `post_horizon_find_callbacks` list of an InterpolationTargetTag.
  *
  * The centers will be written to a subfile with the name
  * `/ApparentHorizons/TargetName_Centers.dat` where `TargetName` is the
@@ -50,33 +51,49 @@ namespace callbacks {
  * - InertialCenter_y
  * - InertialCenter_z
  *
- * \note Requires StrahlkorperTags::Strahlkorper<Frame::Grid>
+ * The `Frame` template parameter must be either `::Frame::Grid` or
+ * `::Frame::Distorted`. Even though the template parameter can be
+ * `::Frame::Distorted`, we still write `GridCenter_?` because the centers of
+ * the objects are the same in the Grid and Distorted frames.
+ *
+ * \note Requires StrahlkorperTags::Strahlkorper<Frame>
  * and StrahlkorperTags::CartesianCoords<Frame::Inertial> and
- * StrahlkorperTags::EuclideanAreaElement<Frame::Grid> to be in the DataBox
+ * StrahlkorperTags::EuclideanAreaElement<Frame> to be in the DataBox
  * of the InterpolationTarget.
  */
-template <typename InterpolationTargetTag>
+template <typename InterpolationTargetTag, typename Frame>
 struct ObserveCenters {
+  // Note that we don't add a const_global_cache_tags type alias here with
+  // ah::Tags::ObserveCenters because we want to use the base tag and so must be
+  // agnostic to how the tag was added to the cache. We do this so anything that
+  // uses ObserveCenters can control when it gets printed.
+
   template <typename DbTags, typename Metavariables, typename TemporalId>
   static void apply(const db::DataBox<DbTags>& box,
                     Parallel::GlobalCache<Metavariables>& cache,
                     const TemporalId& temporal_id) {
-    using GridTag = StrahlkorperTags::Strahlkorper<Frame::Grid>;
-    using CoordsTag = StrahlkorperTags::CartesianCoords<Frame::Inertial>;
+    static_assert(std::is_same_v<Frame, ::Frame::Grid> or
+                      std::is_same_v<Frame, ::Frame::Distorted>,
+                  "Frame must be either Grid or Distorted.");
+    using HorizonTag = StrahlkorperTags::Strahlkorper<Frame>;
+    using CoordsTag = StrahlkorperTags::CartesianCoords<::Frame::Inertial>;
     using EuclideanAreaElementTag =
-        StrahlkorperTags::EuclideanAreaElement<Frame::Grid>;
-    static_assert(
-        db::tag_is_retrievable_v<GridTag, db::DataBox<DbTags>>,
-        "DataBox must contain StrahlkorperTags::Strahlkorper<Frame::Grid>");
+        StrahlkorperTags::EuclideanAreaElement<Frame>;
+    static_assert(db::tag_is_retrievable_v<HorizonTag, db::DataBox<DbTags>>,
+                  "DataBox must contain StrahlkorperTags::Strahlkorper<Frame>");
     static_assert(db::tag_is_retrievable_v<CoordsTag, db::DataBox<DbTags>>,
                   "DataBox must contain "
                   "StrahlkorperTags::CartesianCoords<Frame::Inertial>");
     static_assert(
         db::tag_is_retrievable_v<EuclideanAreaElementTag, db::DataBox<DbTags>>,
-        "DataBox must contain "
-        "StrahlkorperTags::EuclideanAreaElement<Frame::Grid>");
+        "DataBox must contain StrahlkorperTags::EuclideanAreaElement<Frame>");
 
-    const auto& grid_horizon = db::get<GridTag>(box);
+    // Only print the centers if we want to.
+    if (not Parallel::get<ah::Tags::ObserveCentersBase>(cache)) {
+      return;
+    }
+
+    const auto& grid_horizon = db::get<HorizonTag>(box);
     const std::array<double, 3> grid_center = grid_horizon.physical_center();
 
     // computes the inertial center to be the average value of the

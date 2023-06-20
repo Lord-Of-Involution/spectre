@@ -17,7 +17,7 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
 #include "Domain/Domain.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
@@ -114,13 +114,13 @@ void test_interpolation_target_sphere(
           "Radius: " +
           radii_str +
           "\n"
-          "Lmax: 18\n"
+          "LMax: 18\n"
           "AngularOrdering: " +
           std::string(MakeString{} << angular_ordering));
   CHECK(created_opts == sphere_opts);
 
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
 
   TestHelpers::db::test_simple_tag<
       intrp::Tags::Sphere<MockMetavariables::InterpolationTargetA>>("Sphere");
@@ -192,7 +192,7 @@ void test_sphere_errors() {
             TestHelpers::test_creation<intrp::OptionHolders::Sphere>(
                 "Center: [0.05, 0.06, 0.07]\n"
                 "Radius: [1.0, 1.0]\n"
-                "Lmax: 18\n"
+                "LMax: 18\n"
                 "AngularOrdering: Cce");
       })(),
       Catch::Contains("into radii for Sphere interpolation target. It already "
@@ -203,7 +203,7 @@ void test_sphere_errors() {
             TestHelpers::test_creation<intrp::OptionHolders::Sphere>(
                 "Center: [0.05, 0.06, 0.07]\n"
                 "Radius: [-1.0]\n"
-                "Lmax: 18\n"
+                "LMax: 18\n"
                 "AngularOrdering: Cce");
       })(),
       Catch::Contains("Radius must be positive"));
@@ -213,7 +213,7 @@ void test_sphere_errors() {
             TestHelpers::test_creation<intrp::OptionHolders::Sphere>(
                 "Center: [0.05, 0.06, 0.07]\n"
                 "Radius: -1.0\n"
-                "Lmax: 18\n"
+                "LMax: 18\n"
                 "AngularOrdering: Cce");
       })(),
       Catch::Contains("Radius must be positive"));

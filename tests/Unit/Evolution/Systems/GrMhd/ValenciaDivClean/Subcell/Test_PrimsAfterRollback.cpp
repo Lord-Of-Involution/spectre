@@ -106,7 +106,6 @@ void test(const gsl::not_null<std::mt19937*> gen,
         get<hydro::Tags::RestMassDensity<DataVector>>(subcell_prims),
         get<hydro::Tags::ElectronFraction<DataVector>>(subcell_prims),
         get<hydro::Tags::SpecificInternalEnergy<DataVector>>(subcell_prims),
-        get<hydro::Tags::SpecificEnthalpy<DataVector>>(subcell_prims),
         get<hydro::Tags::Pressure<DataVector>>(subcell_prims),
         get<hydro::Tags::SpatialVelocity<DataVector, 3, Frame::Inertial>>(
             subcell_prims),
@@ -123,8 +122,8 @@ void test(const gsl::not_null<std::mt19937*> gen,
   // The DG prims are used as an initial guess so we need to provide them
   auto box = db::create<db::AddSimpleTags<
       evolution::dg::subcell::Tags::DidRollback, cons_tag, prim_tag,
-      gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
+      gr::Tags::SpatialMetric<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>,
       gr::Tags::SqrtDetSpatialMetric<DataVector>, ::domain::Tags::Mesh<3>,
       evolution::dg::subcell::Tags::Mesh<3>,
       hydro::Tags::EquationOfState<

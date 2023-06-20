@@ -8,6 +8,7 @@ add_spectre_library(${LIBRARY})
 spectre_target_sources(
   ${LIBRARY}
   PRIVATE
+  AreaElement.cpp
   Block.cpp
   BlockLogicalCoordinates.cpp
   CreateInitialElement.cpp
@@ -16,18 +17,22 @@ spectre_target_sources(
   ElementDistribution.cpp
   ElementLogicalCoordinates.cpp
   ElementMap.cpp
+  ElementToBlockLogicalMap.cpp
   FaceNormal.cpp
+  FlatLogicalMetric.cpp
   InterfaceLogicalCoordinates.cpp
+  JacobianDiagnostic.cpp
   MinimumGridSpacing.cpp
+  RadiallyCompressedCoordinates.cpp
   SizeOfElement.cpp
-  Tags.cpp
   TagsTimeDependent.cpp
-  )
+)
 
 spectre_target_headers(
   ${LIBRARY}
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
+  AreaElement.hpp
   Block.hpp
   BlockLogicalCoordinates.hpp
   CreateInitialElement.hpp
@@ -37,17 +42,20 @@ spectre_target_headers(
   ElementDistribution.hpp
   ElementLogicalCoordinates.hpp
   ElementMap.hpp
+  ElementToBlockLogicalMap.hpp
   FaceNormal.hpp
+  FlatLogicalMetric.hpp
   InterfaceComputeTags.hpp
   InterfaceHelpers.hpp
   InterfaceLogicalCoordinates.hpp
+  JacobianDiagnostic.hpp
   MinimumGridSpacing.hpp
-  OptionTags.hpp
+  RadiallyCompressedCoordinates.hpp
   SizeOfElement.hpp
   Tags.hpp
   TagsCharacteristicSpeeds.hpp
   TagsTimeDependent.hpp
-  )
+)
 
 target_link_libraries(
   ${LIBRARY}
@@ -59,13 +67,14 @@ target_link_libraries(
   DomainStructure
   ErrorHandling
   Options
+  Spectral
   Utilities
+  PRIVATE
+  LinearOperators
   INTERFACE
   FunctionsOfTime
   Time
-  DomainCreators
-  Spectral
-  )
+)
 
 add_subdirectory(Amr)
 add_subdirectory(BoundaryConditions)

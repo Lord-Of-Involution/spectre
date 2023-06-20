@@ -17,23 +17,25 @@
 #include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/InboxInserters.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/Reduction.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/TimeStepper.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Functional.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -192,18 +194,21 @@ struct ChangeSlabSize {
         time_stepper.next_time_id(new_time_step_id, new_step);
 
     db::mutate<::Tags::Next<::Tags::TimeStepId>, ::Tags::TimeStep,
-               ::Tags::Next<::Tags::TimeStep>, ::Tags::TimeStepId>(
-        make_not_null(&box),
+               ::Tags::Next<::Tags::TimeStep>, ::Tags::TimeStepId,
+               ::Tags::AdaptiveSteppingDiagnostics>(
         [&new_next_time_step_id, &new_step, &new_time_step_id](
             const gsl::not_null<TimeStepId*> next_time_step_id,
             const gsl::not_null<TimeDelta*> time_step,
             const gsl::not_null<TimeDelta*> next_time_step,
-            const gsl::not_null<TimeStepId*> local_time_step_id) {
+            const gsl::not_null<TimeStepId*> local_time_step_id,
+            const gsl::not_null<AdaptiveSteppingDiagnostics*> diags) {
           *next_time_step_id = new_next_time_step_id;
           *time_step = new_step;
           *next_time_step = new_step;
           *local_time_step_id = new_time_step_id;
-        });
+          ++diags->number_of_slab_size_changes;
+        },
+        make_not_null(&box));
 
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }

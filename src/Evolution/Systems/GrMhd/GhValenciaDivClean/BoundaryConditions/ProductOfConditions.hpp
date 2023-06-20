@@ -22,12 +22,12 @@
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryConditions/Factory.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/System.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Formulation.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Lapse.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Shift.hpp"
 #include "PointwiseFunctions/GeneralRelativity/SpatialMetric.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -92,7 +92,7 @@ struct ValenciaDoNothingGhostCondition {
       db::wrap_tags_in<::Tags::Flux,
                        typename grmhd::ValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,
-      gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>;
+      gr::Tags::SpacetimeMetric<DataVector, 3>>;
 
   std::optional<std::string> dg_ghost(
       const gsl::not_null<Scalar<DataVector>*> tilde_d,
@@ -165,11 +165,11 @@ struct ValenciaDoNothingGhostCondition {
 
 struct GhDoNothingGhostCondition {
   using dg_interior_evolved_variables_tags =
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list;
+      typename gh::System<3_st>::variables_tag::tags_list;
 
-  using dg_interior_temporary_tags = tmpl::list<
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>;
+  using dg_interior_temporary_tags =
+      tmpl::list<::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma2>;
 
   std::optional<std::string> dg_ghost(
       const gsl::not_null<tnsr::aa<DataVector, 3, Frame::Inertial>*>
@@ -336,11 +336,9 @@ struct ProductOfConditionsImpl<
           tuples::get<Tags::detail::TemporaryReference<GhEvolvedTags>>(
               shuffle_refs)...,
           tuples::get<Tags::detail::TemporaryReference<
-              ::GeneralizedHarmonic::ConstraintDamping::Tags::
-                  ConstraintGamma1>>(shuffle_refs),
+              ::gh::ConstraintDamping::Tags::ConstraintGamma1>>(shuffle_refs),
           tuples::get<Tags::detail::TemporaryReference<
-              ::GeneralizedHarmonic::ConstraintDamping::Tags::
-                  ConstraintGamma2>>(shuffle_refs));
+              ::gh::ConstraintDamping::Tags::ConstraintGamma2>>(shuffle_refs));
     }
     std::optional<std::string> valencia_string{};
     if constexpr (DerivedValenciaCondition::bc_type ==
@@ -374,8 +372,7 @@ struct ProductOfConditionsImpl<
           tuples::get<Tags::detail::TemporaryReference<ValenciaFluxTags>>(
               shuffle_refs)...,
           tuples::get<Tags::detail::TemporaryReference<
-              gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>>(
-              shuffle_refs));
+              gr::Tags::SpacetimeMetric<DataVector, 3>>>(shuffle_refs));
     }
     if (not gh_string.has_value()) {
       return valencia_string;
@@ -634,12 +631,10 @@ class ProductOfConditions final : public BoundaryCondition {
 
   using product_of_conditions_impl = detail::ProductOfConditionsImpl<
       DerivedGhCondition, DerivedValenciaCondition,
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list,
+      typename gh::System<3_st>::variables_tag::tags_list,
       typename grmhd::ValenciaDivClean::System::variables_tag::tags_list,
-      db::wrap_tags_in<
-          ::Tags::Flux,
-          typename GeneralizedHarmonic::System<3_st>::flux_variables,
-          tmpl::size_t<3_st>, Frame::Inertial>,
+      db::wrap_tags_in<::Tags::Flux, typename gh::System<3_st>::flux_variables,
+                       tmpl::size_t<3_st>, Frame::Inertial>,
       db::wrap_tags_in<::Tags::Flux,
                        typename grmhd::ValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,

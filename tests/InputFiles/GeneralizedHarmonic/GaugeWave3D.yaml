@@ -1,15 +1,19 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveGhNoBlackHole3D
-# Check: parse;execute
-# Timeout: 8
-# ExpectedOutput:
-#   GhGaugeWave3DVolume0.h5
-#   GhGaugeWave3DReductions.h5
+Executable: EvolveGhNoBlackHole3D
+Testing:
+  Check: parse;execute
+  Timeout: 8
+ExpectedOutput:
+  - GhGaugeWave3DVolume0.h5
+  - GhGaugeWave3DReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
+  Singletons: Auto
 
 Evolution:
   InitialTime: 0.0
@@ -19,12 +23,14 @@ Evolution:
       Order: 3
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
        EvenlySpaced:
          # Current implementation checks wallclock at these global syncs
          Interval: 100
          Offset: 0
-    - - CheckpointAndExitAfterWallclock:
+    PhaseChanges:
+      - CheckpointAndExitAfterWallclock:
           WallclockHours: None
 
 InitialData: &InitialData
@@ -39,7 +45,9 @@ DomainCreator:
     InitialRefinement: [1, 1, 1]
     InitialGridPoints: [5, 5, 5]
     TimeDependence: None
-    BoundaryCondition: Periodic
+    BoundaryConditionInX: Periodic
+    BoundaryConditionInY: Periodic
+    BoundaryConditionInZ: Periodic
 
 EvolutionSystem:
   GeneralizedHarmonic:
@@ -69,7 +77,8 @@ Filtering:
   ExpFilter0:
     Alpha: 36.0
     HalfPower: 64
-    DisableForDebugging: True
+    Enable: false
+    BlocksToFilter: All
 
 SpatialDiscretization:
   DiscontinuousGalerkin:
@@ -79,11 +88,13 @@ SpatialDiscretization:
     UpwindPenalty:
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 2
           Offset: 0
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
             - Name: Error(SpacetimeMetric)
@@ -95,11 +106,13 @@ EventsAndTriggers:
             - Name: Error(Phi)
               NormType: L2Norm
               Components: Sum
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve:
             - SpacetimeMetric
@@ -111,10 +124,13 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
-  - - Slabs:
+          OverrideObservationValue: None
+  - Trigger:
+      Slabs:
         Specified:
           Values: [2]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

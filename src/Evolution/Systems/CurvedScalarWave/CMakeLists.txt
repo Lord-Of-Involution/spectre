@@ -10,7 +10,6 @@ spectre_target_sources(
   PRIVATE
   Characteristics.cpp
   Constraints.cpp
-  Equations.cpp
   TimeDerivative.cpp
   VolumeTermsInstantiation.cpp
   )
@@ -23,7 +22,6 @@ spectre_target_headers(
   Characteristics.hpp
   CalculateGrVars.hpp
   Constraints.hpp
-  Equations.hpp
   Initialize.hpp
   PsiSquared.hpp
   System.hpp
@@ -39,8 +37,10 @@ target_link_libraries(
   Domain
   ErrorHandling
   GeneralRelativity
+  Serialization
   Utilities
   )
 
 add_subdirectory(BoundaryConditions)
 add_subdirectory(BoundaryCorrections)
+add_subdirectory(Worldtube)

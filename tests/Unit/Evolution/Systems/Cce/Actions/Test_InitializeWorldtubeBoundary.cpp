@@ -67,7 +67,7 @@ struct H5Metavariables {
       Tags::characteristic_worldtube_boundary_tags<Tags::BoundaryValue>;
   using component_list =
       tmpl::list<mock_h5_worldtube_boundary<H5Metavariables>>;
-  static constexpr bool uses_partially_flat_cartesian_coordinates = false;
+  static constexpr bool evolve_ccm = false;
 };
 
 struct GhMetavariables {
@@ -75,7 +75,7 @@ struct GhMetavariables {
       Tags::characteristic_worldtube_boundary_tags<Tags::BoundaryValue>;
   using component_list =
       tmpl::list<mock_gh_worldtube_boundary<GhMetavariables>>;
-  static constexpr bool uses_partially_flat_cartesian_coordinates = false;
+  static constexpr bool evolve_ccm = false;
 };
 
 struct AnalyticMetavariables {
@@ -196,7 +196,7 @@ void test_gh_initialization() {
 void test_analytic_initialization() {
   using component = mock_analytic_worldtube_boundary<AnalyticMetavariables>;
   const size_t l_max = 8;
-  Parallel::register_classes_with_charm<TimeSteppers::Rk3HesthavenSsp>();
+  register_classes_with_charm<TimeSteppers::Rk3HesthavenSsp>();
   ActionTesting::MockRuntimeSystem<AnalyticMetavariables> runner{
       {l_max, 100.0, 0.0}};
 
@@ -238,7 +238,7 @@ SPECTRE_TEST_CASE(
 SPECTRE_TEST_CASE("Unit.Cce.Actions.InitializeWorldtubeBoundary.RtFail",
                   "[Utilities][Unit]") {
   ERROR_TEST();
-  Parallel::register_classes_with_charm<TimeSteppers::Rk3HesthavenSsp>();
+  register_classes_with_charm<TimeSteppers::Rk3HesthavenSsp>();
   using component = mock_analytic_worldtube_boundary<AnalyticMetavariables>;
   const size_t l_max = 8;
   ActionTesting::MockRuntimeSystem<AnalyticMetavariables> runner{

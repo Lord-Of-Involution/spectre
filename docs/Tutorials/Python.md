@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # Using SpECTRE's Python modules {#spectre_using_python}
 
+\tableofcontents
+
 Some classes and functions from SpECTRE have Python bindings to make it easier
 to visualize data, write test code, and provide an introduction to numerical
 relativity without needing to delve into C++.
@@ -15,10 +17,10 @@ First, build SpECTRE with Python bindings enabled by appending the
 You can specify the
 Python version, interpreter and libraries used for compiling and testing the
 bindings by setting the `-D Python_EXECUTABLE` to an absolute path such as
-`/usr/bin/python3`. Compile the `all-pybindings` target. You will find that
-a `BUILD_DIR/bin/python` directory is created that contains the Python modules.
-Then, you can install the modules into your Python environment in
-_development mode_, which means they are symlinked so that changes to the
+`/usr/bin/python3`. Compile the `all-pybindings` (or `cli`) target. You will
+find that a `BUILD_DIR/bin/python` directory is created that contains the
+Python modules. Then, you can install the modules into your Python environment
+in _development mode_, which means they are symlinked so that changes to the
 modules will be reflected in your Python environment, with the command
 `pip install -e path/to/bin/python`. Alternatively, remove the `-e` flag to
 install the modules normally. You can do this in any Python environment that

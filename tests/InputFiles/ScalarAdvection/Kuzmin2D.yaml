@@ -1,10 +1,13 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarAdvection2D
-# Check: parse;execute
-# ExpectedOutput:
-#   ScalarAdvectionKuzmin2DVolume0.h5
+Executable: EvolveScalarAdvection2D
+Testing:
+  Check: parse;execute
+ExpectedOutput:
+  - ScalarAdvectionKuzmin2DVolume0.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -41,6 +44,9 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
     TciOptions:
       UCutoff: 1.0e-10
   SubcellSolver:
@@ -51,20 +57,25 @@ InitialData:
   Kuzmin:
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
-  - - Slabs:
+    Events:
+      - Completion
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 10
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve: [U, TciStatus]
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Float, Float]
+          OverrideObservationValue: None
 
 EventsAndDenseTriggers:
 

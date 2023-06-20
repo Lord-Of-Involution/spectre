@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <deque>
 #include <map>
+#include <ostream>
 #include <pup.h>
 #include <pup_stl.h>  // IWYU pragma: keep
 #include <type_traits>
@@ -135,11 +136,13 @@ class BoundaryHistory {
   /// Add a new value to the end of the history of the indicated side.
   /// @{
   void local_insert(const TimeStepId& time_id, LocalVars vars) {
-    local_data_.first.emplace_back(time_id.substep_time());
+    ASSERT(time_id.substep() == 0, "Substeps not supported in LTS");
+    local_data_.first.emplace_back(time_id.step_time());
     local_data_.second.emplace_back(std::move(vars));
   }
   void remote_insert(const TimeStepId& time_id, RemoteVars vars) {
-    remote_data_.first.emplace_back(time_id.substep_time());
+    ASSERT(time_id.substep() == 0, "Substeps not supported in LTS");
+    remote_data_.first.emplace_back(time_id.step_time());
     remote_data_.second.emplace_back(std::move(vars));
   }
   /// @}
@@ -148,11 +151,13 @@ class BoundaryHistory {
   /// side.  This is often convenient for setting initial data.
   /// @{
   void local_insert_initial(const TimeStepId& time_id, LocalVars vars) {
-    local_data_.first.emplace_front(time_id.substep_time());
+    ASSERT(time_id.substep() == 0, "Substeps not supported in LTS");
+    local_data_.first.emplace_front(time_id.step_time());
     local_data_.second.emplace_front(std::move(vars));
   }
   void remote_insert_initial(const TimeStepId& time_id, RemoteVars vars) {
-    remote_data_.first.emplace_front(time_id.substep_time());
+    ASSERT(time_id.substep() == 0, "Substeps not supported in LTS");
+    remote_data_.first.emplace_front(time_id.step_time());
     remote_data_.second.emplace_front(std::move(vars));
   }
   /// @}
@@ -274,6 +279,8 @@ class BoundaryHistory {
   // NOLINTNEXTLINE(google-runtime-references)
   void pup(PUP::er& p);
 
+  std::ostream& print(std::ostream& os) const;
+
  private:
   template <size_t Side>
   void mark_unneeded(const iterator& first_needed);
@@ -323,7 +330,7 @@ template <typename LocalVars, typename RemoteVars, typename CouplingResult>
 const LocalVars&
 BoundaryHistory<LocalVars, RemoteVars, CouplingResult>::local_data(
     const TimeStepId& time_id) const {
-  const Time& time = time_id.substep_time();
+  const Time& time = time_id.step_time();
   // Look up the data for this time, starting at the end of the `std::deque`,
   // i.e. the most-recently inserted data.
   auto value_it = local_data_.second.rbegin();
@@ -407,5 +414,36 @@ BoundaryHistory<LocalVars, RemoteVars, CouplingResult>::
                       remote - history_->remote_data_.first.begin())]);
   }
   return make_math_wrapper(inserted_value);
+}
+
+template <typename LocalVars, typename RemoteVars, typename CouplingResult>
+std::ostream& BoundaryHistory<LocalVars, RemoteVars, CouplingResult>::print(
+    std::ostream& os) const {
+  using ::operator<<;
+  os << "Integration order: " << integration_order_ << "\n";
+  os << "Local Data:\n";
+  auto local_value_it = local_data_.second.begin();
+  for (auto local_time_it = local_data_.first.begin();
+       local_time_it != local_data_.first.end();
+       ++local_time_it, ++local_value_it) {
+    os << "Time: " << *local_time_it << "\n";
+    os << "Data: " << *local_value_it << "\n";
+  }
+  os << "Remote Data:\n";
+  auto remote_value_it = remote_data_.second.begin();
+  for (auto remote_time_it = remote_data_.first.begin();
+       remote_time_it != remote_data_.first.end();
+       ++remote_time_it, ++remote_value_it) {
+    os << "Time: " << *remote_time_it << "\n";
+    os << "Data: " << *remote_value_it << "\n";
+  }
+  return os;
+}
+
+template <typename LocalVars, typename RemoteVars, typename CouplingResult>
+std::ostream& operator<<(
+    std::ostream& os,
+    const BoundaryHistory<LocalVars, RemoteVars, CouplingResult>& history) {
+  return history.print(os);
 }
 }  // namespace TimeSteppers

@@ -5,23 +5,12 @@ function(add_generalized_harmonic_executable_without_horizon
     DIM LIBS_TO_LINK)
   add_spectre_parallel_executable(
     "EvolveGhNoBlackHole${DIM}D"
-    EvolveGeneralizedHarmonicNoBlackHole
+    EvolveGhNoBlackHole
     Evolution/Executables/GeneralizedHarmonic
-    "EvolutionMetavars<${DIM}, false>"
+    "EvolutionMetavars<${DIM}>"
     "${LIBS_TO_LINK}"
     )
 endfunction(add_generalized_harmonic_executable_without_horizon)
-
-function(add_generalized_harmonic_cce_executable_without_horizon
-  EXECUTABLE_NAME INITIAL_DATA LIBS_TO_LINK)
-  add_spectre_parallel_executable(
-    "EvolveGhCce${EXECUTABLE_NAME}"
-    EvolveGeneralizedHarmonicCce
-    Evolution/Executables/GeneralizedHarmonic
-    "EvolutionMetavars<3, ${INITIAL_DATA}>"
-    "${LIBS_TO_LINK}"
-    )
-endfunction(add_generalized_harmonic_cce_executable_without_horizon)
 
 set(LIBS_TO_LINK
   CoordinateMaps
@@ -32,7 +21,10 @@ set(LIBS_TO_LINK
   EventsAndTriggers
   Evolution
   GeneralRelativity
+  GeneralRelativityAnalyticData
+  GeneralRelativitySolutions
   GeneralizedHarmonic
+  Importers
   Informer
   Interpolation
   LinearOperators
@@ -42,39 +34,32 @@ set(LIBS_TO_LINK
   Parallel
   ParallelInterpolation
   PhaseControl
+  Serialization
   Time
   Utilities
   )
 
 add_spectre_parallel_executable(
   EvolveGhSingleBlackHole
-  EvolveGeneralizedHarmonicSingleBlackHole
+  EvolveGhSingleBlackHole
   Evolution/Executables/GeneralizedHarmonic
-  "EvolutionMetavars<3, false>"
-  "${LIBS_TO_LINK};ApparentHorizons;GeneralRelativitySolutions"
-  )
-
-add_spectre_parallel_executable(
-  EvolveGhSingleBlackHoleNumericalInitialData
-  EvolveGeneralizedHarmonicSingleBlackHole
-  Evolution/Executables/GeneralizedHarmonic
-  "EvolutionMetavars<3, true>"
-  "${LIBS_TO_LINK};ApparentHorizons;GeneralRelativitySolutions;Importers"
+  "EvolutionMetavars<3>"
+  "${LIBS_TO_LINK};ApparentHorizons;ControlSystem"
   )
 
 add_generalized_harmonic_executable_without_horizon(
   1
-  "${LIBS_TO_LINK};GeneralRelativitySolutions"
+  "${LIBS_TO_LINK}"
 )
 
 add_generalized_harmonic_executable_without_horizon(
   2
-  "${LIBS_TO_LINK};GeneralRelativitySolutions"
+  "${LIBS_TO_LINK}"
 )
 
 add_generalized_harmonic_executable_without_horizon(
   3
-  "${LIBS_TO_LINK};GeneralRelativitySolutions"
+  "${LIBS_TO_LINK}"
 )
 
 add_spectre_parallel_executable(
@@ -82,17 +67,26 @@ add_spectre_parallel_executable(
   EvolveGhBinaryBlackHole
   Evolution/Executables/GeneralizedHarmonic
   "EvolutionMetavars"
-  "${LIBS_TO_LINK};ControlSystem;GeneralRelativitySolutions;Importers"
+  "${LIBS_TO_LINK};ApparentHorizons;Cce;ControlSystem"
 )
 
-add_generalized_harmonic_cce_executable_without_horizon(
-  GaugeWave
-  false
-  "${LIBS_TO_LINK};Cce;GeneralRelativitySolutions"
+if (TARGET SpEC::Exporter)
+  target_compile_definitions(
+    EvolveGhBinaryBlackHole PRIVATE HAS_SPEC_EXPORTER)
+endif()
+
+add_spectre_parallel_executable(
+  "EvolveGhCce"
+  EvolveGhAndCharacteristic
+  Evolution/Executables/GeneralizedHarmonic
+  "EvolutionMetavars<3, false>"
+  "${LIBS_TO_LINK};Cce"
 )
 
-add_generalized_harmonic_cce_executable_without_horizon(
-  GaugeWaveNumericInitialData
-  true
-  "${LIBS_TO_LINK};Cce;GeneralRelativitySolutions;Importers"
+add_spectre_parallel_executable(
+  "EvolveGhCcm"
+  EvolveGhAndCharacteristic
+  Evolution/Executables/GeneralizedHarmonic
+  "EvolutionMetavars<3, true>"
+  "${LIBS_TO_LINK};Cce"
 )

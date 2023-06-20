@@ -60,7 +60,7 @@ struct TestCallWriteNews {
                     const ArrayIndex& /*array_index*/) {
     db::get<Tags::AnalyticBoundaryDataManager>(box)
         .template write_news<ParallelComponent>(
-            cache, db::get<::Tags::TimeStepId>(box).substep_time().value());
+            cache, db::get<::Tags::TimeStepId>(box).substep_time());
   }
 };
 
@@ -102,8 +102,7 @@ struct metavariables {
 
 SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.AnalyticBoundaryDataManager",
                   "[Unit][Cce]") {
-  Parallel::register_classes_with_charm<
-      Cce::Solutions::LinearizedBondiSachs>();
+  register_classes_with_charm<Cce::Solutions::LinearizedBondiSachs>();
   // set up the analytic data parameters
   MAKE_GENERATOR(gen);
   UniformCustomDistribution<size_t> sdist{7, 10};
@@ -132,16 +131,13 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.AnalyticBoundaryDataManager",
       make_not_null(&boundary_variables_from_manager), time);
   const auto analytic_solution_gh_variables = analytic_solution.variables(
       l_max, time,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>,
-                 GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>{});
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>{});
   create_bondi_boundary_data(
       make_not_null(&expected_boundary_variables),
-      get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-          analytic_solution_gh_variables),
-      get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(
-          analytic_solution_gh_variables),
-      get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
+      get<gh::Tags::Phi<DataVector, 3>>(analytic_solution_gh_variables),
+      get<gh::Tags::Pi<DataVector, 3>>(analytic_solution_gh_variables),
+      get<gr::Tags::SpacetimeMetric<DataVector, 3>>(
           analytic_solution_gh_variables),
       extraction_radius, l_max);
   tmpl::for_each<

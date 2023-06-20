@@ -53,8 +53,7 @@ void test_copy_and_move(const SolutionType& solution) {
 template <typename SolutionType, typename... Args>
 void test_generalized_harmonic_solution(const Args&... args) {
   const SolutionType& solution{args...};
-  const GeneralizedHarmonic::Solutions::WrappedGr<SolutionType>&
-      wrapped_solution{args...};
+  const gh::Solutions::WrappedGr<SolutionType>& wrapped_solution{args...};
 
   const DataVector data_vector{3.0, 4.0};
   const tnsr::I<DataVector, SolutionType::volume_dim, Frame::Inertial> x{
@@ -83,49 +82,41 @@ void test_generalized_harmonic_solution(const Args&... args) {
       get<Tags::deriv<gr::Tags::Lapse<DataVector>,
                       tmpl::size_t<SolutionType::volume_dim>, Frame::Inertial>>(
           vars);
-  const auto& shift = get<
-      gr::Tags::Shift<SolutionType::volume_dim, Frame::Inertial, DataVector>>(
-      vars);
-  const auto& dt_shift = get<Tags::dt<
-      gr::Tags::Shift<SolutionType::volume_dim, Frame::Inertial, DataVector>>>(
-      vars);
-  const auto& d_shift = get<Tags::deriv<
-      gr::Tags::Shift<SolutionType::volume_dim, Frame::Inertial, DataVector>,
-      tmpl::size_t<SolutionType::volume_dim>, Frame::Inertial>>(vars);
-  const auto& g =
-      get<gr::Tags::SpatialMetric<SolutionType::volume_dim, Frame::Inertial,
-                                  DataVector>>(vars);
-  const auto& dt_g =
-      get<Tags::dt<gr::Tags::SpatialMetric<SolutionType::volume_dim,
-                                           Frame::Inertial, DataVector>>>(vars);
-  const auto& d_g =
-      get<Tags::deriv<gr::Tags::SpatialMetric<SolutionType::volume_dim,
-                                              Frame::Inertial, DataVector>,
+  const auto& shift =
+      get<gr::Tags::Shift<DataVector, SolutionType::volume_dim>>(vars);
+  const auto& dt_shift =
+      get<Tags::dt<gr::Tags::Shift<DataVector, SolutionType::volume_dim>>>(
+          vars);
+  const auto& d_shift =
+      get<Tags::deriv<gr::Tags::Shift<DataVector, SolutionType::volume_dim>,
                       tmpl::size_t<SolutionType::volume_dim>, Frame::Inertial>>(
           vars);
+  const auto& g =
+      get<gr::Tags::SpatialMetric<DataVector, SolutionType::volume_dim>>(vars);
+  const auto& dt_g = get<
+      Tags::dt<gr::Tags::SpatialMetric<DataVector, SolutionType::volume_dim>>>(
+      vars);
+  const auto& d_g = get<
+      Tags::deriv<gr::Tags::SpatialMetric<DataVector, SolutionType::volume_dim>,
+                  tmpl::size_t<SolutionType::volume_dim>, Frame::Inertial>>(
+      vars);
   const auto psi = gr::spacetime_metric(lapse, shift, g);
-  const auto phi =
-      GeneralizedHarmonic::phi(lapse, d_lapse, shift, d_shift, g, d_g);
-  const auto pi =
-      GeneralizedHarmonic::pi(lapse, dt_lapse, shift, dt_shift, g, dt_g, phi);
+  const auto phi = gh::phi(lapse, d_lapse, shift, d_shift, g, d_g);
+  const auto pi = gh::pi(lapse, dt_lapse, shift, dt_shift, g, dt_g, phi);
 
   const auto wrapped_gh_vars = wrapped_solution.variables(
       x, t,
-      tmpl::list<gr::Tags::SpacetimeMetric<SolutionType::volume_dim,
-                                           Frame::Inertial, DataVector>,
-                 GeneralizedHarmonic::Tags::Pi<SolutionType::volume_dim,
-                                               Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<SolutionType::volume_dim,
-                                                Frame::Inertial>>{});
+      tmpl::list<
+          gr::Tags::SpacetimeMetric<DataVector, SolutionType::volume_dim>,
+          gh::Tags::Pi<DataVector, SolutionType::volume_dim>,
+          gh::Tags::Phi<DataVector, SolutionType::volume_dim>>{});
   CHECK(psi ==
-        get<gr::Tags::SpacetimeMetric<SolutionType::volume_dim, Frame::Inertial,
-                                      DataVector>>(wrapped_gh_vars));
-  CHECK(pi ==
-        get<GeneralizedHarmonic::Tags::Pi<SolutionType::volume_dim,
-                                          Frame::Inertial>>(wrapped_gh_vars));
-  CHECK(phi ==
-        get<GeneralizedHarmonic::Tags::Phi<SolutionType::volume_dim,
-                                           Frame::Inertial>>(wrapped_gh_vars));
+        get<gr::Tags::SpacetimeMetric<DataVector, SolutionType::volume_dim>>(
+            wrapped_gh_vars));
+  CHECK(pi == get<gh::Tags::Pi<DataVector, SolutionType::volume_dim>>(
+                  wrapped_gh_vars));
+  CHECK(phi == get<gh::Tags::Phi<DataVector, SolutionType::volume_dim>>(
+                   wrapped_gh_vars));
 
   // Weak test of operators == and !=
   CHECK(wrapped_solution == wrapped_solution);
@@ -137,16 +128,15 @@ void test_generalized_harmonic_solution(const Args&... args) {
 
 template <typename SolutionType>
 void test_construct_from_options() {
-  const auto created = TestHelpers::test_creation<
-      GeneralizedHarmonic::Solutions::WrappedGr<SolutionType>>(
-      "Mass: 0.5\n"
-      "Spin: [0.1,0.2,0.3]\n"
-      "Center: [1.0,3.0,2.0]");
+  const auto created =
+      TestHelpers::test_creation<gh::Solutions::WrappedGr<SolutionType>>(
+          "Mass: 0.5\n"
+          "Spin: [0.1,0.2,0.3]\n"
+          "Center: [1.0,3.0,2.0]");
   const double mass = 0.5;
   const std::array<double, 3> spin{{0.1, 0.2, 0.3}};
   const std::array<double, 3> center{{1.0, 3.0, 2.0}};
-  CHECK(created == GeneralizedHarmonic::Solutions::WrappedGr<SolutionType>(
-                       mass, spin, center));
+  CHECK(created == gh::Solutions::WrappedGr<SolutionType>(mass, spin, center));
 }
 }  // namespace
 

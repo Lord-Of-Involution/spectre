@@ -17,6 +17,7 @@
 #include "DataStructures/LinkedMessageId.hpp"
 #include "DataStructures/LinkedMessageQueue.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "ParallelAlgorithms/Actions/UpdateMessageQueue.hpp"
@@ -50,11 +51,12 @@ struct SomeControlSystemUpdater {
                     const ArrayIndex& /*array_index*/, const double time,
                     tuples::TaggedTuple<SubmeasurementTag> data) {
     db::mutate<MeasurementResultTime, MeasurementResultTag>(
-        box, [&time, &data](const gsl::not_null<double*> stored_time,
-                            const gsl::not_null<double*> stored_data) {
+        [&time, &data](const gsl::not_null<double*> stored_time,
+                       const gsl::not_null<double*> stored_data) {
           *stored_time = time;
           *stored_data = tuples::get<SubmeasurementTag>(data);
-        });
+        },
+        box);
   }
 };
 
@@ -99,6 +101,8 @@ struct ExampleMeasurement
 struct ExampleControlError
     : tt::ConformsTo<control_system::protocols::ControlError> {
   static constexpr size_t expected_number_of_excisions = 1;
+
+  using object_centers = domain::object_list<domain::ObjectLabel::A>;
 
   void pup(PUP::er& /*p*/) {}
 

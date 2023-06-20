@@ -16,6 +16,7 @@
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/Index.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
 #include "Domain/Structure/Element.hpp"
@@ -356,7 +357,6 @@ struct SolveSubdomain {
     // Assemble the subdomain data from the data on the element and the
     // communicated overlap data
     db::mutate<SubdomainDataBufferTag<SubdomainData, OptionsGroup>>(
-        make_not_null(&box),
         [&inboxes, &iteration_id, &has_overlap_data](
             const gsl::not_null<SubdomainData*> subdomain_data,
             const auto& residual) {
@@ -369,7 +369,7 @@ struct SolveSubdomain {
                               .mapped());
           }
         },
-        db::get<residual_tag>(box));
+        make_not_null(&box), db::get<residual_tag>(box));
     const auto& subdomain_residual =
         db::get<SubdomainDataBufferTag<SubdomainData, OptionsGroup>>(box);
 
@@ -429,10 +429,11 @@ struct SolveSubdomain {
     }
 
     // Apply solution to central element
-    db::mutate<fields_tag>(make_not_null(&box),
-                           [&subdomain_solution](const auto fields) {
-                             *fields += subdomain_solution.element_data;
-                           });
+    db::mutate<fields_tag>(
+        [&subdomain_solution](const auto fields) {
+          *fields += subdomain_solution.element_data;
+        },
+        make_not_null(&box));
 
     // Send overlap solutions back to the neighbors that they are on
     if (LIKELY(max_overlap > 0)) {
@@ -511,7 +512,6 @@ struct ReceiveOverlapSolution {
                       .extract(iteration_id)
                       .mapped());
     db::mutate<fields_tag>(
-        make_not_null(&box),
         [&received_overlap_solutions](
             const auto fields, const Index<Dim>& full_extents,
             const std::array<size_t, Dim>& all_intruding_extents,
@@ -529,7 +529,7 @@ struct ReceiveOverlapSolution {
                 intruding_extents, direction);
           }
         },
-        db::get<domain::Tags::Mesh<Dim>>(box).extents(),
+        make_not_null(&box), db::get<domain::Tags::Mesh<Dim>>(box).extents(),
         db::get<Tags::IntrudingExtents<Dim, OptionsGroup>>(box),
         db::get<domain::Tags::Faces<Dim, Tags::Weight<OptionsGroup>>>(box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};

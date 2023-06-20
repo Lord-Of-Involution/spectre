@@ -22,12 +22,12 @@
 #include "Domain/Block.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
-#include "Domain/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/IO/VolumeData.hpp"
@@ -92,7 +92,7 @@ void check_surface_volume_data(const std::string& surfaces_file_prefix) {
   constexpr std::array<double, 3> center{{0.01, 0.02, 0.03}};
   const Strahlkorper<Frame::Inertial> strahlkorper{l_max, m_max, sphere_radius,
                                                    center};
-  const YlmSpherepack& ylm = strahlkorper.ylm_spherepack();
+  const ylm::Spherepack& ylm = strahlkorper.ylm_spherepack();
   const std::vector<size_t> extents{
       {ylm.physical_extents()[0], ylm.physical_extents()[1]}};
   const std::array<DataVector, 2> theta_phi = ylm.theta_phi_points();
@@ -225,8 +225,7 @@ struct MockMetavariables {
   struct SurfaceA : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
     using temporal_id = ::Tags::Time;
     using vars_to_interpolate_to_target =
-        tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<3, Frame::Inertial>>;
+        tmpl::list<Tags::TestSolution, gr::Tags::SpatialMetric<DataVector, 3>>;
     using compute_items_on_target =
         tmpl::list<Tags::SquareCompute,
                    StrahlkorperGr::Tags::AreaElementCompute<Frame::Inertial>,
@@ -243,8 +242,7 @@ struct MockMetavariables {
   struct SurfaceB : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
     using temporal_id = ::Tags::TimeStepId;
     using vars_to_interpolate_to_target =
-        tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<3, Frame::Inertial>>;
+        tmpl::list<Tags::TestSolution, gr::Tags::SpatialMetric<DataVector, 3>>;
     using compute_items_on_target =
         tmpl::list<Tags::SquareCompute, Tags::NegateCompute,
                    StrahlkorperGr::Tags::AreaElementCompute<Frame::Inertial>,
@@ -265,8 +263,7 @@ struct MockMetavariables {
   struct SurfaceC : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
     using temporal_id = ::Tags::TimeStepId;
     using vars_to_interpolate_to_target =
-        tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<3, Frame::Inertial>>;
+        tmpl::list<Tags::TestSolution, gr::Tags::SpatialMetric<DataVector, 3>>;
     using compute_items_on_target =
         tmpl::list<Tags::SquareCompute, Tags::NegateCompute,
                    StrahlkorperGr::Tags::AreaElementCompute<Frame::Inertial>,
@@ -284,8 +281,7 @@ struct MockMetavariables {
   struct SurfaceD : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
     using temporal_id = ::Tags::Time;
     using vars_to_interpolate_to_target =
-        tmpl::list<Tags::TestSolution,
-                   gr::Tags::SpatialMetric<3, Frame::Inertial>>;
+        tmpl::list<Tags::TestSolution, gr::Tags::SpatialMetric<DataVector, 3>>;
     using compute_items_on_target =
         tmpl::list<Tags::SquareCompute,
                    StrahlkorperGr::Tags::AreaElementCompute<Frame::Inertial>,
@@ -301,8 +297,7 @@ struct MockMetavariables {
   using observed_reduction_data_tags = tmpl::list<>;
 
   using interpolator_source_vars =
-      tmpl::list<Tags::TestSolution,
-                 gr::Tags::SpatialMetric<3, Frame::Inertial>>;
+      tmpl::list<Tags::TestSolution, gr::Tags::SpatialMetric<DataVector, 3>>;
   using interpolation_target_tags =
       tmpl::list<SurfaceA, SurfaceB, SurfaceC, SurfaceD>;
   static constexpr size_t volume_dim = 3;
@@ -374,8 +369,8 @@ SPECTRE_TEST_CASE(
   intrp::OptionHolders::KerrHorizon kerr_horizon_opts_D(
       10, {{0.01, 0.02, 0.03}}, 1.4, {{0.0, 0.0, 0.0}},
       intrp::AngularOrdering::Strahlkorper);
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
   tuples::TaggedTuple<
       observers::Tags::ReductionFileName, observers::Tags::SurfaceFileName,
       ::intrp::Tags::KerrHorizon<metavars::SurfaceA>, domain::Tags::Domain<3>,
@@ -467,7 +462,7 @@ SPECTRE_TEST_CASE(
       target_a_component,
       intrp::Actions::AddTemporalIdsToInterpolationTarget<metavars::SurfaceA>>(
       make_not_null(&runner), 0,
-      std::vector<double>{temporal_id.substep_time().value()});
+      std::vector<double>{temporal_id.substep_time()});
   ActionTesting::simple_action<
       target_b_component,
       intrp::Actions::AddTemporalIdsToInterpolationTarget<metavars::SurfaceB>>(
@@ -480,7 +475,7 @@ SPECTRE_TEST_CASE(
       target_d_component,
       intrp::Actions::AddTemporalIdsToInterpolationTarget<metavars::SurfaceD>>(
       make_not_null(&runner), 0,
-      std::vector<double>{temporal_id.substep_time().value()});
+      std::vector<double>{temporal_id.substep_time()});
 
   CHECK(ActionTesting::is_simple_action_queue_empty<obs_writer>(runner, 0));
   CHECK(ActionTesting::is_simple_action_queue_empty<obs_writer>(runner, 1));
@@ -515,17 +510,17 @@ SPECTRE_TEST_CASE(
     // spacetime in Kerr-Schild coordinates; this in no way requires
     // that there is an actual horizon or that the metric is Kerr.
     gr::Solutions::Minkowski<3> solution;
-    get<gr::Tags::SpatialMetric<3, Frame::Inertial>>(output_vars) =
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial>>(solution.variables(
+    get<gr::Tags::SpatialMetric<DataVector, 3>>(output_vars) =
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(solution.variables(
             inertial_coords, 0.0,
-            tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial>>{}));
+            tmpl::list<gr::Tags::SpatialMetric<DataVector, 3>>{}));
 
     // Call the InterpolatorReceiveVolumeData action on each element_id.
     ActionTesting::simple_action<interp_component,
                                  intrp::Actions::InterpolatorReceiveVolumeData<
                                      typename metavars::SurfaceA::temporal_id>>(
         make_not_null(&runner), mock_core_for_each_element.at(element_id),
-        temporal_id.substep_time().value(), element_id, mesh, output_vars);
+        temporal_id.substep_time(), element_id, mesh, output_vars);
     ActionTesting::simple_action<interp_component,
                                  intrp::Actions::InterpolatorReceiveVolumeData<
                                      typename metavars::SurfaceB::temporal_id>>(

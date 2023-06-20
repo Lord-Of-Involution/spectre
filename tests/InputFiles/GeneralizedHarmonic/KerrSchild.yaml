@@ -1,25 +1,25 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveGhSingleBlackHole
-# Check: parse;execute_check_output
-# Timeout: 8
-# ExpectedOutput:
-#   GhKerrSchildVolume0.h5
-#   GhKerrSchildReductions.h5
-#   GhKerrSchildSurfaces.h5
-# OutputFileChecks:
-#   - Label: "check_horizon_find"
-#     Subfile: "/AhA.dat"
-#     FileGlob: "GhKerrSchildReductions.h5"
-#     AbsoluteTolerance: 1e2
+Executable: EvolveGhSingleBlackHole
+Testing:
+  Check: parse;execute_check_output
+  Timeout: 8
+ExpectedOutput:
+  - GhKerrSchildVolume0.h5
+  - GhKerrSchildReductions.h5
+  - GhKerrSchildSurfaces.h5
+OutputFileChecks:
+  - Label: "check_horizon_find"
+    Subfile: "/ApparentHorizon.dat"
+    FileGlob: "GhKerrSchildReductions.h5"
+    AbsoluteTolerance: 1e2
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
-  Singletons:
-    AhA:
-      Proc: Auto
-      Exclusive: false
+  Singletons: Auto
 
 Evolution:
   InitialTime: 0.0
@@ -29,39 +29,41 @@ Evolution:
       Order: 1
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
        EvenlySpaced:
          # Current implementation checks wallclock at these global syncs
          Interval: 100
          Offset: 0
-    - - CheckpointAndExitAfterWallclock:
+    PhaseChanges:
+      - CheckpointAndExitAfterWallclock:
           WallclockHours: None
 
 InitialData: &InitialData
   KerrSchild:
     Mass: 1.0
     Spin: [0.0, 0.0, 0.0]
-    Center: [0.0, 0.0, 0.0]
+    Center: &Center [0.0, 0.0, 0.0]
 
 DomainCreator:
-  Shell:
-    InnerRadius: 1.9
+  Sphere:
+    InnerRadius: &InnerRadius 1.9
     OuterRadius: 2.3
+    Interior:
+      ExciseWithBoundaryCondition:
+        DirichletAnalytic:
+          AnalyticPrescription: *InitialData
     InitialRefinement: 0
-    InitialGridPoints: [5, 5]
+    InitialGridPoints: 5
     UseEquiangularMap: true
     EquatorialCompression: None
     RadialPartitioning: []
     RadialDistribution: [Logarithmic]
     WhichWedges: All
-    TimeDependence: None
-    BoundaryConditions:
-      InnerBoundary:
-        DirichletAnalytic:
-          AnalyticPrescription: *InitialData
-      OuterBoundary:
-        DirichletAnalytic:
-          AnalyticPrescription: *InitialData
+    TimeDependentMaps: None
+    OuterBoundaryCondition:
+      DirichletAnalytic:
+        AnalyticPrescription: *InitialData
 
 EvolutionSystem:
   GeneralizedHarmonic:
@@ -94,7 +96,8 @@ Filtering:
   ExpFilter0:
     Alpha: 36.0
     HalfPower: 64
-    DisableForDebugging: False
+    Enable: true
+    BlocksToFilter: All
 
 SpatialDiscretization:
   BoundaryCorrection:
@@ -104,11 +107,13 @@ SpatialDiscretization:
     Quadrature: GaussLobatto
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 2
           Offset: 0
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
             - Name: Error(SpacetimeMetric)
@@ -120,11 +125,7 @@ EventsAndTriggers:
             - Name: Error(Phi)
               NormType: L2Norm
               Components: Sum
-  - - Slabs:
-        EvenlySpaced:
-          Interval: 2
-          Offset: 0
-    - - ObserveNorms:
+      - ObserveNorms:
           SubfileName: Norms
           TensorsToObserve:
           - Name: Lapse
@@ -139,11 +140,13 @@ EventsAndTriggers:
           - Name: PointwiseL2Norm(FourIndexConstraint)
             NormType: L2Norm
             Components: Sum
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve:
             - SpacetimeMetric
@@ -156,15 +159,21 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
-  - - Slabs:
+          OverrideObservationValue: None
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 2
-    - - AhA
-  - - Slabs:
+    Events:
+      - ApparentHorizon
+      - ExcisionBoundary
+  - Trigger:
+      Slabs:
         Specified:
           Values: [3]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 
@@ -177,11 +186,11 @@ Interpolator:
   DumpVolumeDataOnFailure: false
 
 ApparentHorizons:
-  AhA:
+  ApparentHorizon: &Ah
     InitialGuess:
-      Lmax: 4
+      LMax: &LMax 4
       Radius: 2.2
-      Center: [0.0, 0.0, 0.0]
+      Center: *Center
     FastFlow:
       Flow: Fast
       Alpha: 1.0
@@ -192,3 +201,32 @@ ApparentHorizons:
       DivergenceIter: 5
       MaxIts: 100
     Verbosity: Verbose
+  ControlSystemSingleAh: *Ah
+
+InterpolationTargets:
+  ExcisionBoundary:
+    LMax: *LMax
+    Center: *Center
+    Radius: *InnerRadius
+    AngularOrdering: "Strahlkorper"
+
+ControlSystems:
+  WriteDataToDisk: false
+  MeasurementsPerUpdate: 4
+  Verbosity: Silent
+  Shape:
+    IsActive: false
+    Averager:
+      AverageTimescaleFraction: 0.25
+      Average0thDeriv: false
+    Controller:
+      UpdateFraction: 0.03
+    TimescaleTuner:
+      InitialTimescales: 0.2
+      MinTimescale: 1.0e-2
+      MaxTimescale: 10.0
+      IncreaseThreshold: 2.5e-4
+      DecreaseThreshold: 1.0e-3
+      IncreaseFactor: 1.01
+      DecreaseFactor: 0.98
+    ControlError:

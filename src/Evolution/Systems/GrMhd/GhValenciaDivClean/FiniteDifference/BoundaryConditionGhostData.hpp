@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -16,16 +15,16 @@
 #include "Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Domain/BoundaryConditions/None.hpp"
 #include "Domain/BoundaryConditions/Periodic.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryConditions/Type.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/BoundaryConditions/BoundaryCondition.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/BoundaryConditions/Factory.hpp"
@@ -103,9 +102,9 @@ void BoundaryConditionGhostData::apply(
   using MagneticField = hydro::Tags::MagneticField<DataVector, 3>;
   using DivergenceCleaningField =
       hydro::Tags::DivergenceCleaningField<DataVector>;
-  using SpacetimeMetric = gr::Tags::SpacetimeMetric<3>;
-  using Pi = GeneralizedHarmonic::Tags::Pi<3>;
-  using Phi = GeneralizedHarmonic::Tags::Phi<3>;
+  using SpacetimeMetric = gr::Tags::SpacetimeMetric<DataVector, 3>;
+  using Pi = gh::Tags::Pi<DataVector, 3>;
+  using Phi = gh::Tags::Phi<DataVector, 3>;
 
   using reconstruction_tags = GhValenciaDivClean::Tags::
       primitive_grmhd_and_spacetime_reconstruction_tags;
@@ -122,8 +121,16 @@ void BoundaryConditionGhostData::apply(
 
     // Allocate a vector to store the computed FD ghost data and assign a
     // non-owning Variables on it.
-    std::vector<double> boundary_ghost_data(number_of_tensor_components *
-                                            ghost_zone_size * num_face_pts);
+    auto& all_ghost_data = db::get_mutable_reference<
+        evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(box);
+    // Put the computed ghost data into neighbor data with {direction,
+    // ElementId::external_boundary_id()} as the mortar_id key
+    const std::pair mortar_id{direction, ElementId<3>::external_boundary_id()};
+    all_ghost_data[mortar_id] = evolution::dg::subcell::GhostData{1};
+    DataVector& boundary_ghost_data =
+        all_ghost_data.at(mortar_id).neighbor_ghost_data_for_reconstruction();
+    boundary_ghost_data.destructive_resize(number_of_tensor_components *
+                                           ghost_zone_size * num_face_pts);
     Variables<reconstruction_tags> ghost_data_vars{boundary_ghost_data.data(),
                                                    boundary_ghost_data.size()};
 
@@ -190,15 +197,6 @@ void BoundaryConditionGhostData::apply(
                   << pretty_type::short_name<BoundaryCondition>()
                   << " when using finite-difference");
           }
-        });
-
-    // Put the computed ghost data into neighbor data with {direction,
-    // ElementId::external_boundary_id()} as the mortar_id key
-    const std::pair mortar_id{direction, ElementId<3>::external_boundary_id()};
-
-    db::mutate<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
-        box, [&mortar_id, &boundary_ghost_data](auto neighbor_data) {
-          (*neighbor_data)[mortar_id] = std::move(boundary_ghost_data);
         });
   }
 }

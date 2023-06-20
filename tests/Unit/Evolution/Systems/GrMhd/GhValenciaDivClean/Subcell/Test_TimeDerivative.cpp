@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -21,19 +22,21 @@
 #include "Domain/CoordinateMaps/ProductMaps.hpp"
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
 #include "Domain/CreateInitialElement.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FaceNormal.hpp"
 #include "Domain/InterfaceLogicalCoordinates.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryCorrectionTags.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DiscontinuousGalerkin/MortarTags.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
@@ -77,8 +80,8 @@ namespace {
 // BoundaryConditionGhostData requires this to be in box.
 struct DummyAnalyticSolutionTag : db::SimpleTag,
                                   ::Tags::AnalyticSolutionOrData {
-  using type = GeneralizedHarmonic::Solutions::WrappedGr<
-      ::RelativisticEuler::Solutions::TovStar>;
+  using type =
+      gh::Solutions::WrappedGr<::RelativisticEuler::Solutions::TovStar>;
 };
 
 struct DummyEvolutionMetaVars {
@@ -87,9 +90,10 @@ struct DummyEvolutionMetaVars {
   };
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
-    using factory_classes = tmpl::map<
-        tmpl::pair<BoundaryConditions::BoundaryCondition,
-                   BoundaryConditions::standard_fd_boundary_conditions>>;
+    using factory_classes = tmpl::map<tmpl::pair<
+        BoundaryConditions::BoundaryCondition,
+        tmpl::push_back<BoundaryConditions::standard_fd_boundary_conditions,
+                        BoundaryConditions::DirichletAnalytic>>>;
   };
 };
 
@@ -98,12 +102,11 @@ double test(const size_t num_dg_pts) {
   using Affine3D =
       domain::CoordinateMaps::ProductOf3Maps<Affine, Affine, Affine>;
 
-  const GeneralizedHarmonic::Solutions::WrappedGr<
-      ::RelativisticEuler::Solutions::TovStar>
-      soln{1.28e-3,
-           std::make_unique<EquationsOfState::PolytropicFluid<true>>(100.0, 2.0)
-               ->get_clone(),
-           RelativisticEuler::Solutions::TovCoordinates::Schwarzschild};
+  const gh::Solutions::WrappedGr<::RelativisticEuler::Solutions::TovStar> soln{
+      1.28e-3,
+      std::make_unique<EquationsOfState::PolytropicFluid<true>>(100.0, 2.0)
+          ->get_clone(),
+      RelativisticEuler::Solutions::TovCoordinates::Schwarzschild};
   const Affine affine_map{-1.0, 1.0, -4.0, 4.0};
   const ElementId<3> element_id{
       0, {SegmentId{3, 4}, SegmentId{3, 4}, SegmentId{3, 7}}};
@@ -174,7 +177,7 @@ double test(const size_t num_dg_pts) {
   // 1. compute prims from solution
   // 2. compute prims needed for reconstruction
   // 3. set neighbor data
-  evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>::type
+  evolution::dg::subcell::Tags::GhostDataForReconstruction<3>::type
       neighbor_data{};
   using prims_to_reconstruct_tags = grmhd::GhValenciaDivClean::Tags::
       primitive_grmhd_and_spacetime_reconstruction_tags;
@@ -202,17 +205,17 @@ double test(const size_t num_dg_pts) {
     }
 
     // Slice data so we can add it to the element's neighbor data
-    DirectionMap<3, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
-    std::vector<double> neighbor_data_in_direction =
+    DataVector neighbor_data_in_direction =
         evolution::dg::subcell::slice_data(
             prims_to_reconstruct, subcell_mesh.extents(),
             grmhd::ValenciaDivClean::fd::MonotonisedCentralPrim{}
                 .ghost_zone_size(),
-            directions_to_slice, 0)
+            std::unordered_set{direction.opposite()}, 0)
             .at(direction.opposite());
-    neighbor_data[std::pair{direction,
-                            *element.neighbors().at(direction).begin()}] =
+    const auto key =
+        std::pair{direction, *element.neighbors().at(direction).begin()};
+    neighbor_data[key] = evolution::dg::subcell::GhostData{1};
+    neighbor_data[key].neighbor_ghost_data_for_reconstruction() =
         neighbor_data_in_direction;
   }
 
@@ -221,14 +224,14 @@ double test(const size_t num_dg_pts) {
   Domain<3> domain{std::move(blocks)};
 
   const auto gamma1 =  // Gamma1, taken from SpEC BNS
-      std::make_unique<GeneralizedHarmonic::ConstraintDamping::
-                           GaussianPlusConstant<3, Frame::Grid>>(
+      std::make_unique<
+          gh::ConstraintDamping::GaussianPlusConstant<3, Frame::Grid>>(
           -0.999, 0.999 * 1.0,
           10.0 * 10.0,  // second 10 is "separation" of NSes
           std::array{0.0, 0.0, 0.0});
   const auto gamma2 =  // Gamma2, taken from SpEC BNS
-      std::make_unique<GeneralizedHarmonic::ConstraintDamping::
-                           GaussianPlusConstant<3, Frame::Grid>>(
+      std::make_unique<
+          gh::ConstraintDamping::GaussianPlusConstant<3, Frame::Grid>>(
           0.01, 1.35 * 1.0 / 1.4, 5.5 * 1.4, std::array{0.0, 0.0, 0.0});
 
   // Set mortar data, both for ourselves on some interfaces and for our
@@ -236,7 +239,7 @@ double test(const size_t num_dg_pts) {
   evolution::dg::Tags::MortarData<3>::type mortar_data{};
   const Slab slab{0.0, 1.0};
   using BoundaryCorrection = BoundaryCorrections::ProductOfCorrections<
-      GeneralizedHarmonic::BoundaryCorrections::UpwindPenalty<3>,
+      gh::BoundaryCorrections::UpwindPenalty<3>,
       ValenciaDivClean::BoundaryCorrections::Hll>;
   BoundaryCorrection boundary_correction{};
   const auto insert_dg_data = [&](const Direction<3>& direction,
@@ -248,12 +251,14 @@ double test(const size_t num_dg_pts) {
         (*grid_to_inertial_map)(face_grid_coords, time, functions_of_time);
     const auto face_prims = soln.variables(
         face_coords, time,
-        tmpl::append<typename System::primitive_variables_tag::tags_list,
-                     typename System::gh_system::variables_tag::tags_list,
-                     tmpl::list<gr::Tags::Lapse<>, gr::Tags::Shift<3>,
-                                gr::Tags::SqrtDetSpatialMetric<>,
-                                gr::Tags::SpatialMetric<3>,
-                                gr::Tags::InverseSpatialMetric<3>>>{});
+        tmpl::append<
+            typename System::primitive_variables_tag::tags_list,
+            typename System::gh_system::variables_tag::tags_list,
+            tmpl::list<gr::Tags::Lapse<DataVector>,
+                       gr::Tags::Shift<DataVector, 3>,
+                       gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                       gr::Tags::SpatialMetric<DataVector, 3>,
+                       gr::Tags::InverseSpatialMetric<DataVector, 3>>>{});
     using flux_tags =
         typename grmhd::ValenciaDivClean::ComputeFluxes::return_tags;
     using flux_argument_tags =
@@ -262,12 +267,12 @@ double test(const size_t num_dg_pts) {
         typename System::primitive_variables_tag::tags_list,
         typename System::gh_system::variables_tag::tags_list, flux_tags,
         flux_argument_tags,
-        tmpl::list<
-            gr::Tags::Lapse<>, gr::Tags::Shift<3>,
-            gr::Tags::SqrtDetSpatialMetric<>, gr::Tags::SpatialMetric<3>,
-            gr::Tags::InverseSpatialMetric<3>,
-            ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-            ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>,
+        tmpl::list<gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                   gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                   gr::Tags::SpatialMetric<DataVector, 3>,
+                   gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                   ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                   ::gh::ConstraintDamping::Tags::ConstraintGamma2>,
         prims_to_reconstruct_tags>>>
         prims_to_reconstruct{interface_mesh.number_of_grid_points()};
     prims_to_reconstruct.assign_subset(face_prims);
@@ -307,8 +312,7 @@ double test(const size_t num_dg_pts) {
         get<tmpl::at_c<p2c_argument_tags, 6>>(prims_to_reconstruct),
         get<tmpl::at_c<p2c_argument_tags, 7>>(prims_to_reconstruct),
         get<tmpl::at_c<p2c_argument_tags, 8>>(prims_to_reconstruct),
-        get<tmpl::at_c<p2c_argument_tags, 9>>(prims_to_reconstruct),
-        get<tmpl::at_c<p2c_argument_tags, 10>>(prims_to_reconstruct));
+        get<tmpl::at_c<p2c_argument_tags, 9>>(prims_to_reconstruct));
 
     grmhd::ValenciaDivClean::ComputeFluxes::apply(
         make_not_null(&get<tmpl::at_c<flux_tags, 0>>(prims_to_reconstruct)),
@@ -335,21 +339,21 @@ double test(const size_t num_dg_pts) {
         get<tmpl::at_c<flux_argument_tags, 14>>(prims_to_reconstruct));
 
     (*gamma1)(
-        make_not_null(&get<::GeneralizedHarmonic::ConstraintDamping::Tags::
-                               ConstraintGamma1>(prims_to_reconstruct)),
+        make_not_null(&get<::gh::ConstraintDamping::Tags::ConstraintGamma1>(
+            prims_to_reconstruct)),
         face_grid_coords, time, functions_of_time);
     (*gamma2)(
-        make_not_null(&get<::GeneralizedHarmonic::ConstraintDamping::Tags::
-                               ConstraintGamma2>(prims_to_reconstruct)),
+        make_not_null(&get<::gh::ConstraintDamping::Tags::ConstraintGamma2>(
+            prims_to_reconstruct)),
         face_grid_coords, time, functions_of_time);
 
     tnsr::i<DataVector, 3, Frame::Inertial> normal_covector =
         unnormalized_face_normal(interface_mesh, element_map,
                                  *grid_to_inertial_map, time, functions_of_time,
                                  direction);
-    const auto normal_magnitude =
-        magnitude(normal_covector,
-                  get<gr::Tags::InverseSpatialMetric<3>>(prims_to_reconstruct));
+    const auto normal_magnitude = magnitude(
+        normal_covector, get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                             prims_to_reconstruct));
     for (auto& component : normal_covector) {
       component /= get(normal_magnitude);
     }
@@ -358,7 +362,8 @@ double test(const size_t num_dg_pts) {
     for (size_t i = 0; i < 3; ++i) {
       for (size_t j = 0; j < 3; ++j) {
         normal_vector.get(i) +=
-            get<gr::Tags::InverseSpatialMetric<3>>(prims_to_reconstruct)
+            get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                prims_to_reconstruct)
                 .get(i, j) *
             normal_covector.get(j);
       }
@@ -450,8 +455,8 @@ double test(const size_t num_dg_pts) {
         normal_covector, normal_vector, mesh_velocity,
         normal_dot_mesh_velocity);
 
-    std::vector<double> interface_data(
-        dg_packaged_data.size(), std::numeric_limits<double>::signaling_NaN());
+    DataVector interface_data{dg_packaged_data.size(),
+                              std::numeric_limits<double>::signaling_NaN()};
     std::copy(std::data(dg_packaged_data),
               std::next(std::data(dg_packaged_data),
                         static_cast<std::ptrdiff_t>(dg_packaged_data.size())),
@@ -482,7 +487,7 @@ double test(const size_t num_dg_pts) {
   typename evolution::dg::Tags::NormalCovectorAndMagnitude<3>::type
       dummy_normal_covector_and_magnitude{};
   using DampingFunction =
-      GeneralizedHarmonic::ConstraintDamping::DampingFunction<3, Frame::Grid>;
+      gh::ConstraintDamping::DampingFunction<3, Frame::Grid>;
 
   auto box = db::create<
       db::AddSimpleTags<
@@ -494,7 +499,7 @@ double test(const size_t num_dg_pts) {
               std::unique_ptr<EquationsOfState::EquationOfState<true, 1>>>,
           typename System::primitive_variables_tag, dt_variables_tag,
           variables_tag,
-          evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>,
+          evolution::dg::subcell::Tags::GhostDataForReconstruction<3>,
           ValenciaDivClean::Tags::ConstraintDampingParameter,
           evolution::dg::Tags::MortarData<3>,
           domain::Tags::ElementMap<3, Frame::Grid>,
@@ -505,13 +510,10 @@ double test(const size_t num_dg_pts) {
           evolution::dg::Tags::NormalCovectorAndMagnitude<3>, ::Tags::Time,
           domain::Tags::FunctionsOfTimeInitialize, DummyAnalyticSolutionTag,
           Parallel::Tags::MetavariablesImpl<DummyEvolutionMetaVars>,
-          GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma0<
-              3, Frame::Grid>,
-          GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma1<
-              3, Frame::Grid>,
-          GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma2<
-              3, Frame::Grid>,
-          ::GeneralizedHarmonic::gauges::Tags::GaugeCondition,
+          gh::ConstraintDamping::Tags::DampingFunctionGamma0<3, Frame::Grid>,
+          gh::ConstraintDamping::Tags::DampingFunctionGamma1<3, Frame::Grid>,
+          gh::ConstraintDamping::Tags::DampingFunctionGamma2<3, Frame::Grid>,
+          ::gh::gauges::Tags::GaugeCondition,
           grmhd::GhValenciaDivClean::fd::Tags::FilterOptions>,
       db::AddComputeTags<
           evolution::dg::subcell::Tags::LogicalCoordinatesCompute<3>,
@@ -520,11 +522,11 @@ double test(const size_t num_dg_pts) {
               evolution::dg::subcell::Tags::Coordinates<3,
                                                         Frame::ElementLogical>,
               evolution::dg::subcell::Tags::Coordinates>,
-          gr::Tags::SpatialMetricCompute<3, Frame::Inertial, DataVector>,
-          gr::Tags::DetAndInverseSpatialMetricCompute<3, Frame::Inertial,
-                                                      DataVector>,
-          gr::Tags::SqrtDetSpatialMetricCompute<3, Frame::Inertial,
-                                                DataVector>>>(
+          gr::Tags::SpatialMetricCompute<DataVector, 3, Frame::Inertial>,
+          gr::Tags::DetAndInverseSpatialMetricCompute<DataVector, 3,
+                                                      Frame::Inertial>,
+          gr::Tags::SqrtDetSpatialMetricCompute<DataVector, 3,
+                                                Frame::Inertial>>>(
       element, subcell_mesh,
       std::unique_ptr<grmhd::GhValenciaDivClean::fd::Reconstructor>{
           std::make_unique<
@@ -532,7 +534,7 @@ double test(const size_t num_dg_pts) {
       std::unique_ptr<
           grmhd::GhValenciaDivClean::BoundaryCorrections::BoundaryCorrection>{
           std::make_unique<BoundaryCorrections::ProductOfCorrections<
-              GeneralizedHarmonic::BoundaryCorrections::UpwindPenalty<3>,
+              gh::BoundaryCorrections::UpwindPenalty<3>,
               ValenciaDivClean::BoundaryCorrections::Hll>>()},
       soln.equation_of_state().get_clone(), cell_centered_prim_vars,
       // Set incorrect size for dt variables because they should get resized.
@@ -546,13 +548,12 @@ double test(const size_t num_dg_pts) {
       // Note: These damping functions all assume Grid==Inertial. We need to
       // rescale the widths in the Grid frame for binaries.
       std::unique_ptr<DampingFunction>(  // Gamma0, taken from SpEC BNS
-          std::make_unique<GeneralizedHarmonic::ConstraintDamping::
-                               GaussianPlusConstant<3, Frame::Grid>>(
+          std::make_unique<
+              gh::ConstraintDamping::GaussianPlusConstant<3, Frame::Grid>>(
               0.01, 0.09 * 1.0 / 1.4, 5.5 * 1.4, std::array{0.0, 0.0, 0.0})),
       gamma1->get_clone(), gamma2->get_clone(),
-      std::unique_ptr<GeneralizedHarmonic::gauges::GaugeCondition>(
-          std::make_unique<GeneralizedHarmonic::gauges::AnalyticChristoffel>(
-              soln.get_clone())),
+      std::unique_ptr<gh::gauges::GaugeCondition>(
+          std::make_unique<gh::gauges::AnalyticChristoffel>(soln.get_clone())),
       grmhd::GhValenciaDivClean::fd::FilterOptions{0.001});
 
   db::mutate_apply<ValenciaDivClean::ConservativeFromPrimitive>(

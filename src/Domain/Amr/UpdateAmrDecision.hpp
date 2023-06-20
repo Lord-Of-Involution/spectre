@@ -21,7 +21,7 @@ template <size_t VolumeDim>
 class ElementId;
 /// \endcond
 
-namespace amr::domain {
+namespace amr {
 /// \ingroup AmrGroup
 /// \brief Updates the AMR decisions `my_current_amr_flags` of the Element
 /// `element` based on the AMR decisions `neighbor_amr_flags` of a neighbor
@@ -36,6 +36,9 @@ namespace amr::domain {
 /// - If the element wants to join, and the neighbor is a potential sibling but
 ///   wants to be at a different refinement level in any dimension, the flag is
 ///   updated to not do h-refinement.
+/// - An Element that is splitting in one dimension is not allowed to join
+///   in another dimension.  If this is occurs when updating the decision,
+///   the decision to join is changed to do nothing.
 ///
 /// \returns true if any flag is changed
 ///
@@ -46,4 +49,4 @@ bool update_amr_decision(
     gsl::not_null<std::array<Flag, VolumeDim>*> my_current_amr_flags,
     const Element<VolumeDim>& element, const ElementId<VolumeDim>& neighbor_id,
     const std::array<Flag, VolumeDim>& neighbor_amr_flags);
-}  // namespace amr::domain
+}  // namespace amr

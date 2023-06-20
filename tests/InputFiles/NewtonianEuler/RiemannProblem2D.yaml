@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveNewtonianEulerRiemannProblem2D
-# Check: parse;execute
+Executable: EvolveNewtonianEulerRiemannProblem2D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -40,6 +43,9 @@ SpatialDiscretization:
       PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
   SubcellSolver:
     Reconstructor:
       MonotonisedCentralPrim:
@@ -57,10 +63,12 @@ AnalyticSolution:
     PressureStarTol: 1e-9
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

@@ -23,17 +23,18 @@
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/Actions/RecordTimeStepperData.hpp"  // IWYU pragma: keep
 #include "Time/Actions/SelfStartActions.hpp"
 #include "Time/Actions/UpdateU.hpp"  // IWYU pragma: keep
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/PrettyType.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TypeTraits.hpp"
 #include "Utilities/TypeTraits/IsA.hpp"
@@ -78,12 +79,9 @@ struct ComputeTimeDerivative {
     using argument_tag = tmpl::conditional_t<
         Metavariables::system::has_primitive_and_conservative_vars,
         PrimitiveVar, Var>;
-    db::mutate<Tags::dt<Var>>(
-        make_not_null(&box),
-        [](const gsl::not_null<double*> dt_var, const double var) {
-          *dt_var = exp(var);
-        },
-        db::get<argument_tag>(box));
+    db::mutate<Tags::dt<Var>>([](const gsl::not_null<double*> dt_var,
+                                 const double var) { *dt_var = exp(var); },
+                              make_not_null(&box), db::get<argument_tag>(box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -148,17 +146,18 @@ struct Component {
                           additional_history_tag, tmpl::list<>>,
       Tags::TimeStepId, Tags::Next<Tags::TimeStepId>, Tags::TimeStep,
       Tags::Next<Tags::TimeStep>, Tags::Time,
-      Tags::IsUsingTimeSteppingErrorControl>>;
+      Tags::IsUsingTimeSteppingErrorControl,
+      Tags::AdaptiveSteppingDiagnostics>>;
   using compute_tags = db::AddComputeTags<>;
 
   static constexpr bool has_primitives = Metavariables::has_primitives;
 
   using step_actions =
-      tmpl::list<ComputeTimeDerivative, Actions::RecordTimeStepperData<>,
-                 tmpl::conditional_t<
-                     has_primitives,
-                     tmpl::list<Actions::UpdateU<>, Actions::UpdatePrimitives>,
-                     Actions::UpdateU<>>>;
+      tmpl::list<ComputeTimeDerivative,
+                 Actions::RecordTimeStepperData<typename metavariables::system>,
+                 Actions::UpdateU<typename metavariables::system>,
+                 tmpl::conditional_t<has_primitives, Actions::UpdatePrimitives,
+                                     tmpl::list<>>>;
   using action_list = tmpl::flatten<
       tmpl::list<SelfStart::self_start_procedure<
                      step_actions, typename metavariables::system>,
@@ -188,7 +187,8 @@ void emplace_component_and_initialize(
        TimeStepId(forward_in_time, 1 - static_cast<int64_t>(order),
                   initial_time),
        initial_time_step, initial_time_step,
-       std::numeric_limits<double>::signaling_NaN(), false});
+       std::numeric_limits<double>::signaling_NaN(), false,
+       Tags::AdaptiveSteppingDiagnostics::type{}});
 }
 
 template <>
@@ -205,7 +205,8 @@ void emplace_component_and_initialize<true, false>(
        TimeStepId(forward_in_time, 1 - static_cast<int64_t>(order),
                   initial_time),
        initial_time_step, initial_time_step,
-       std::numeric_limits<double>::signaling_NaN(), false});
+       std::numeric_limits<double>::signaling_NaN(), false,
+       Tags::AdaptiveSteppingDiagnostics::type{}});
 }
 
 template <>
@@ -222,7 +223,8 @@ void emplace_component_and_initialize<false, true>(
        TimeStepId(forward_in_time, 1 - static_cast<int64_t>(order),
                   initial_time),
        initial_time_step, initial_time_step,
-       std::numeric_limits<double>::signaling_NaN(), false});
+       std::numeric_limits<double>::signaling_NaN(), false,
+       Tags::AdaptiveSteppingDiagnostics::type{}});
 }
 
 template <>
@@ -239,7 +241,8 @@ void emplace_component_and_initialize<true, true>(
        TimeStepId(forward_in_time, 1 - static_cast<int64_t>(order),
                   initial_time),
        initial_time_step, initial_time_step,
-       std::numeric_limits<double>::signaling_NaN(), false});
+       std::numeric_limits<double>::signaling_NaN(), false,
+       Tags::AdaptiveSteppingDiagnostics::type{}});
 }
 
 using not_self_start_action = std::negation<std::disjunction<
@@ -413,7 +416,8 @@ double error_in_step(const size_t order, const double step) {
 
   run_past<std::is_same<SelfStart::Actions::Cleanup, tmpl::_1>,
            tmpl::bool_<true>, MultipleHistories>(make_not_null(&runner));
-  run_past<std::is_same<tmpl::pin<Actions::UpdateU<>>, tmpl::_1>,
+  run_past<std::is_same<tmpl::pin<Actions::UpdateU<System<TestPrimitives>>>,
+                        tmpl::_1>,
            tmpl::bool_<true>, MultipleHistories>(make_not_null(&runner));
 
   const double exact = -log(exp(-initial_value) - step);
@@ -437,7 +441,7 @@ void test_convergence(const size_t order, const bool forward_in_time) {
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Time.Actions.SelfStart", "[Unit][Time][Actions]") {
-  Parallel::register_classes_with_charm<TimeSteppers::AdamsBashforth>();
+  register_classes_with_charm<TimeSteppers::AdamsBashforth>();
   for (size_t order = 1; order < 5; ++order) {
     CAPTURE(order);
     for (const int step_denominator : {1, -1, 2, -2, 20, -20}) {

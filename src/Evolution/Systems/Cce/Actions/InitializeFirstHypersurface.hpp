@@ -45,8 +45,7 @@ namespace Actions {
  * boundary component, as the type of initial data is decided by the type of the
  * worldtube boundary data.
  */
-template <bool UsesPartiallyFlatCartesianCoordinates,
-          typename BoundaryComponent>
+template <bool EvolveCcm, typename BoundaryComponent>
 struct InitializeFirstHypersurface {
   using const_global_cache_tags =
       tmpl::list<Tags::LMax, Tags::NumberOfRadialPoints>;
@@ -65,7 +64,7 @@ struct InitializeFirstHypersurface {
     // so we just exit. However, we do want to re-run the action each time
     // the self start 'reset's from the beginning
     if (db::get<::Tags::TimeStepId>(box).slab_number() > 0 or
-        db::get<::Tags::TimeStepId>(box).substep_time().fraction() != 0) {
+        not db::get<::Tags::TimeStepId>(box).is_at_slab_boundary()) {
       return {Parallel::AlgorithmExecution::Continue, std::nullopt};
     }
     // some initialization schemes need the hdf5_lock so that they can read
@@ -83,16 +82,13 @@ struct InitializeFirstHypersurface {
           make_not_null(hdf5_lock));
     } else {
       db::mutate_apply<
-          typename InitializeJ::InitializeJ<
-              UsesPartiallyFlatCartesianCoordinates>::mutate_tags,
-          typename InitializeJ::InitializeJ<
-              UsesPartiallyFlatCartesianCoordinates>::argument_tags>(
+          typename InitializeJ::InitializeJ<EvolveCcm>::mutate_tags,
+          typename InitializeJ::InitializeJ<EvolveCcm>::argument_tags>(
           db::get<Tags::InitializeJBase>(box), make_not_null(&box),
           make_not_null(hdf5_lock));
     }
     db::mutate_apply<InitializeScriPlusValue<Tags::InertialRetardedTime>>(
-        make_not_null(&box),
-        db::get<::Tags::TimeStepId>(box).substep_time().value());
+        make_not_null(&box), db::get<::Tags::TimeStepId>(box).substep_time());
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };

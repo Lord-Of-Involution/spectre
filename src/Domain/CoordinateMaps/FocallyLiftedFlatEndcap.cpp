@@ -9,12 +9,12 @@
 
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
-#include "Parallel/PupStlCpp11.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/ContainerHelpers.hpp"
 #include "Utilities/DereferenceWrapper.hpp"
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
+#include "Utilities/Serialization/PupStlCpp11.hpp"
 
 namespace domain::CoordinateMaps::FocallyLiftedInnerMaps {
 
@@ -182,8 +182,15 @@ void FlatEndcap::deriv_lambda_tilde(
 }
 
 void FlatEndcap::pup(PUP::er& p) {
-  p | center_;
-  p | radius_;
+  size_t version = 0;
+  p | version;
+  // Remember to increment the version number when making changes to this
+  // function. Retain support for unpacking data written by previous versions
+  // whenever possible. See `Domain` docs for details.
+  if (version >= 0) {
+    p | center_;
+    p | radius_;
+  }
 }
 
 bool operator==(const FlatEndcap& lhs, const FlatEndcap& rhs) {

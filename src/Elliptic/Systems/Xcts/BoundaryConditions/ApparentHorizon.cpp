@@ -16,7 +16,6 @@
 #include "Elliptic/BoundaryConditions/BoundaryCondition.hpp"
 #include "Elliptic/Systems/Xcts/Geometry.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/NormalDotFlux.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Xcts/Factory.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Christoffel.hpp"
 #include "PointwiseFunctions/GeneralRelativity/IndexManipulation.hpp"
@@ -26,6 +25,7 @@
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 namespace Xcts::BoundaryConditions {
 
@@ -112,13 +112,12 @@ void negative_expansion_quantities(
     const tnsr::i<DataVector, 3>& conformal_face_normal,
     const Scalar<DataVector>& unnormalized_conformal_face_normal_magnitude,
     const tnsr::ij<DataVector, 3>& deriv_unnormalized_face_normal) {
-  using analytic_tags = tmpl::list<
-      gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>;
+  using analytic_tags =
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>,
+                               tmpl::size_t<3>, Frame::Inertial>,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>>;
   const auto solution_vars =
       call_with_dynamic_type<tuples::tagged_tuple_from_typelist<analytic_tags>,
                              Xcts::Solutions::all_analytic_solutions>(
@@ -126,17 +125,14 @@ void negative_expansion_quantities(
             return local_solution->variables(x, analytic_tags{});
           });
   const auto& inv_spatial_metric =
-      get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-          solution_vars);
+      get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(solution_vars);
   const auto& deriv_spatial_metric =
-      get<::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(solution_vars);
+      get<::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(solution_vars);
   const auto& lapse = get<gr::Tags::Lapse<DataVector>>(solution_vars);
-  const auto& shift =
-      get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(solution_vars);
+  const auto& shift = get<gr::Tags::Shift<DataVector, 3>>(solution_vars);
   const auto& extrinsic_curvature =
-      get<gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>(
-          solution_vars);
+      get<gr::Tags::ExtrinsicCurvature<DataVector, 3>>(solution_vars);
   // The passed-in face normal is normalized with the full conformal metric
   // (typically a superposition of isolated metrics). Therefore, we need to
   // normalized the face normal again with the isolated Kerr metric. Possible

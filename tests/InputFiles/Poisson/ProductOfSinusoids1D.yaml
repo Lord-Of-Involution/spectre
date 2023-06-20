@@ -1,18 +1,21 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: SolvePoisson1D
-# Check: parse;execute_check_output
-# Timeout: 10
-# ExpectedOutput:
-#   PoissonProductOfSinusoids1DReductions.h5
-#   PoissonProductOfSinusoids1DVolume0.h5
-# OutputFileChecks:
-#   - Label: Discretization error
-#     Subfile: /ErrorNorms.dat
-#     FileGlob: PoissonProductOfSinusoids1DReductions.h5
-#     SkipColumns: [0, 1, 2]
-#     AbsoluteTolerance: 0.004
+Executable: SolvePoisson1D
+Testing:
+  Check: parse;execute_check_output
+  Timeout: 10
+ExpectedOutput:
+  - PoissonProductOfSinusoids1DReductions.h5
+  - PoissonProductOfSinusoids1DVolume0.h5
+OutputFileChecks:
+  - Label: Discretization error
+    Subfile: /ErrorNorms.dat
+    FileGlob: PoissonProductOfSinusoids1DReductions.h5
+    SkipColumns: [0, 1, 2]
+    AbsoluteTolerance: 0.004
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -31,6 +34,8 @@ DomainCreator:
   Interval:
     LowerBound: [-1.570796326794896]
     UpperBound: [3.141592653589793]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [1]
     InitialGridPoints: [4]
     TimeDependence: None
@@ -73,9 +78,12 @@ LinearSolver:
     SubdomainSolver: ExplicitInverse
     ObservePerCoreReductions: False
 
+RadiallyCompressedCoordinates: None
+
 EventsAndTriggers:
-  - - HasConverged
-    - - ObserveNorms:
+  - Trigger: HasConverged
+    Events:
+      - ObserveNorms:
           SubfileName: ErrorNorms
           TensorsToObserve:
             - Name: Error(Field)
@@ -87,3 +95,4 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None

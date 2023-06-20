@@ -6,14 +6,28 @@
 
 #pragma once
 
+#include <iomanip>
 #include <string>
 
 #include "Utilities/ErrorHandling/AbortWithErrorMessage.hpp"
 #include "Utilities/ErrorHandling/Breakpoint.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ForceInline.hpp"
 #include "Utilities/Literals.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/System/Abort.hpp"
+
+namespace Error_detail {
+// You can't use ScopedFpeState (a non-literal type) in a constexpr
+// function, but you can call another function that uses it.
+template <typename F>
+[[noreturn]] SPECTRE_ALWAYS_INLINE void abort_without_fpes(
+    const char* file, const int line, const char* const pretty_function,
+    F&& message) {
+  const ScopedFpeState disable_fpes(false);
+  abort_with_error_message(file, line, pretty_function, message());
+}
+}  // namespace Error_detail
 
 /*!
  * \ingroup ErrorHandlingGroup
@@ -47,16 +61,18 @@
 // 20160415) can't figure out that the else branch and everything
 // after it is unreachable, causing warnings (and possibly suboptimal
 // code generation).
-#define ERROR(m)                                                              \
-  do {                                                                        \
-    if (__builtin_is_constant_evaluated()) {                                  \
-      throw std::runtime_error("Failed");                                     \
-    } else {                                                                  \
-      disable_floating_point_exceptions();                                    \
-      abort_with_error_message(__FILE__, __LINE__,                            \
-                               static_cast<const char*>(__PRETTY_FUNCTION__), \
-                               MakeString{} << m);                            \
-    }                                                                         \
+#define ERROR(m)                                                             \
+  do {                                                                       \
+    if (__builtin_is_constant_evaluated()) {                                 \
+      throw std::runtime_error("Failed");                                    \
+    } else {                                                                 \
+      Error_detail::abort_without_fpes(                                      \
+          __FILE__, __LINE__, static_cast<const char*>(__PRETTY_FUNCTION__), \
+          [&]() -> std::string {                                             \
+            return MakeString{} << std::setprecision(18) << std::scientific  \
+                                << m;                                        \
+          });                                                                \
+    }                                                                        \
   } while (false)
 
 /*!
@@ -69,9 +85,9 @@
     if (__builtin_is_constant_evaluated()) {                                 \
       throw std::runtime_error("Failed");                                    \
     } else {                                                                 \
-      disable_floating_point_exceptions();                                   \
+      const ScopedFpeState disable_fpes_ERROR(false);                        \
       abort_with_error_message_no_trace(                                     \
           __FILE__, __LINE__, static_cast<const char*>(__PRETTY_FUNCTION__), \
-          MakeString{} << m);                                                \
+          MakeString{} << std::setprecision(18) << std::scientific << m);    \
     }                                                                        \
   } while (false)

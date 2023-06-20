@@ -30,7 +30,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \ingroup GeneralRelativityGroup
@@ -61,14 +61,14 @@ namespace GeneralizedHarmonic {
  *     \Longrightarrow \partial_i \alpha = -(\alpha/2) n^a \Phi_{iab} n^b
  * \f]
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void spatial_deriv_of_lapse(
     gsl::not_null<tnsr::i<DataType, SpatialDim, Frame>*> deriv_lapse,
     const Scalar<DataType>& lapse,
     const tnsr::A<DataType, SpatialDim, Frame>& spacetime_unit_normal,
     const tnsr::iaa<DataType, SpatialDim, Frame>& phi);
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::i<DataType, SpatialDim, Frame> spatial_deriv_of_lapse(
     const Scalar<DataType>& lapse,
     const tnsr::A<DataType, SpatialDim, Frame>& spacetime_unit_normal,
@@ -89,8 +89,8 @@ struct DerivLapseCompute : ::Tags::deriv<gr::Tags::Lapse<DataVector>,
                            db::ComputeTag {
   using argument_tags =
       tmpl::list<gr::Tags::Lapse<DataVector>,
-                 gr::Tags::SpacetimeNormalVector<SpatialDim, Frame, DataVector>,
-                 Phi<SpatialDim, Frame>>;
+                 gr::Tags::SpacetimeNormalVector<DataVector, SpatialDim, Frame>,
+                 Phi<DataVector, SpatialDim, Frame>>;
 
   using return_type = tnsr::i<DataVector, SpatialDim, Frame>;
 
@@ -98,10 +98,10 @@ struct DerivLapseCompute : ::Tags::deriv<gr::Tags::Lapse<DataVector>,
       gsl::not_null<tnsr::i<DataVector, SpatialDim, Frame>*>,
       const Scalar<DataVector>&, const tnsr::A<DataVector, SpatialDim, Frame>&,
       const tnsr::iaa<DataVector, SpatialDim, Frame>&)>(
-      &spatial_deriv_of_lapse<SpatialDim, Frame>);
+      &spatial_deriv_of_lapse<DataVector, SpatialDim, Frame>);
 
   using base = ::Tags::deriv<gr::Tags::Lapse<DataVector>,
                              tmpl::size_t<SpatialDim>, Frame>;
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

@@ -11,17 +11,18 @@
 #include "DataStructures/DataBox/Tag.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Helpers/DataStructures/DataBox/TestHelpers.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
+#include "Parallel/ExitCode.hpp"
 #include "Parallel/PhaseControl/PhaseChange.hpp"
 #include "Parallel/PhaseControl/PhaseControlTags.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/TimeSequence.hpp"
 #include "Time/Triggers/Slabs.hpp"
 #include "Utilities/Functional.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -96,24 +97,26 @@ struct Metavariables {
 
 SPECTRE_TEST_CASE("Unit.Parallel.PhaseControl.PhaseControlTags",
                   "[Unit][Parallel]") {
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   TestHelpers::db::test_simple_tag<PhaseControl::Tags::PhaseChangeAndTriggers>(
       "PhaseChangeAndTriggers");
 
   const auto created_phase_changes = TestHelpers::test_option_tag<
       PhaseControl::OptionTags::PhaseChangeAndTriggers, Metavariables>(
-      " - - Slabs:\n"
+      " - Trigger:\n"
+      "     Slabs:\n"
       "       EvenlySpaced:\n"
       "         Interval: 2\n"
       "         Offset: 0\n"
-      "   - - TestCreatable(1):\n"
+      "   PhaseChanges:\n"
+      "     - TestCreatable(1):\n"
       "         IntOption: 4\n"
       "     - TestCreatable(2):\n"
       "         IntOption: 2");
   CHECK(created_phase_changes.size() == 1_st);
-  const auto& first_creatable = created_phase_changes[0].second[0];
-  const auto& second_creatable = created_phase_changes[0].second[1];
+  const auto& first_creatable = created_phase_changes[0].phase_changes[0];
+  const auto& second_creatable = created_phase_changes[0].phase_changes[1];
   REQUIRE(dynamic_cast<TestCreatable<1_st>*>(first_creatable.get()) != nullptr);
   CHECK(dynamic_cast<TestCreatable<1_st>*>(first_creatable.get())
             ->option_value_ == 4);
@@ -123,10 +126,11 @@ SPECTRE_TEST_CASE("Unit.Parallel.PhaseControl.PhaseControlTags",
   CHECK(dynamic_cast<TestCreatable<2_st>*>(second_creatable.get())
             ->option_value_ == 2);
 
-  static_assert(std::is_same_v<
-                PhaseControl::get_phase_change_tags<Metavariables>,
-                tmpl::list<
-                    Tags::DummyDecisionTag2, Tags::DummyDecisionTag1,
-                    PhaseControl::TagsAndCombines::UsePhaseChangeArbitration>>);
+  static_assert(
+      std::is_same_v<
+          PhaseControl::get_phase_change_tags<Metavariables>,
+          tmpl::list<Tags::DummyDecisionTag2, Tags::DummyDecisionTag1,
+                     PhaseControl::TagsAndCombines::UsePhaseChangeArbitration,
+                     Parallel::Tags::ExitCode>>);
 }
 }  // namespace

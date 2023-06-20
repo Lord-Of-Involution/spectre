@@ -10,9 +10,9 @@
 #include <pup.h>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/Prefixes.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/FixedHashMap.hpp"
 #include "DataStructures/Index.hpp"
 #include "DataStructures/Tensor/IndexType.hpp"
@@ -82,10 +82,11 @@ void AoWeno53<Dim>::reconstruct(
         vars_on_upper_face,
     const Variables<tmpl::list<Tags::U>>& volume_vars,
     const Element<Dim>& element,
-    const FixedHashMap<
-        maximum_number_of_neighbors(Dim),
-        std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-        boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& neighbor_data,
+    const FixedHashMap<maximum_number_of_neighbors(Dim),
+                       std::pair<Direction<Dim>, ElementId<Dim>>,
+                       evolution::dg::subcell::GhostData,
+                       boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
+        ghost_data,
     const Mesh<Dim>& subcell_mesh) const {
   reconstruct_work(
       vars_on_lower_face, vars_on_upper_face,
@@ -96,7 +97,7 @@ void AoWeno53<Dim>::reconstruct(
                      ghost_cell_vars, subcell_extents, number_of_variables,
                      gamma_hi_, gamma_lo_, epsilon_);
       },
-      volume_vars, element, neighbor_data, subcell_mesh, ghost_zone_size());
+      volume_vars, element, ghost_data, subcell_mesh, ghost_zone_size());
 }
 
 template <size_t Dim>
@@ -105,10 +106,11 @@ void AoWeno53<Dim>::reconstruct_fd_neighbor(
     const gsl::not_null<Variables<TagsList>*> vars_on_face,
     const Variables<tmpl::list<Tags::U>>& volume_vars,
     const Element<Dim>& element,
-    const FixedHashMap<
-        maximum_number_of_neighbors(Dim),
-        std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-        boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& neighbor_data,
+    const FixedHashMap<maximum_number_of_neighbors(Dim),
+                       std::pair<Direction<Dim>, ElementId<Dim>>,
+                       evolution::dg::subcell::GhostData,
+                       boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
+        ghost_data,
     const Mesh<Dim>& subcell_mesh,
     const Direction<Dim> direction_to_reconstruct) const {
   reconstruct_fd_neighbor_work(
@@ -135,8 +137,8 @@ void AoWeno53<Dim>::reconstruct_fd_neighbor(
             tensor_component_neighbor, subcell_extents, ghost_data_extents,
             local_direction_to_reconstruct, gamma_hi_, gamma_lo_, epsilon_);
       },
-      volume_vars, element, neighbor_data, subcell_mesh,
-      direction_to_reconstruct, ghost_zone_size());
+      volume_vars, element, ghost_data, subcell_mesh, direction_to_reconstruct,
+      ghost_zone_size());
 }
 
 template <size_t Dim>
@@ -178,9 +180,9 @@ GENERATE_INSTANTIATIONS(INSTANTIATION, (1, 2))
       const FixedHashMap<                                                      \
           maximum_number_of_neighbors(DIM(data)),                              \
           std::pair<Direction<DIM(data)>, ElementId<DIM(data)>>,               \
-          std::vector<double>,                                                 \
+          evolution::dg::subcell::GhostData,                                   \
           boost::hash<std::pair<Direction<DIM(data)>, ElementId<DIM(data)>>>>& \
-          neighbor_data,                                                       \
+          ghost_data,                                                          \
       const Mesh<DIM(data)>& subcell_mesh) const;                              \
   template void AoWeno53<DIM(data)>::reconstruct_fd_neighbor(                  \
       gsl::not_null<Variables<TAGS_LIST(data)>*> vars_on_face,                 \
@@ -189,9 +191,9 @@ GENERATE_INSTANTIATIONS(INSTANTIATION, (1, 2))
       const FixedHashMap<                                                      \
           maximum_number_of_neighbors(DIM(data)),                              \
           std::pair<Direction<DIM(data)>, ElementId<DIM(data)>>,               \
-          std::vector<double>,                                                 \
+          evolution::dg::subcell::GhostData,                                   \
           boost::hash<std::pair<Direction<DIM(data)>, ElementId<DIM(data)>>>>& \
-          neighbor_data,                                                       \
+          ghost_data,                                                          \
       const Mesh<DIM(data)>& subcell_mesh,                                     \
       const Direction<DIM(data)> direction_to_reconstruct) const;
 

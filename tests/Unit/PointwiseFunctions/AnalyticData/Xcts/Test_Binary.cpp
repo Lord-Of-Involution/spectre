@@ -16,10 +16,10 @@
 #include "Framework/SetupLocalPythonEnvironment.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticData/Xcts/Binary.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Xcts/Schwarzschild.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/AnalyticSolution.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -38,8 +38,7 @@ using test_tags = tmpl::list<
     Tags::ConformalFactor<DataVector>,
     gr::Tags::Conformal<gr::Tags::EnergyDensity<DataVector>, 0>,
     gr::Tags::Conformal<gr::Tags::StressTrace<DataVector>, 0>,
-    gr::Tags::Conformal<
-        gr::Tags::MomentumDensity<3, Frame::Inertial, DataVector>, 0>>;
+    gr::Tags::Conformal<gr::Tags::MomentumDensity<DataVector, 3>, 0>>;
 
 template <typename IsolatedObjectBase, typename IsolatedObjectClasses>
 struct BinaryProxy {
@@ -72,7 +71,7 @@ void test_data(const std::array<double, 2>& x_coords,
                const std::string& options_string) {
   using IsolatedObjectBase = elliptic::analytic_data::AnalyticSolution;
   using IsolatedObjectClasses = tmpl::list<Xcts::Solutions::Schwarzschild>;
-  Parallel::register_classes_with_charm<Xcts::Solutions::Schwarzschild>();
+  register_classes_with_charm<Xcts::Solutions::Schwarzschild>();
   const auto created = TestHelpers::test_creation<
       std::unique_ptr<elliptic::analytic_data::Background>, Metavariables>(
       options_string);
@@ -125,11 +124,11 @@ SPECTRE_TEST_CASE("Unit.PointwiseFunctions.AnalyticData.Xcts.Binary",
   test_data({{-5., 6.}}, 0.02, 0.01, {{7., 8.}}, {{1.1, 0.43}}, "bbh_isotropic",
             "Binary:\n"
             "  XCoords: [-5., 6.]\n"
-            "  ObjectA:\n"
+            "  ObjectLeft:\n"
             "    Schwarzschild:\n"
             "      Mass: 1.1\n"
             "      Coordinates: Isotropic\n"
-            "  ObjectB:\n"
+            "  ObjectRight:\n"
             "    Schwarzschild:\n"
             "      Mass: 0.43\n"
             "      Coordinates: Isotropic\n"

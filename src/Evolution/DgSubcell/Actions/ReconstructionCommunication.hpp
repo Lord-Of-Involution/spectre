@@ -12,8 +12,8 @@
 #include <map>
 #include <optional>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataBox/Prefixes.hpp"
@@ -31,15 +31,18 @@
 #include "Domain/Structure/TrimMap.hpp"
 #include "Domain/Tags.hpp"
 #include "Evolution/DgSubcell/ActiveGrid.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/NeighborRdmpAndVolumeData.hpp"
 #include "Evolution/DgSubcell/Projection.hpp"
 #include "Evolution/DgSubcell/RdmpTci.hpp"
 #include "Evolution/DgSubcell/RdmpTciData.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/Tags/ActiveGrid.hpp"
+#include "Evolution/DgSubcell/Tags/CellCenteredFlux.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
+#include "Evolution/DgSubcell/Tags/TciStatus.hpp"
 #include "Evolution/DiscontinuousGalerkin/InboxTags.hpp"
 #include "Evolution/DiscontinuousGalerkin/MortarData.hpp"
 #include "Evolution/DiscontinuousGalerkin/MortarTags.hpp"
@@ -52,6 +55,7 @@
 #include "Time/TimeStepId.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Literals.hpp"
 #include "Utilities/MakeArray.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -66,7 +70,7 @@ namespace evolution::dg::subcell::Actions {
  * 2. Slice the variables provided by GhostDataMutator to send to our neighbors
  *    for ghost zones
  * 3. Send the ghost zone data, appending the max/min for the TCI at the end of
- *    the `std::vector<double>` we are sending.
+ *    the `DataVector` we are sending.
  *
  * \warning This assumes the RDMP TCI data in the DataBox has been set, it does
  * not calculate it automatically. The reason is this way we can only calculate
@@ -93,7 +97,7 @@ namespace evolution::dg::subcell::Actions {
  * - Adds: nothing
  * - Removes: nothing
  * - Modifies:
- *   - `subcell::Tags::NeighborDataForReconstruction<Dim>`
+ *   - `subcell::Tags::GhostDataForReconstruction<Dim>`
  */
 template <size_t Dim, typename GhostDataMutator, bool LocalTimeStepping>
 struct SendDataForReconstruction {
@@ -118,31 +122,46 @@ struct SendDataForReconstruction {
     ASSERT(db::get<Tags::ActiveGrid>(box) == ActiveGrid::Subcell,
            "The SendDataForReconstruction action can only be called when "
            "Subcell is the active scheme.");
+    using flux_variables = typename Metavariables::system::flux_variables;
 
-    db::mutate<Tags::NeighborDataForReconstruction<Dim>>(
-        make_not_null(&box), [](const auto neighbor_data_ptr) {
+    db::mutate<Tags::GhostDataForReconstruction<Dim>>(
+        [](const auto ghost_data_ptr) {
           // Clear the previous neighbor data and add current local data
-          neighbor_data_ptr->clear();
-        });
+          ghost_data_ptr->clear();
+        },
+        make_not_null(&box));
 
     const Mesh<Dim>& dg_mesh = db::get<::domain::Tags::Mesh<Dim>>(box);
     const Mesh<Dim>& subcell_mesh = db::get<Tags::Mesh<Dim>>(box);
     const Element<Dim>& element = db::get<::domain::Tags::Element<Dim>>(box);
     const size_t ghost_zone_size =
         Metavariables::SubcellOptions::ghost_zone_size(box);
-    DirectionMap<Dim, bool> directions_to_slice{};
-    for (const auto& direction_neighbors : element.neighbors()) {
-      if (direction_neighbors.second.size() == 0) {
-        directions_to_slice[direction_neighbors.first] = false;
-      } else {
-        directions_to_slice[direction_neighbors.first] = true;
-      }
-    }
+
     // Optimization note: could save a copy+allocation if we moved
     // all_sliced_data when possible before sending.
-    const DirectionMap<Dim, std::vector<double>> all_sliced_data = slice_data(
-        db::mutate_apply(GhostDataMutator{}, make_not_null(&box)),
-        subcell_mesh.extents(), ghost_zone_size, directions_to_slice, 0);
+    //
+    // Note: RDMP size doesn't help here since we need to slice data after
+    // anyway, so no way to save an allocation through that.
+    const auto& cell_centered_flux =
+        db::get<Tags::CellCenteredFlux<flux_variables, Dim>>(box);
+    DataVector volume_data_to_slice = db::mutate_apply(
+        GhostDataMutator{}, make_not_null(&box),
+        cell_centered_flux.has_value() ? cell_centered_flux.value().size()
+                                       : 0_st);
+    if (cell_centered_flux.has_value()) {
+      std::copy(
+          cell_centered_flux.value().data(),
+          std::next(
+              cell_centered_flux.value().data(),
+              static_cast<std::ptrdiff_t>(cell_centered_flux.value().size())),
+          std::next(
+              volume_data_to_slice.data(),
+              static_cast<std::ptrdiff_t>(volume_data_to_slice.size() -
+                                          cell_centered_flux.value().size())));
+    }
+    const DirectionMap<Dim, DataVector> all_sliced_data =
+        slice_data(volume_data_to_slice, subcell_mesh.extents(),
+                   ghost_zone_size, element.internal_boundaries(), 0);
 
     auto& receiver_proxy =
         Parallel::get_parallel_component<ParallelComponent>(cache);
@@ -156,6 +175,8 @@ struct SendDataForReconstruction {
       }
     }();
 
+    const int tci_decision =
+        db::get<evolution::dg::subcell::Tags::TciDecision>(box);
     // Compute and send actual variables
     for (const auto& [direction, neighbors_in_direction] :
          element.neighbors()) {
@@ -167,7 +188,12 @@ struct SendDataForReconstruction {
              "evolution is using DG without any changes to subcell.");
 
       for (const ElementId<Dim>& neighbor : neighbors_in_direction) {
-        std::vector<double> subcell_data_to_send{};
+        const size_t rdmp_size = rdmp_tci_data.max_variables_values.size() +
+                                 rdmp_tci_data.min_variables_values.size();
+        const auto& sliced_data_in_direction = all_sliced_data.at(direction);
+        // Allocate with subcell data and rdmp data
+        DataVector subcell_data_to_send{sliced_data_in_direction.size() +
+                                        rdmp_size};
         if (not orientation.is_aligned()) {
           std::array<size_t, Dim> slice_extents{};
           for (size_t d = 0; d < Dim; ++d) {
@@ -175,24 +201,38 @@ struct SendDataForReconstruction {
           }
           gsl::at(slice_extents, direction.dimension()) = ghost_zone_size;
 
-          subcell_data_to_send =
-              orient_variables(all_sliced_data.at(direction),
-                               Index<Dim>{slice_extents}, orientation);
-        } else {
-          subcell_data_to_send = all_sliced_data.at(direction);
-        }
-        subcell_data_to_send.insert(subcell_data_to_send.end(),
-                                    rdmp_tci_data.max_variables_values.cbegin(),
-                                    rdmp_tci_data.max_variables_values.cend());
-        subcell_data_to_send.insert(subcell_data_to_send.end(),
-                                    rdmp_tci_data.min_variables_values.cbegin(),
-                                    rdmp_tci_data.min_variables_values.cend());
+          // Need a view so we only get the subcell data and not the rdmp data
+          DataVector subcell_data_to_send_view{
+              subcell_data_to_send.data(),
+              subcell_data_to_send.size() - rdmp_size};
 
-        std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<std::vector<double>>,
-                   std::optional<std::vector<double>>, ::TimeStepId>
-            data{subcell_mesh, dg_mesh.slice_away(direction.dimension()),
-                 std::move(subcell_data_to_send), std::nullopt,
-                 next_time_step_id};
+          orient_variables(make_not_null(&subcell_data_to_send_view),
+                           sliced_data_in_direction, Index<Dim>{slice_extents},
+                           orientation);
+        } else {
+          std::copy(sliced_data_in_direction.begin(),
+                    sliced_data_in_direction.end(),
+                    subcell_data_to_send.begin());
+        }
+        // Copy rdmp data to end of subcell_data_to_send
+        std::copy(
+            rdmp_tci_data.max_variables_values.cbegin(),
+            rdmp_tci_data.max_variables_values.cend(),
+            std::prev(subcell_data_to_send.end(), static_cast<int>(rdmp_size)));
+        std::copy(rdmp_tci_data.min_variables_values.cbegin(),
+                  rdmp_tci_data.min_variables_values.cend(),
+                  std::prev(subcell_data_to_send.end(),
+                            static_cast<int>(
+                                rdmp_tci_data.min_variables_values.size())));
+
+        std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<DataVector>,
+                   std::optional<DataVector>, ::TimeStepId, int>
+            data{subcell_mesh,
+                 dg_mesh.slice_away(direction.dimension()),
+                 std::move(subcell_data_to_send),
+                 std::nullopt,
+                 next_time_step_id,
+                 tci_decision};
 
         Parallel::receive_data<
             evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<Dim>>(
@@ -236,7 +276,7 @@ struct SendDataForReconstruction {
  * - Adds: nothing
  * - Removes: nothing
  * - Modifies:
- *   - `subcell::Tags::NeighborDataForReconstruction<Dim>`
+ *   - `subcell::Tags::GhostDataForReconstruction<Dim>`
  *   - `subcell::Tags::DataForRdmpTci`
  *   - `evolution::dg::Tags::MortarData`
  *   - `evolution::dg::Tags::MortarNextTemporalId`
@@ -264,9 +304,8 @@ struct ReceiveDataForReconstruction {
     std::map<TimeStepId,
              FixedHashMap<
                  maximum_number_of_neighbors(Dim), Key,
-                 std::tuple<Mesh<Dim>, Mesh<Dim - 1>,
-                            std::optional<std::vector<double>>,
-                            std::optional<std::vector<double>>, ::TimeStepId>,
+                 std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<DataVector>,
+                            std::optional<DataVector>, ::TimeStepId, int>,
                  boost::hash<Key>>>& inbox =
         tuples::get<evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<
             Metavariables::volume_dim>>(inboxes);
@@ -279,29 +318,28 @@ struct ReceiveDataForReconstruction {
     }
 
     // Now that we have received all the data, copy it over as needed.
-    FixedHashMap<
-        maximum_number_of_neighbors(Dim), Key,
-        std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<std::vector<double>>,
-                   std::optional<std::vector<double>>, ::TimeStepId>,
-        boost::hash<Key>>
+    FixedHashMap<maximum_number_of_neighbors(Dim), Key,
+                 std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<DataVector>,
+                            std::optional<DataVector>, ::TimeStepId, int>,
+                 boost::hash<Key>>
         received_data = std::move(inbox[current_time_step_id]);
     inbox.erase(current_time_step_id);
 
     const Mesh<Dim>& subcell_mesh = db::get<Tags::Mesh<Dim>>(box);
 
-    db::mutate<Tags::NeighborDataForReconstruction<Dim>, Tags::DataForRdmpTci,
+    db::mutate<Tags::GhostDataForReconstruction<Dim>, Tags::DataForRdmpTci,
                evolution::dg::Tags::MortarData<Dim>,
                evolution::dg::Tags::MortarNextTemporalId<Dim>,
-               evolution::dg::Tags::NeighborMesh<Dim>>(
-        make_not_null(&box),
+               evolution::dg::Tags::NeighborMesh<Dim>,
+               evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>>(
         [&current_time_step_id, &element,
          ghost_zone_size = Metavariables::SubcellOptions::ghost_zone_size(box),
          &received_data, &subcell_mesh](
             const gsl::not_null<FixedHashMap<
                 maximum_number_of_neighbors(Dim),
-                std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
+                std::pair<Direction<Dim>, ElementId<Dim>>, GhostData,
                 boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
-                neighbor_data_ptr,
+                ghost_data_ptr,
             const gsl::not_null<RdmpTciData*> rdmp_tci_data_ptr,
             const gsl::not_null<std::unordered_map<
                 Key, evolution::dg::MortarData<Dim>, boost::hash<Key>>*>
@@ -313,7 +351,8 @@ struct ReceiveDataForReconstruction {
                 maximum_number_of_neighbors(Dim),
                 std::pair<Direction<Dim>, ElementId<Dim>>, Mesh<Dim>,
                 boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
-                neighbor_mesh) {
+                neighbor_mesh,
+            const auto neighbor_tci_decisions) {
           // Remove neighbor meshes for neighbors that don't exist anymore
           domain::remove_nonexistent_neighbors(neighbor_mesh, element);
 
@@ -341,7 +380,7 @@ struct ReceiveDataForReconstruction {
                 mortar_id, std::get<0>(received_mortar_data.second));
           }
 
-          ASSERT(neighbor_data_ptr->empty(),
+          ASSERT(ghost_data_ptr->empty(),
                  "Should have no elements in the neighbor data when "
                  "receiving neighbor data");
           const size_t number_of_rdmp_vars =
@@ -358,7 +397,7 @@ struct ReceiveDataForReconstruction {
                element.neighbors()) {
             for (const auto& neighbor : neighbors_in_direction) {
               std::pair directional_element_id{direction, neighbor};
-              ASSERT(neighbor_data_ptr->count(directional_element_id) == 0,
+              ASSERT(ghost_data_ptr->count(directional_element_id) == 0,
                      "Found neighbor already inserted in direction "
                          << direction << " with ElementId " << neighbor);
               ASSERT(std::get<2>(received_data[directional_element_id])
@@ -369,14 +408,21 @@ struct ReceiveDataForReconstruction {
               // This reduces the memory footprint.
 
               evolution::dg::subcell::insert_neighbor_rdmp_and_volume_data(
-                  rdmp_tci_data_ptr, neighbor_data_ptr,
+                  rdmp_tci_data_ptr, ghost_data_ptr,
                   *std::get<2>(received_data[directional_element_id]),
                   number_of_rdmp_vars, directional_element_id,
                   neighbor_mesh->at(directional_element_id), element,
                   subcell_mesh, ghost_zone_size);
+              ASSERT(neighbor_tci_decisions->contains(directional_element_id),
+                     "The NeighorTciDecisions should contain the neighbor ("
+                         << directional_element_id.first << ", "
+                         << directional_element_id.second << ") but doesn't");
+              neighbor_tci_decisions->at(directional_element_id) =
+                  std::get<5>(received_data[directional_element_id]);
             }
           }
-        });
+        },
+        make_not_null(&box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };

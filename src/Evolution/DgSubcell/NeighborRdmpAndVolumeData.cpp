@@ -15,6 +15,7 @@
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/OrientationMapHelpers.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/Matrices.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
@@ -24,12 +25,12 @@
 namespace evolution::dg::subcell {
 template <bool InsertIntoMap, size_t Dim>
 void insert_or_update_neighbor_volume_data(
-    const gsl::not_null<FixedHashMap<
-        maximum_number_of_neighbors(Dim),
-        std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-        boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
-        neighbor_data_ptr,
-    const std::vector<double>& neighbor_subcell_data,
+    const gsl::not_null<
+        FixedHashMap<maximum_number_of_neighbors(Dim),
+                     std::pair<Direction<Dim>, ElementId<Dim>>, GhostData,
+                     boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
+        ghost_data_ptr,
+    const DataVector& neighbor_subcell_data,
     const size_t number_of_rdmp_vars_in_buffer,
     const std::pair<Direction<Dim>, ElementId<Dim>>& directional_element_id,
     const Mesh<Dim>& neighbor_mesh, const Element<Dim>& element,
@@ -38,33 +39,39 @@ void insert_or_update_neighbor_volume_data(
                                     neighbor_mesh.basis(0),
                                     neighbor_mesh.quadrature(0)),
          "The neighbor mesh must be uniform but is " << neighbor_mesh);
-  ASSERT(not neighbor_subcell_data.empty(),
+  ASSERT(neighbor_subcell_data.size() != 0,
          "neighbor_subcell_data must be non-empty");
   const size_t end_of_volume_data =
       neighbor_subcell_data.size() - 2 * number_of_rdmp_vars_in_buffer;
 
-  std::vector<double> ghost_data{};
+  if constexpr (InsertIntoMap) {
+    (*ghost_data_ptr)[directional_element_id] = GhostData{1};
+  }
+
+  DataVector& ghost_data = (*ghost_data_ptr)[directional_element_id]
+                               .neighbor_ghost_data_for_reconstruction();
+  DataVector computed_ghost_data{};
   if (neighbor_mesh.basis(0) == Spectral::Basis::FiniteDifference) {
     ASSERT(neighbor_mesh == subcell_mesh,
            "Neighbor mesh ("
                << neighbor_mesh << ") and my mesh (" << subcell_mesh
                << ") must be the same if we are both doing subcell.");
     if (not InsertIntoMap and
-        neighbor_subcell_data.data() ==
-            neighbor_data_ptr->at(directional_element_id).data()) {
+        neighbor_subcell_data.data() == ghost_data.data()) {
       // Short-circuit if we are already doing FD and we would be
       // self-assigning, so elide copy and move.
       return;
     }
     // Copy over the ghost cell data for subcell reconstruction. In this case
     // the neighbor would have reoriented the data for us.
-    ghost_data = std::vector<double>{
+    computed_ghost_data.destructive_resize(end_of_volume_data);
+    std::copy(
         neighbor_subcell_data.begin(),
-        std::prev(
-            neighbor_subcell_data.end(),
-            2 * static_cast<typename std::iterator_traits<
-                    typename std::vector<double>::iterator>::difference_type>(
-                    number_of_rdmp_vars_in_buffer))};
+        std::prev(neighbor_subcell_data.end(),
+                  2 * static_cast<typename std::iterator_traits<
+                          typename DataVector::iterator>::difference_type>(
+                          number_of_rdmp_vars_in_buffer)),
+        computed_ghost_data.begin());
   } else {
     ASSERT(evolution::dg::subcell::fd::mesh(neighbor_mesh) == subcell_mesh,
            "Neighbor subcell mesh computed from the neighbor DG mesh ("
@@ -82,13 +89,14 @@ void insert_or_update_neighbor_volume_data(
         "sent for reconstruction ("
             << end_of_volume_data
             << ") must be a multiple of the number of DG volume grid points: "
-            << neighbor_mesh.number_of_grid_points());
+            << neighbor_mesh.number_of_grid_points() << " number of RDMP vars "
+            << number_of_rdmp_vars_in_buffer);
     const size_t number_of_vars =
         end_of_volume_data / neighbor_mesh.number_of_grid_points();
     const auto project_to_ghost_data =
-        [&direction, &ghost_data, &number_of_ghost_zones, &subcell_mesh](
-            const Mesh<Dim>& neighbor_mesh_for_projection,
-            const DataVector& neighbor_data_for_projection) {
+        [&direction, &computed_ghost_data, &number_of_ghost_zones,
+         &subcell_mesh](const Mesh<Dim>& neighbor_mesh_for_projection,
+                        const DataVector& neighbor_data_for_projection) {
           // Project to ghosts
           Matrix empty{};
           auto ghost_projection_mat = make_array<Dim>(std::cref(empty));
@@ -103,24 +111,25 @@ void insert_or_update_neighbor_volume_data(
               gsl::at(ghost_projection_mat, i) =
                   std::cref(evolution::dg::subcell::fd::projection_matrix(
                       neighbor_mesh_for_projection.slice_through(i),
-                      subcell_mesh.extents(i)));
+                      subcell_mesh.extents(i),
+                      Spectral::Quadrature::CellCentered));
             }
           }
-          DataVector view_ghost_data(ghost_data.data(), ghost_data.size());
-          apply_matrices(make_not_null(&view_ghost_data), ghost_projection_mat,
-                         neighbor_data_for_projection,
+          apply_matrices(make_not_null(&computed_ghost_data),
+                         ghost_projection_mat, neighbor_data_for_projection,
                          neighbor_mesh_for_projection.extents());
         };
     // Note: Once we have fully unstructured mesh support we could completely
     // elide projection, instead treating DG neighbors as unstructured meshes.
     // Whether this would actually be cheaper than projecting and using uniform
     // meshes will need to be profiled.
-    ghost_data.resize(total_number_of_ghost_zones * number_of_vars);
-    const DataVector neighbor_data_as_data_vector(
+    computed_ghost_data.destructive_resize(total_number_of_ghost_zones *
+                                           number_of_vars);
+    const DataVector neighbor_data_without_rdmp_vars{
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-        const_cast<double*>(neighbor_subcell_data.data()), end_of_volume_data);
+        const_cast<double*>(neighbor_subcell_data.data()), end_of_volume_data};
     if (LIKELY(orientation.is_aligned())) {
-      project_to_ghost_data(neighbor_mesh, neighbor_data_as_data_vector);
+      project_to_ghost_data(neighbor_mesh, neighbor_data_without_rdmp_vars);
     } else {
       // The neighbor sent DG data, so we need to project it to the ghost cells.
       //
@@ -131,38 +140,30 @@ void insert_or_update_neighbor_volume_data(
           neighbor_orientation_map(neighbor_mesh);
       DataVector temp_oriented_volume_data{end_of_volume_data};
       orient_variables(make_not_null(&temp_oriented_volume_data),
-                       neighbor_data_as_data_vector, neighbor_mesh.extents(),
+                       neighbor_data_without_rdmp_vars, neighbor_mesh.extents(),
                        neighbor_orientation_map);
       project_to_ghost_data(reoriented_neighbor_mesh,
                             temp_oriented_volume_data);
     }
   }
-  if constexpr (InsertIntoMap) {
-    [[maybe_unused]] const auto insert_result = neighbor_data_ptr->insert(
-        std::pair{directional_element_id, std::move(ghost_data)});
-    ASSERT(insert_result.second,
-           "Failed to insert the neighbor data in direction "
-               << directional_element_id.first << " from neighbor "
-               << directional_element_id.second);
-  } else {
-    neighbor_data_ptr->at(directional_element_id) = std::move(ghost_data);
-  }
+
+  ghost_data = std::move(computed_ghost_data);
 }
 
 template <size_t Dim>
 void insert_neighbor_rdmp_and_volume_data(
     const gsl::not_null<RdmpTciData*> rdmp_tci_data_ptr,
-    const gsl::not_null<FixedHashMap<
-        maximum_number_of_neighbors(Dim),
-        std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-        boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
-        neighbor_data_ptr,
-    const std::vector<double>& received_neighbor_subcell_data,
+    const gsl::not_null<
+        FixedHashMap<maximum_number_of_neighbors(Dim),
+                     std::pair<Direction<Dim>, ElementId<Dim>>, GhostData,
+                     boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>*>
+        ghost_data_ptr,
+    const DataVector& received_neighbor_subcell_data,
     const size_t number_of_rdmp_vars,
     const std::pair<Direction<Dim>, ElementId<Dim>>& directional_element_id,
     const Mesh<Dim>& neighbor_mesh, const Element<Dim>& element,
     const Mesh<Dim>& subcell_mesh, const size_t number_of_ghost_zones) {
-  ASSERT(not received_neighbor_subcell_data.empty(),
+  ASSERT(received_neighbor_subcell_data.size() != 0,
          "received_neighbor_subcell_data must be non-empty");
   // Note: since we determine the starting point of the RDMP vars
   // from how many RDMP vars there are, we don't need to account for
@@ -183,7 +184,7 @@ void insert_neighbor_rdmp_and_volume_data(
   // refinement level as us, but such a function does not yet exist.
 
   insert_or_update_neighbor_volume_data<true>(
-      neighbor_data_ptr, received_neighbor_subcell_data, number_of_rdmp_vars,
+      ghost_data_ptr, received_neighbor_subcell_data, number_of_rdmp_vars,
       directional_element_id, neighbor_mesh, element, subcell_mesh,
       number_of_ghost_zones);
 }
@@ -196,12 +197,11 @@ void insert_neighbor_rdmp_and_volume_data(
       gsl::not_null<FixedHashMap<                                          \
           maximum_number_of_neighbors(GET_DIM(data)),                      \
           std::pair<Direction<GET_DIM(data)>, ElementId<GET_DIM(data)>>,   \
-          std::vector<double>,                                             \
+          GhostData,                                                       \
           boost::hash<std::pair<Direction<GET_DIM(data)>,                  \
                                 ElementId<GET_DIM(data)>>>>*>              \
-          neighbor_data_ptr,                                               \
-      const std::vector<double>& neighbor_subcell_data,                    \
-      size_t number_of_rdmp_vars,                                          \
+          ghost_data_ptr,                                                  \
+      const DataVector& neighbor_subcell_data, size_t number_of_rdmp_vars, \
       const std::pair<Direction<GET_DIM(data)>, ElementId<GET_DIM(data)>>& \
           directional_element_id,                                          \
       const Mesh<GET_DIM(data)>& neighbor_mesh,                            \
@@ -219,11 +219,11 @@ GENERATE_INSTANTIATIONS(INSTANTIATION, (1, 2, 3))
       gsl::not_null<FixedHashMap<                                          \
           maximum_number_of_neighbors(GET_DIM(data)),                      \
           std::pair<Direction<GET_DIM(data)>, ElementId<GET_DIM(data)>>,   \
-          std::vector<double>,                                             \
+          GhostData,                                                       \
           boost::hash<std::pair<Direction<GET_DIM(data)>,                  \
                                 ElementId<GET_DIM(data)>>>>*>              \
-          neighbor_data_ptr,                                               \
-      const std::vector<double>& received_neighbor_subcell_data,           \
+          ghost_data_ptr,                                                  \
+      const DataVector& received_neighbor_subcell_data,                    \
       size_t number_of_rdmp_vars_in_buffer,                                \
       const std::pair<Direction<GET_DIM(data)>, ElementId<GET_DIM(data)>>& \
           directional_element_id,                                          \

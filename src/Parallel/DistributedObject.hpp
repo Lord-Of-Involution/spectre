@@ -38,8 +38,6 @@
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "Parallel/Printf.hpp"
-#include "Parallel/PupStlCpp11.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "Parallel/Tags/ArrayIndex.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "Parallel/TypeTraits.hpp"
@@ -54,6 +52,8 @@
 #include "Utilities/Overloader.hpp"
 #include "Utilities/PrettyType.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/PupStlCpp11.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -218,13 +218,11 @@ class DistributedObject<ParallelComponent,
       tuples::TaggedTuple<InitializationTags...> initialization_items);
 
   /// Constructor used to dynamically add a new element of an array
-  /// Multiple elements can be added by passing them as `other_ids_to_create`
-  /// The `callback` is executed after all elements are created.
+  /// The `callback` is executed after the element is created.
   DistributedObject(
       const Parallel::CProxy_GlobalCache<metavariables>& global_cache_proxy,
       Parallel::Phase current_phase,
-      const std::unique_ptr<Parallel::Callback>& callback,
-      std::deque<array_index> other_ids_to_create);
+      const std::unique_ptr<Parallel::Callback>& callback);
 
   /// Charm++ migration constructor, used after a chare is migrated
   explicit DistributedObject(CkMigrateMessage* /*msg*/);
@@ -249,6 +247,9 @@ class DistributedObject<ParallelComponent,
 
   /// Print the current contents of the DataBox
   std::string print_databox() const;
+
+  /// Get read access to all the inboxes
+  const auto& get_inboxes() const { return inboxes_; }
 
   void pup(PUP::er& p) override;  // NOLINT
 
@@ -315,6 +316,9 @@ class DistributedObject<ParallelComponent,
   template <typename ReceiveTag, typename ReceiveDataType>
   void receive_data(typename ReceiveTag::temporal_id instance,
                     ReceiveDataType&& t, bool enable_if_disabled = false);
+
+  template <typename ReceiveTag, typename MessageType>
+  void receive_data(MessageType* message);
 
   /// @{
   /// Start evaluating the algorithm until it is stopped by an action.
@@ -531,8 +535,7 @@ DistributedObject<ParallelComponent, tmpl::list<PhaseDepActionListsPack...>>::
     DistributedObject(
         const Parallel::CProxy_GlobalCache<metavariables>& global_cache_proxy,
         Parallel::Phase current_phase,
-        const std::unique_ptr<Parallel::Callback>& callback,
-        std::deque<array_index> other_ids_to_create)
+        const std::unique_ptr<Parallel::Callback>& callback)
     : DistributedObject() {
   static_assert(Parallel::is_array_proxy<cproxy_type>::value,
                 "Can only dynamically add elements to an array component");
@@ -550,18 +553,7 @@ DistributedObject<ParallelComponent, tmpl::list<PhaseDepActionListsPack...>>::
     ::Initialization::mutate_assign<
         tmpl::list<Tags::ArrayIndex, Tags::GlobalCacheProxy<metavariables>>>(
         make_not_null(&box_), array_index_, global_cache_proxy_);
-    // The callback in invoked only on the last element to be created.
-    // We create elements one at a time to ensure that they are all constructed
-    // before receiving any messages from any actions executed by the callback
-    if (other_ids_to_create.empty()) {
-      callback->invoke();
-    } else {
-      auto id_to_create = other_ids_to_create.front();
-      other_ids_to_create.pop_front();
-      this->thisProxy[id_to_create].insert(global_cache_proxy_, phase_,
-                                           std::move(callback),
-                                           other_ids_to_create);
-    }
+    callback->invoke();
   } catch (const std::exception& exception) {
     initiate_shutdown(exception);
   }
@@ -676,10 +668,10 @@ void DistributedObject<
   // unpacking.)
   if (p.isUnpacking()) {
     db::mutate<Tags::GlobalCacheProxy<metavariables>>(
-        make_not_null(&box_),
         [](const gsl::not_null<CProxy_GlobalCache<metavariables>*> proxy) {
           (void)proxy;
-        });
+        },
+        make_not_null(&box_));
   }
   p | inboxes_;
   p | array_index_;
@@ -852,8 +844,8 @@ void DistributedObject<ParallelComponent,
     receive_data(typename ReceiveTag::temporal_id instance, ReceiveDataType&& t,
                  const bool enable_if_disabled) {
   try {
-    (void)Parallel::charmxx::RegisterReceiveData<ParallelComponent,
-                                                 ReceiveTag>::registrar;
+    (void)Parallel::charmxx::RegisterReceiveData<ParallelComponent, ReceiveTag,
+                                                 false>::registrar;
     {
       std::optional<std::lock_guard<Parallel::NodeLock>> hold_lock{};
       if constexpr (std::is_same_v<Parallel::NodeLock, decltype(node_lock_)>) {
@@ -865,6 +857,33 @@ void DistributedObject<ParallelComponent,
       ReceiveTag::insert_into_inbox(
           make_not_null(&tuples::get<ReceiveTag>(inboxes_)), instance,
           std::forward<ReceiveDataType>(t));
+    }
+    perform_algorithm();
+  } catch (const std::exception& exception) {
+    initiate_shutdown(exception);
+  }
+}
+
+template <typename ParallelComponent, typename... PhaseDepActionListsPack>
+template <typename ReceiveTag, typename MessageType>
+void DistributedObject<ParallelComponent,
+                       tmpl::list<PhaseDepActionListsPack...>>::
+    receive_data(MessageType* message) {
+  try {
+    (void)Parallel::charmxx::RegisterReceiveData<ParallelComponent, ReceiveTag,
+                                                 true>::registrar;
+    {
+      std::optional<std::lock_guard<Parallel::NodeLock>> hold_lock{};
+      if constexpr (std::is_same_v<Parallel::NodeLock, decltype(node_lock_)>) {
+        hold_lock.emplace(node_lock_);
+      }
+      if (message->enable_if_disabled) {
+        set_terminate(false);
+      }
+      ReceiveTag::insert_into_inbox(
+          make_not_null(&tuples::get<ReceiveTag>(inboxes_)), message);
+      // Cannot use message after this call because a std::unique_ptr now owns
+      // it. Doing so would result in undefined behavior
     }
     perform_algorithm();
   } catch (const std::exception& exception) {
@@ -1099,7 +1118,9 @@ bool DistributedObject<
   }
 #endif // SPECTRE_CHARM_PROJECTIONS
 
-  const auto& [requested_execution, next_action_step] = ThisAction::apply(
+  AlgorithmExecution requested_execution{};
+  std::optional<std::size_t> next_action_step{};
+  std::tie(requested_execution, next_action_step) = ThisAction::apply(
       box_, inboxes_, *Parallel::local_branch(global_cache_proxy_),
       std::as_const(array_index_), actions_list{},
       std::add_pointer_t<ParallelComponent>{});

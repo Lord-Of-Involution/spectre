@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # Build System {#spectre_build_system}
 
+\tableofcontents
+
 # CMake {#cmake}
 
 SpECTRE uses [CMake](https://cmake.org/) for the build system. In this
@@ -241,12 +243,23 @@ cmake -D FLAG1=OPT1 ... -D FLAGN=OPTN <SPECTRE_ROOT>
 - ENABLE_PROFILING
   - Enables various options to make profiling SpECTRE easier
     (default is `OFF`)
+- ENABLE_SPECTRE_DEBUG
+  - Defines `SPECTRE_DEBUG` macro to enable `ASSERT`s and other debug
+    checks so they can be used in Release builds. That is, you get sanity checks
+    and compiler optimizations. You cannot disable the checks in Debug builds,
+    so this option has no effect in Debug builds.
+    (default is `OFF` in release)
 - ENABLE_WARNINGS
   - Whether or not warning flags are enabled (default is `ON`)
 - KEEP_FRAME_POINTER
   - Whether to keep the frame pointer. Needed for profiling or other cases
     where you need to be able to figure out what the call stack is.
     (default is `OFF`)
+- MACHINE
+  - Select a machine that we know how to run on, such as a particular
+    supercomputer. A file named MACHINE.yaml must exist in support/Machines and
+    a submit script template named MACHINE.sh must exist in
+    support/SubmitScripts.
 - MEMORY_ALLOCATOR
   - Set which memory allocator to use. If there are unexplained segfaults or
     other memory issues, it would be worth setting `MEMORY_ALLOCATOR=SYSTEM` to
@@ -260,6 +273,10 @@ cmake -D FLAG1=OPT1 ... -D FLAGN=OPTN <SPECTRE_ROOT>
     test Python code much easier, in particular when it uses compiled Python
     bindings, but doesn't replace CMake placeholders in the Python code such as
     the project version. (default is `OFF`)
+- SPEC_ROOT
+  - Set to a path to a SpEC installation (the SpEC repository root) to link in
+    SpEC libraries. In particular, the SpEC::Exporter library is linked in and
+    enables loading SpEC data into SpECTRE. See \ref installation for details.
 - SPECTRE_TEST_RUNNER
   - Run test executables through a wrapper.  This might be `charmrun`, for
     example.  (default is to not use one)
@@ -363,6 +380,8 @@ available to build with `make` or `ninja`:
     in parallel to avoid running out of memory.
 - all-pybindings
   - Build Python bindings. See \ref spectre_using_python for details.
+- cli
+  - Same as all-pybindings
 - install
   - Install targets that have been built to the `CMAKE_INSTALL_PREFIX`. Doesn't
     try to build anything else.

@@ -16,9 +16,11 @@
 #include "ControlSystem/Averager.hpp"
 #include "ControlSystem/Component.hpp"
 #include "ControlSystem/Controller.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/FunctionsOfTimeInitialize.hpp"
+#include "ControlSystem/Tags/IsActive.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/OptionTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/TimescaleTuner.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
 #include "Framework/TestCreation.hpp"
@@ -46,6 +48,8 @@ void test_all_tags() {
   INFO("Test all tags");
   using write_tag = control_system::Tags::WriteDataToDisk;
   TestHelpers::db::test_simple_tag<write_tag>("WriteDataToDisk");
+  using observe_tag = control_system::Tags::ObserveCenters;
+  TestHelpers::db::test_simple_tag<observe_tag>("ObserveCenters");
   using averager_tag = control_system::Tags::Averager<system>;
   TestHelpers::db::test_simple_tag<averager_tag>("Averager");
   using timescaletuner_tag = control_system::Tags::TimescaleTuner<system>;
@@ -54,6 +58,8 @@ void test_all_tags() {
   TestHelpers::db::test_simple_tag<controller_tag>("Controller");
   using fot_tag = control_system::Tags::FunctionsOfTimeInitialize;
   TestHelpers::db::test_simple_tag<fot_tag>("FunctionsOfTime");
+  using verbosity_tag = control_system::Tags::Verbosity;
+  TestHelpers::db::test_simple_tag<verbosity_tag>("Verbosity");
 
   using control_error_tag = control_system::Tags::ControlError<system>;
   TestHelpers::db::test_simple_tag<control_error_tag>("ControlError");
@@ -160,47 +166,61 @@ void test_individual_tags() {
                           decrease_factor};
   };
 
-  const std::string tuner_str =
-      "IsActive: true\n"
-      "Averager:\n"
-      "  AverageTimescaleFraction: 0.25\n"
-      "  Average0thDeriv: true\n"
-      "Controller:\n"
-      "  UpdateFraction: 0.3\n"
-      "TimescaleTuner:\n"
-      "  InitialTimescales: 1.\n"
-      "  MinTimescale: 1e-3\n"
-      "  MaxTimescale: 10.\n"
-      "  DecreaseThreshold: 1e-2\n"
-      "  IncreaseThreshold: 1e-4\n"
-      "  IncreaseFactor: 1.01\n"
-      "  DecreaseFactor: 0.99\n"
-      "ControlError:\n";
+  const auto tuner_str = [](const bool is_active) -> std::string {
+    return "IsActive: " + (is_active ? "true"s : "false"s) +
+           "\n"
+           "Averager:\n"
+           "  AverageTimescaleFraction: 0.25\n"
+           "  Average0thDeriv: true\n"
+           "Controller:\n"
+           "  UpdateFraction: 0.3\n"
+           "TimescaleTuner:\n"
+           "  InitialTimescales: 1.\n"
+           "  MinTimescale: 1e-3\n"
+           "  MaxTimescale: 10.\n"
+           "  DecreaseThreshold: 1e-2\n"
+           "  IncreaseThreshold: 1e-4\n"
+           "  IncreaseFactor: 1.01\n"
+           "  DecreaseFactor: 0.99\n"
+           "ControlError:\n";
+  };
 
   using tuner_tag = control_system::Tags::TimescaleTuner<system>;
   using quat_tuner_tag = control_system::Tags::TimescaleTuner<quat_system>;
 
   const auto holder = TestHelpers::test_option_tag<
-      control_system::OptionTags::ControlSystemInputs<system>>(tuner_str);
+      control_system::OptionTags::ControlSystemInputs<system>>(tuner_str(true));
   const auto holder2 = TestHelpers::test_option_tag<
-      control_system::OptionTags::ControlSystemInputs<system2>>(tuner_str);
+      control_system::OptionTags::ControlSystemInputs<system2>>(
+      tuner_str(true));
   const auto quat_holder = TestHelpers::test_option_tag<
-      control_system::OptionTags::ControlSystemInputs<quat_system>>(tuner_str);
+      control_system::OptionTags::ControlSystemInputs<quat_system>>(
+      tuner_str(true));
+  const auto inactive_holder = TestHelpers::test_option_tag<
+      control_system::OptionTags::ControlSystemInputs<system>>(
+      tuner_str(false));
 
   const std::unique_ptr<DomainCreator<3>> creator =
       std::make_unique<FakeCreator>(
           std::unordered_map<std::string, size_t>{{system::name(), 2},
                                                   {quat_system::name(), 3}},
           2);
+  const std::unique_ptr<DomainCreator<3>> creator_empty =
+      std::make_unique<FakeCreator>(std::unordered_map<std::string, size_t>{},
+                                    1);
 
   const TimescaleTuner created_tuner =
       tuner_tag::create_from_options<MetavarsEmpty>(holder, creator, 0.0);
   const TimescaleTuner quat_created_tuner =
       quat_tuner_tag::create_from_options<MetavarsEmpty>(quat_holder, creator,
                                                          0.0);
+  const TimescaleTuner inactive_created_tuner =
+      tuner_tag::create_from_options<MetavarsEmpty>(inactive_holder,
+                                                    creator_empty, 0.0);
 
   CHECK(created_tuner == create_expected_tuner(2));
   CHECK(quat_created_tuner == create_expected_tuner(3));
+  CHECK(inactive_created_tuner == create_expected_tuner(1));
 
   using control_error_tag = control_system::Tags::ControlError<system>;
   using control_error_tag2 = control_system::Tags::ControlError<system2>;
@@ -215,17 +235,15 @@ void test_individual_tags() {
   const std::unique_ptr<DomainCreator<3>> creator_error_0 =
       std::make_unique<FakeCreator>(std::unordered_map<std::string, size_t>{},
                                     0);
-  const std::unique_ptr<DomainCreator<3>> creator_error_1 =
-      std::make_unique<FakeCreator>(std::unordered_map<std::string, size_t>{},
-                                    1);
 
   CHECK_THROWS_WITH(
       control_error_tag::create_from_options<MetavarsEmpty>(holder,
                                                             creator_error_0),
-      Catch::Contains("ObjectAExcisionSphere' or 'ObjectBExcisionSphere"));
+      Catch::Contains(
+          "ExcisionSphereA' or 'ExcisionSphereB' or 'ExcisionSphere"));
   CHECK_THROWS_WITH(control_error_tag2::create_from_options<MetavarsEmpty>(
-                        holder2, creator_error_1),
-                    Catch::Contains("'ObjectBExcisionSphere'"));
+                        holder2, creator_empty),
+                    Catch::Contains("'ExcisionSphereB'"));
 
   using controller_tag = control_system::Tags::Controller<system>;
 

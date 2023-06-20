@@ -9,17 +9,18 @@
 #include <optional>
 #include <pup.h>
 #include <sstream>
+#include <tuple>
 #include <utility>
 
 #include "DataStructures/Tensor/EagerMath/DeterminantAndInverse.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/CoordinateMaps/CylindricalEndcapHelpers.hpp"
 #include "NumericalAlgorithms/RootFinding/TOMS748.hpp"
-#include "Parallel/PupStlCpp11.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/DereferenceWrapper.hpp"
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
+#include "Utilities/Serialization/PupStlCpp11.hpp"
 
 namespace domain::CoordinateMaps {
 
@@ -44,7 +45,7 @@ double this_function_is_zero_for_correct_rhobar(
 }
 
 // min and max values of rhobar in the inverse function.
-std::array<double, 2> rhobar_min_max(
+std::tuple<double, double> rhobar_min_max(
     const std::array<double, 3>& center_one, const double radius_one,
     const double theta_max_one, const std::array<double, 3>& target_coords) {
   // Choose the minimum value of rhobar so that lambda >=0, where
@@ -366,8 +367,9 @@ std::optional<std::array<double, 3>> UniformCylindricalFlatEndcap::inverse(
                 lambda * radius_two_);
   };
 
-  // Non-const because might be changed below.
-  auto [rhobar_min, rhobar_max] =
+  double rhobar_min{};
+  double rhobar_max{};
+  std::tie(rhobar_min, rhobar_max) =
       rhobar_min_max(center_one_, radius_one_, theta_max_one_, target_coords);
 
   // If rhobar is zero, then the root finding doesn't converge
@@ -685,12 +687,19 @@ UniformCylindricalFlatEndcap::inv_jacobian(
 }
 
 void UniformCylindricalFlatEndcap::pup(PUP::er& p) {
-  p | center_one_;
-  p | center_two_;
-  p | radius_one_;
-  p | radius_two_;
-  p | z_plane_one_;
-  p | theta_max_one_;
+  size_t version = 0;
+  p | version;
+  // Remember to increment the version number when making changes to this
+  // function. Retain support for unpacking data written by previous versions
+  // whenever possible. See `Domain` docs for details.
+  if (version >= 0) {
+    p | center_one_;
+    p | center_two_;
+    p | radius_one_;
+    p | radius_two_;
+    p | z_plane_one_;
+    p | theta_max_one_;
+  }
 }
 
 bool operator==(const UniformCylindricalFlatEndcap& lhs,

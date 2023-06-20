@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # %Setting up checkpoints and restarts {#tutorial_checkpoint_restart}
 
+\tableofcontents
+
 SpECTRE executables can write checkpoints that save their instantaneous state to
 disc; the execution can be restarted later from a saved checkpoint. This feature
 is useful for expensive simulations that would run longer than the wallclock
@@ -21,15 +23,19 @@ Executables can checkpoint when:
      This reduces the disc space taken up by checkpoint files and stops using
      up the allocation's CPU-hours on work that would be redone anyway after the
      run is restarted.
+     The executable will return exit code 2 when it terminates from
+     `CheckpointAndExitAfterWallclock`, meaning it is incomplete and should
+     continue from the checkpoint. See `Parallel::ExitCode` for a definition of
+     all exit code.
    - using `VisitAndReturn(WriteCheckpoint)`. This is useful for writing more
      frequent checkpoint files, which could help when debugging a run by
      restarting it from just before the failure.
 
 To restart an executable from a checkpoint file, run a command like this:
 ```
-./MySpectreExecutable +restart SpectreCheckpoint000123
+./MySpectreExecutable +restart Checkpoints/Checkpoint_0123
 ```
-where the `000123` should be the number of the checkpoint to restart from.
+where the `0123` should be the number of the checkpoint to restart from.
 
 There are a number of caveats in the current implementation of checkpointing
 and restarting:

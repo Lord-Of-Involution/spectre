@@ -9,12 +9,14 @@ spectre_target_sources(
   ${LIBRARY}
   PRIVATE
   ChangeCenterOfStrahlkorper.cpp
+  RealSphericalHarmonics.cpp
   SpherepackIterator.cpp
   Strahlkorper.cpp
   StrahlkorperFunctions.cpp
+  Spherepack.cpp
+  SpherepackHelper.cpp
   Tags.cpp
-  YlmSpherepack.cpp
-  YlmSpherepackHelper.cpp
+  YlmToStf.cpp
   )
 
 spectre_target_headers(
@@ -22,20 +24,23 @@ spectre_target_headers(
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
   ChangeCenterOfStrahlkorper.hpp
+  RealSphericalHarmonics.hpp
   SpherepackIterator.hpp
   Strahlkorper.hpp
   StrahlkorperFunctions.hpp
+  Spherepack.hpp
+  SpherepackHelper.hpp
   Tags.hpp
   TagsDeclarations.hpp
   TagsTypeAliases.hpp
-  YlmSpherepack.hpp
-  YlmSpherepackHelper.hpp
+  YlmToStf.hpp
   )
 
 target_link_libraries(
   ${LIBRARY}
   PUBLIC
   Blas
+  Boost::boost
   DataStructures
   ErrorHandling
   SPHEREPACK

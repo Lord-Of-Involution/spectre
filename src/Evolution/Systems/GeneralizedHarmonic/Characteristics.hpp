@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <optional>
 
+#include "ApparentHorizons/HorizonAliases.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Domain/FaceNormal.hpp"
@@ -29,7 +30,7 @@ struct Normalized;
 
 // IWYU pragma: no_forward_declare Tensor
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \brief Compute the characteristic speeds for the generalized harmonic system.
@@ -75,13 +76,14 @@ void characteristic_speeds(
     const std::optional<tnsr::I<DataVector, Dim, Frame>>& mesh_velocity);
 
 template <size_t Dim, typename Frame>
-struct CharacteristicSpeedsCompute : Tags::CharacteristicSpeeds<Dim, Frame>,
-                                     db::ComputeTag {
-  using base = Tags::CharacteristicSpeeds<Dim, Frame>;
+struct CharacteristicSpeedsCompute
+    : Tags::CharacteristicSpeeds<DataVector, Dim, Frame>,
+      db::ComputeTag {
+  using base = Tags::CharacteristicSpeeds<DataVector, Dim, Frame>;
   using type = typename base::type;
   using argument_tags = tmpl::list<
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<Dim, Frame, DataVector>,
+      ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim, Frame>,
       ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<Dim, Frame>>,
       domain::Tags::MeshVelocity<Dim, Frame>>;
 
@@ -97,6 +99,43 @@ struct CharacteristicSpeedsCompute : Tags::CharacteristicSpeeds<Dim, Frame>,
                           mesh_velocity);
   };
 };
+
+// Simple tag used when observing the characteristic speeds on a Strahlkorper
+template <typename Frame>
+struct CharacteristicSpeedsOnStrahlkorper : db::SimpleTag {
+  using type = tnsr::a<DataVector, 3, Frame>;
+};
+
+// Compute tag used when computing the characteristic speeds on a Strahlkorper
+// from gamma1, the lapse, shift, and the unit normal one form.
+template <size_t Dim, typename Frame>
+struct CharacteristicSpeedsOnStrahlkorperCompute
+    : CharacteristicSpeedsOnStrahlkorper<Frame>,
+      db::ComputeTag {
+  using base = CharacteristicSpeedsOnStrahlkorper<Frame>;
+  using type = typename base::type;
+  using argument_tags =
+      tmpl::list<::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 gr::Tags::Lapse<DataVector>,
+                 gr::Tags::Shift<DataVector, Dim, Frame>,
+                 ::StrahlkorperTags::UnitNormalOneForm<Frame>>;
+
+  using return_type = typename base::type;
+
+  static void function(
+      const gsl::not_null<return_type*> result,
+      const Scalar<DataVector>& gamma_1, const Scalar<DataVector>& lapse,
+      const tnsr::I<DataVector, Dim, Frame>& shift,
+      const tnsr::i<DataVector, Dim, Frame>& unit_normal_one_form) {
+    auto array_char_speeds = make_array<4>(DataVector(get(lapse).size(), 0.0));
+    characteristic_speeds(make_not_null(&array_char_speeds), gamma_1, lapse,
+                          shift, unit_normal_one_form, {});
+    for (size_t i = 0; i < 4; ++i) {
+      (*result)[i] = array_char_speeds[i];
+    }
+  }
+};
+
 /// @}
 
 /// @{
@@ -146,7 +185,8 @@ struct CharacteristicSpeedsCompute : Tags::CharacteristicSpeeds<Dim, Frame>,
  * \ref CharacteristicSpeedsCompute .
  */
 template <size_t Dim, typename Frame>
-typename Tags::CharacteristicFields<Dim, Frame>::type characteristic_fields(
+typename Tags::CharacteristicFields<DataVector, Dim, Frame>::type
+characteristic_fields(
     const Scalar<DataVector>& gamma_2,
     const tnsr::II<DataVector, Dim, Frame>& inverse_spatial_metric,
     const tnsr::aa<DataVector, Dim, Frame>& spacetime_metric,
@@ -156,7 +196,8 @@ typename Tags::CharacteristicFields<Dim, Frame>::type characteristic_fields(
 
 template <size_t Dim, typename Frame>
 void characteristic_fields(
-    gsl::not_null<typename Tags::CharacteristicFields<Dim, Frame>::type*>
+    gsl::not_null<
+        typename Tags::CharacteristicFields<DataVector, Dim, Frame>::type*>
         char_fields,
     const Scalar<DataVector>& gamma_2,
     const tnsr::II<DataVector, Dim, Frame>& inverse_spatial_metric,
@@ -166,15 +207,16 @@ void characteristic_fields(
     const tnsr::i<DataVector, Dim, Frame>& unit_normal_one_form);
 
 template <size_t Dim, typename Frame>
-struct CharacteristicFieldsCompute : Tags::CharacteristicFields<Dim, Frame>,
-                                     db::ComputeTag {
-  using base = Tags::CharacteristicFields<Dim, Frame>;
+struct CharacteristicFieldsCompute
+    : Tags::CharacteristicFields<DataVector, Dim, Frame>,
+      db::ComputeTag {
+  using base = Tags::CharacteristicFields<DataVector, Dim, Frame>;
   using return_type = typename base::type;
   using argument_tags = tmpl::list<
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-      gr::Tags::InverseSpatialMetric<Dim, Frame, DataVector>,
-      gr::Tags::SpacetimeMetric<Dim, Frame, DataVector>, Tags::Pi<Dim, Frame>,
-      Tags::Phi<Dim, Frame>,
+      ::gh::ConstraintDamping::Tags::ConstraintGamma2,
+      gr::Tags::InverseSpatialMetric<DataVector, Dim, Frame>,
+      gr::Tags::SpacetimeMetric<DataVector, Dim, Frame>,
+      Tags::Pi<DataVector, Dim, Frame>, Tags::Phi<DataVector, Dim, Frame>,
       ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<Dim, Frame>>>;
 
   static constexpr auto function = static_cast<void (*)(
@@ -193,7 +235,8 @@ struct CharacteristicFieldsCompute : Tags::CharacteristicFields<Dim, Frame>,
  * characteristic ones, see \ref CharacteristicFieldsCompute.
  */
 template <size_t Dim, typename Frame>
-typename Tags::EvolvedFieldsFromCharacteristicFields<Dim, Frame>::type
+typename Tags::EvolvedFieldsFromCharacteristicFields<DataVector, Dim,
+                                                     Frame>::type
 evolved_fields_from_characteristic_fields(
     const Scalar<DataVector>& gamma_2,
     const tnsr::aa<DataVector, Dim, Frame>& u_psi,
@@ -204,8 +247,8 @@ evolved_fields_from_characteristic_fields(
 
 template <size_t Dim, typename Frame>
 void evolved_fields_from_characteristic_fields(
-    gsl::not_null<
-        typename Tags::EvolvedFieldsFromCharacteristicFields<Dim, Frame>::type*>
+    gsl::not_null<typename Tags::EvolvedFieldsFromCharacteristicFields<
+        DataVector, Dim, Frame>::type*>
         evolved_fields,
     const Scalar<DataVector>& gamma_2,
     const tnsr::aa<DataVector, Dim, Frame>& u_psi,
@@ -216,14 +259,16 @@ void evolved_fields_from_characteristic_fields(
 
 template <size_t Dim, typename Frame>
 struct EvolvedFieldsFromCharacteristicFieldsCompute
-    : Tags::EvolvedFieldsFromCharacteristicFields<Dim, Frame>,
+    : Tags::EvolvedFieldsFromCharacteristicFields<DataVector, Dim, Frame>,
       db::ComputeTag {
-  using base = Tags::EvolvedFieldsFromCharacteristicFields<Dim, Frame>;
+  using base =
+      Tags::EvolvedFieldsFromCharacteristicFields<DataVector, Dim, Frame>;
   using return_type = typename base::type;
   using argument_tags = tmpl::list<
-      GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-      Tags::VSpacetimeMetric<Dim, Frame>, Tags::VZero<Dim, Frame>,
-      Tags::VPlus<Dim, Frame>, Tags::VMinus<Dim, Frame>,
+      gh::ConstraintDamping::Tags::ConstraintGamma2,
+      Tags::VSpacetimeMetric<DataVector, Dim, Frame>,
+      Tags::VZero<DataVector, Dim, Frame>, Tags::VPlus<DataVector, Dim, Frame>,
+      Tags::VMinus<DataVector, Dim, Frame>,
       ::Tags::Normalized<domain::Tags::UnnormalizedFaceNormal<Dim, Frame>>>;
 
   static constexpr auto function = static_cast<void (*)(
@@ -247,10 +292,11 @@ struct LargestCharacteristicSpeed : db::SimpleTag {
 template <size_t Dim, typename Frame>
 struct ComputeLargestCharacteristicSpeed : db::ComputeTag,
                                            LargestCharacteristicSpeed {
-  using argument_tags = tmpl::list<
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<Dim, Frame, DataVector>,
-      gr::Tags::SpatialMetric<Dim, Frame, DataVector>>;
+  using argument_tags =
+      tmpl::list<::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 gr::Tags::Lapse<DataVector>,
+                 gr::Tags::Shift<DataVector, Dim, Frame>,
+                 gr::Tags::SpatialMetric<DataVector, Dim, Frame>>;
   using return_type = double;
   using base = LargestCharacteristicSpeed;
   static void function(const gsl::not_null<double*> speed,
@@ -260,4 +306,4 @@ struct ComputeLargestCharacteristicSpeed : db::ComputeTag,
                        const tnsr::ii<DataVector, Dim, Frame>& spatial_metric);
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

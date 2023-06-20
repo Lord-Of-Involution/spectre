@@ -5,8 +5,9 @@
 
 #include <array>
 #include <cstddef>
-#include <vector>
+#include <unordered_set>
 
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Index.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
@@ -18,7 +19,7 @@
 namespace evolution::dg::subcell::detail {
 namespace {
 template <size_t Dim>
-void copy_data(gsl::not_null<std::vector<double>*> sliced_subcell_vars,
+void copy_data(gsl::not_null<DataVector*> sliced_subcell_vars,
                const gsl::span<const double>& volume_subcell_vars,
                size_t component_offset, size_t component_offset_volume,
                const std::array<size_t, Dim>& lower_bounds,
@@ -26,7 +27,7 @@ void copy_data(gsl::not_null<std::vector<double>*> sliced_subcell_vars,
                const Index<Dim>& volume_extents);
 
 template <>
-void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
+void copy_data(const gsl::not_null<DataVector*> sliced_subcell_vars,
                const gsl::span<const double>& volume_subcell_vars,
                const size_t component_offset,
                const size_t component_offset_volume,
@@ -41,7 +42,7 @@ void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
 }
 
 template <>
-void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
+void copy_data(const gsl::not_null<DataVector*> sliced_subcell_vars,
                const gsl::span<const double>& volume_subcell_vars,
                const size_t component_offset,
                const size_t component_offset_volume,
@@ -58,7 +59,7 @@ void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
 }
 
 template <>
-void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
+void copy_data(const gsl::not_null<DataVector*> sliced_subcell_vars,
                const gsl::span<const double>& volume_subcell_vars,
                const size_t component_offset,
                const size_t component_offset_volume,
@@ -79,10 +80,10 @@ void copy_data(const gsl::not_null<std::vector<double>*> sliced_subcell_vars,
 }  // namespace
 
 template <size_t Dim>
-DirectionMap<Dim, std::vector<double>> slice_data_impl(
+DirectionMap<Dim, DataVector> slice_data_impl(
     const gsl::span<const double>& volume_subcell_vars,
     const Index<Dim>& subcell_extents, const size_t number_of_ghost_points,
-    const DirectionMap<Dim, bool>& directions_to_slice,
+    const std::unordered_set<Direction<Dim>>& directions_to_slice,
     const size_t additional_buffer) {
   const size_t num_pts = subcell_extents.product();
   const size_t number_of_components = volume_subcell_vars.size() / num_pts;
@@ -100,16 +101,12 @@ DirectionMap<Dim, std::vector<double>> slice_data_impl(
 
     gsl::at(result_grid_points, d) = num_sliced_pts;
   }
-  DirectionMap<Dim, std::vector<double>> result{};
-  for (const auto& [dir, should_slice] : directions_to_slice) {
-    if (should_slice) {
-      auto& result_in_dir = result[dir] = std::vector<double>{};
-      result_in_dir.reserve(gsl::at(result_grid_points, dir.dimension()) *
-                                number_of_components +
-                            additional_buffer);
-      result_in_dir.resize(gsl::at(result_grid_points, dir.dimension()) *
-                           number_of_components);
-    }
+  DirectionMap<Dim, DataVector> result{};
+  for (const auto& direction : directions_to_slice) {
+    result[direction] =
+        DataVector{gsl::at(result_grid_points, direction.dimension()) *
+                       number_of_components +
+                   additional_buffer};
   }
 
   for (size_t component_index = 0; component_index < number_of_components;
@@ -128,6 +125,10 @@ DirectionMap<Dim, std::vector<double>> slice_data_impl(
             gsl::at(upper_bounds, direction.dimension()) -
             number_of_ghost_points;
       }
+      // No need to worry about sliced_data including the additional buffer
+      // because the instantiations of copy_data above never use the
+      // sliced_data.size(). All indexing is done by the lower/upper bounds
+      // arguments
       copy_data(&sliced_data, volume_subcell_vars, component_offset_result,
                 component_offset_volume, lower_bounds, upper_bounds,
                 subcell_extents);
@@ -136,13 +137,13 @@ DirectionMap<Dim, std::vector<double>> slice_data_impl(
   return result;
 }
 
-template DirectionMap<1, std::vector<double>> slice_data_impl(
+template DirectionMap<1, DataVector> slice_data_impl(
     const gsl::span<const double>&, const Index<1>&, const size_t,
-    const DirectionMap<1, bool>&, size_t);
-template DirectionMap<2, std::vector<double>> slice_data_impl(
+    const std::unordered_set<Direction<1>>&, size_t);
+template DirectionMap<2, DataVector> slice_data_impl(
     const gsl::span<const double>&, const Index<2>&, const size_t,
-    const DirectionMap<2, bool>&, size_t);
-template DirectionMap<3, std::vector<double>> slice_data_impl(
+    const std::unordered_set<Direction<2>>&, size_t);
+template DirectionMap<3, DataVector> slice_data_impl(
     const gsl::span<const double>&, const Index<3>&, const size_t,
-    const DirectionMap<3, bool>&, size_t);
+    const std::unordered_set<Direction<3>>&, size_t);
 }  // namespace evolution::dg::subcell::detail

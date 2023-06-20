@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include "DataStructures/DataBox/DataBox.hpp"
@@ -12,15 +13,17 @@
 #include "Framework/ActionTesting.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
-#include "Time/Actions/AdvanceTime.hpp"  // IWYU pragma: keep
+#include "Time/Actions/AdvanceTime.hpp"           // IWYU pragma: keep
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"  // IWYU pragma: keep
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/ClassicalRungeKutta4.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 // IWYU pragma: no_include <initializer_list>
@@ -41,7 +44,8 @@ struct Component {
   using simple_tags =
       db::AddSimpleTags<Tags::TimeStepId, Tags::Next<Tags::TimeStepId>,
                         Tags::TimeStep, Tags::Next<Tags::TimeStep>, Tags::Time,
-                        Tags::IsUsingTimeSteppingErrorControl>;
+                        Tags::IsUsingTimeSteppingErrorControl,
+                        Tags::AdaptiveSteppingDiagnostics>;
 
   using phase_dependent_action_list =
       tmpl::list<Parallel::PhaseActions<
@@ -73,21 +77,23 @@ void check(std::unique_ptr<TimeStepper> time_stepper,
       {TimeStepId(time_step.is_positive(), 8, start),
        substeps.size() == 1
            ? TimeStepId(time_step.is_positive(), 8, start + time_step)
-           : TimeStepId(time_step.is_positive(), 8, start, 1,
-                        start + substep_offsets[1]),
-       time_step, time_step, start.value(), using_error_control});
+           : TimeStepId(time_step.is_positive(), 8, start, 1, time_step,
+                        (start + substep_offsets[1]).value()),
+       time_step, time_step, start.value(), using_error_control,
+       AdaptiveSteppingDiagnostics{1, 2, 3, 4, 5}});
   ActionTesting::set_phase(make_not_null(&runner), Parallel::Phase::Testing);
 
   for (const auto& step_start : {start, start + time_step}) {
     for (size_t substep = 0; substep < substep_offsets.size(); ++substep) {
       const auto& box = ActionTesting::get_databox<component>(runner, 0);
-      const Time substep_time = step_start + gsl::at(substep_offsets, substep);
+      const double substep_time =
+          (step_start + gsl::at(substep_offsets, substep)).value();
       CHECK(db::get<Tags::TimeStepId>(box) ==
             TimeStepId(time_step.is_positive(), 8, step_start, substep,
-                       substep_time));
+                       time_step, substep_time));
       CHECK(db::get<Tags::TimeStep>(box) == time_step);
       CHECK(db::get<Tags::Time>(box) ==
-            db::get<Tags::TimeStepId>(box).substep_time().value());
+            db::get<Tags::TimeStepId>(box).substep_time());
       runner.next_action<component>(0);
     }
   }
@@ -98,14 +104,18 @@ void check(std::unique_ptr<TimeStepper> time_stepper,
   CHECK(final_time_id.step_time().slab() == expected_slab);
   CHECK(final_time_id ==
         TimeStepId(time_step.is_positive(), 8, start + 2 * time_step));
-  CHECK(db::get<Tags::Time>(box) == final_time_id.substep_time().value());
+  CHECK(db::get<Tags::Time>(box) == final_time_id.substep_time());
   CHECK(db::get<Tags::TimeStep>(box) == time_step.with_slab(expected_slab));
+  CHECK(db::get<Tags::AdaptiveSteppingDiagnostics>(box) ==
+        AdaptiveSteppingDiagnostics{
+            1 + static_cast<uint64_t>(final_time_id.slab_number() - 8), 2, 5, 4,
+            5});
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Time.Actions.AdvanceTime", "[Unit][Time][Actions]") {
-  Parallel::register_classes_with_charm<TimeSteppers::AdamsBashforth,
-                                        TimeSteppers::ClassicalRungeKutta4>();
+  register_classes_with_charm<TimeSteppers::AdamsBashforth,
+                              TimeSteppers::ClassicalRungeKutta4>();
   const Slab slab(0., 1.);
   check(std::make_unique<TimeSteppers::ClassicalRungeKutta4>(),
         {0, {1, 2}, {1, 2}, 1}, slab.start(), slab.duration() / 2, false);

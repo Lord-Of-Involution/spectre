@@ -19,7 +19,6 @@
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Options/ParseOptions.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/Minkowski.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/RelativisticEuler/SmoothFlow.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
@@ -27,6 +26,7 @@
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
 #include "Utilities/MakeWithValue.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/StdArrayHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -87,25 +87,19 @@ void test_solution(const DataType& used_for_size,
       get<gr::Tags::Lapse<DataType>>(solution.variables(
           coords, dummy_time, tmpl::list<gr::Tags::Lapse<DataType>>{})));
   CHECK_ITERABLE_APPROX(
-      (get<gr::Tags::Shift<Dim, Frame::Inertial, DataType>>(minkowski.variables(
-          coords, dummy_time,
-          tmpl::list<gr::Tags::Shift<Dim, Frame::Inertial, DataType>>{}))),
-      (get<gr::Tags::Shift<Dim, Frame::Inertial, DataType>>(solution.variables(
-          coords, dummy_time,
-          tmpl::list<gr::Tags::Shift<Dim, Frame::Inertial, DataType>>{}))));
+      (get<gr::Tags::Shift<DataType, Dim>>(minkowski.variables(
+          coords, dummy_time, tmpl::list<gr::Tags::Shift<DataType, Dim>>{}))),
+      (get<gr::Tags::Shift<DataType, Dim>>(solution.variables(
+          coords, dummy_time, tmpl::list<gr::Tags::Shift<DataType, Dim>>{}))));
   CHECK_ITERABLE_APPROX(
-      (get<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>>(
-          minkowski.variables(
-              coords, dummy_time,
-              tmpl::list<
-                  gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>>{}))),
-      (get<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>>(
-          solution.variables(coords, dummy_time,
-                             tmpl::list<gr::Tags::SpatialMetric<
-                                 Dim, Frame::Inertial, DataType>>{}))));
+      (get<gr::Tags::SpatialMetric<DataType, Dim>>(minkowski.variables(
+          coords, dummy_time,
+          tmpl::list<gr::Tags::SpatialMetric<DataType, Dim>>{}))),
+      (get<gr::Tags::SpatialMetric<DataType, Dim>>(solution.variables(
+          coords, dummy_time,
+          tmpl::list<gr::Tags::SpatialMetric<DataType, Dim>>{}))));
 
-  Parallel::register_classes_with_charm<
-      RelativisticEuler::Solutions::SmoothFlow<Dim>>();
+  register_classes_with_charm<RelativisticEuler::Solutions::SmoothFlow<Dim>>();
   const std::unique_ptr<evolution::initial_data::InitialData> option_solution =
       TestHelpers::test_option_tag_factory_creation<
           evolution::initial_data::OptionTags::InitialData,

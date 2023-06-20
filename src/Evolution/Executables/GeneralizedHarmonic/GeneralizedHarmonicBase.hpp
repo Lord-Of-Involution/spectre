@@ -15,6 +15,7 @@
 #include "Domain/Creators/Factory3D.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
+#include "Domain/FunctionsOfTime/FunctionsOfTimeAreReady.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/Tags.hpp"
 #include "Domain/TagsCharacteristicSpeeds.hpp"
@@ -29,9 +30,7 @@
 #include "Evolution/Initialization/DgDomain.hpp"
 #include "Evolution/Initialization/Evolution.hpp"
 #include "Evolution/Initialization/NonconservativeSystem.hpp"
-#include "Evolution/Initialization/SetVariables.hpp"
-#include "Evolution/NumericInitialData.hpp"
-#include "Evolution/Systems/GeneralizedHarmonic/Actions/NumericInitialData.hpp"
+#include "Evolution/Systems/GeneralizedHarmonic/Actions/SetInitialData.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/BoundaryConditions/Factory.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/BoundaryCorrections/Factory.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Equations.hpp"
@@ -42,6 +41,7 @@
 #include "Evolution/Systems/GeneralizedHarmonic/Initialize.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/System.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
+#include "Evolution/Tags/Filter.hpp"
 #include "Evolution/TypeTraits.hpp"
 #include "IO/Importers/Actions/RegisterWithElementDataReader.hpp"
 #include "IO/Importers/ElementDataReader.hpp"
@@ -53,23 +53,25 @@
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Tags.hpp"
 #include "NumericalAlgorithms/LinearOperators/ExponentialFilter.hpp"
 #include "NumericalAlgorithms/LinearOperators/FilterAction.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/Algorithms/AlgorithmSingleton.hpp"
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseControl/CheckpointAndExitAfterWallclock.hpp"
 #include "Parallel/PhaseControl/ExecutePhaseChange.hpp"
+#include "Parallel/PhaseControl/Factory.hpp"
 #include "Parallel/PhaseControl/VisitAndReturn.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "Parallel/Reduction.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/AddComputeTags.hpp"
 #include "ParallelAlgorithms/Actions/InitializeItems.hpp"
+#include "ParallelAlgorithms/Actions/MemoryMonitor/ContributeMemoryData.hpp"
 #include "ParallelAlgorithms/Actions/MutateApply.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "ParallelAlgorithms/Events/Factory.hpp"
+#include "ParallelAlgorithms/Events/MonitorMemory.hpp"
 #include "ParallelAlgorithms/Events/ObserveTimeStep.hpp"
 #include "ParallelAlgorithms/Events/Tags.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Actions/RunEventsAndTriggers.hpp"
@@ -105,6 +107,7 @@
 #include "PointwiseFunctions/GeneralRelativity/Ricci.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/GeneralRelativity/WeylElectric.hpp"
+#include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/Actions/ChangeSlabSize.hpp"
@@ -118,8 +121,6 @@
 #include "Time/StepChoosers/PreventRapidIncrease.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
 #include "Time/StepChoosers/StepToTimes.hpp"
-#include "Time/StepControllers/Factory.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSequence.hpp"
 #include "Time/TimeSteppers/Factory.hpp"
@@ -130,6 +131,7 @@
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
 #include "Utilities/Functional.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -146,42 +148,16 @@ class CProxy_GlobalCache;
 }  // namespace Parallel
 /// \endcond
 
-template <typename EvolutionMetavarsDerived>
-struct GeneralizedHarmonicTemplateBase;
-
 namespace detail {
-template <bool UseNumericalInitialData>
-constexpr auto make_default_phase_order() {
-  if constexpr (UseNumericalInitialData) {
-    // Register needs to be before InitializeTimeStepperHistory so that CCE is
-    // properly registered when the self-start happens
-    return std::array{Parallel::Phase::Initialization,
-                      Parallel::Phase::RegisterWithElementDataReader,
-                      Parallel::Phase::ImportInitialData,
-                      Parallel::Phase::InitializeInitialDataDependentQuantities,
-                      Parallel::Phase::Register,
-                      Parallel::Phase::InitializeTimeStepperHistory,
-                      Parallel::Phase::Evolve,
-                      Parallel::Phase::Exit};
-  } else {
-    return std::array{Parallel::Phase::Initialization,
-                      Parallel::Phase::InitializeInitialDataDependentQuantities,
-                      Parallel::Phase::Register,
-                      Parallel::Phase::InitializeTimeStepperHistory,
-                      Parallel::Phase::Evolve,
-                      Parallel::Phase::Exit};
-  }
-}
 
 template <size_t volume_dim>
 struct ObserverTags {
-  using system = GeneralizedHarmonic::System<volume_dim>;
+  using system = gh::System<volume_dim>;
 
   using variables_tag = typename system::variables_tag;
   using analytic_solution_fields = typename variables_tag::tags_list;
 
-  using initial_data_list =
-      GeneralizedHarmonic::Solutions::all_solutions<volume_dim>;
+  using initial_data_list = gh::Solutions::all_solutions<volume_dim>;
 
   using analytic_compute = evolution::Tags::AnalyticSolutionsCompute<
       volume_dim, analytic_solution_fields, false, initial_data_list>;
@@ -195,56 +171,44 @@ struct ObserverTags {
 
   using observe_fields = tmpl::append<
       tmpl::push_back<
-          analytic_solution_fields,
-          GeneralizedHarmonic::Tags::GaugeH<volume_dim, Frame::Inertial>,
-          GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<volume_dim,
-                                                          Frame::Inertial>,
-          gr::Tags::SpatialMetric<volume_dim, Frame::Inertial, DataVector>,
+          analytic_solution_fields, gh::Tags::GaugeH<DataVector, volume_dim>,
+          gh::Tags::SpacetimeDerivGaugeH<DataVector, volume_dim>,
+          gr::Tags::SpatialMetric<DataVector, volume_dim>,
           gr::Tags::DetSpatialMetric<DataVector>,
-          gr::Tags::InverseSpatialMetric<volume_dim, Frame::Inertial,
-                                         DataVector>,
-          gr::Tags::Shift<volume_dim, Frame::Inertial, DataVector>,
-          gr::Tags::Lapse<DataVector>,
-          gr::Tags::SqrtDetSpatialMetricCompute<volume_dim, Frame::Inertial,
-                                                DataVector>,
-          gr::Tags::SpacetimeNormalOneFormCompute<volume_dim, Frame::Inertial,
-                                                  DataVector>,
-          gr::Tags::SpacetimeNormalVectorCompute<volume_dim, Frame::Inertial,
-                                                 DataVector>,
-          gr::Tags::InverseSpacetimeMetricCompute<volume_dim, Frame::Inertial,
-                                                  DataVector>,
+          gr::Tags::InverseSpatialMetric<DataVector, volume_dim>,
+          gr::Tags::Shift<DataVector, volume_dim>, gr::Tags::Lapse<DataVector>,
+          gr::Tags::SqrtDetSpatialMetricCompute<DataVector, volume_dim,
+                                                Frame::Inertial>,
+          gr::Tags::SpacetimeNormalOneFormCompute<DataVector, volume_dim,
+                                                  Frame::Inertial>,
+          gr::Tags::SpacetimeNormalVectorCompute<DataVector, volume_dim,
+                                                 Frame::Inertial>,
+          gr::Tags::InverseSpacetimeMetricCompute<DataVector, volume_dim,
+                                                  Frame::Inertial>,
 
-          GeneralizedHarmonic::Tags::GaugeConstraintCompute<volume_dim,
-                                                            Frame::Inertial>,
-          GeneralizedHarmonic::Tags::TwoIndexConstraintCompute<volume_dim,
-                                                               Frame::Inertial>,
-          GeneralizedHarmonic::Tags::ThreeIndexConstraintCompute<
-              volume_dim, Frame::Inertial>,
-          GeneralizedHarmonic::Tags::DerivSpatialMetricCompute<
-              volume_dim, ::Frame::Inertial>,
-          gr::Tags::SpatialChristoffelFirstKindCompute<
-              volume_dim, ::Frame::Inertial, DataVector>,
-          gr::Tags::SpatialChristoffelSecondKindCompute<
-              volume_dim, ::Frame::Inertial, DataVector>,
+          gh::Tags::GaugeConstraintCompute<volume_dim, Frame::Inertial>,
+          gh::Tags::TwoIndexConstraintCompute<volume_dim, Frame::Inertial>,
+          gh::Tags::ThreeIndexConstraintCompute<volume_dim, Frame::Inertial>,
+          gh::Tags::DerivSpatialMetricCompute<volume_dim, ::Frame::Inertial>,
+          gr::Tags::SpatialChristoffelFirstKindCompute<DataVector, volume_dim,
+                                                       ::Frame::Inertial>,
+          gr::Tags::SpatialChristoffelSecondKindCompute<DataVector, volume_dim,
+                                                        ::Frame::Inertial>,
           ::Tags::DerivTensorCompute<
-              gr::Tags::SpatialChristoffelSecondKind<
-                  volume_dim, ::Frame::Inertial, DataVector>,
+              gr::Tags::SpatialChristoffelSecondKind<DataVector, volume_dim>,
               ::domain::Tags::InverseJacobian<volume_dim, Frame::ElementLogical,
                                               Frame::Inertial>>,
-          gr::Tags::SpatialRicciCompute<volume_dim, ::Frame::Inertial,
-                                        DataVector>,
-          gr::Tags::SpatialRicciScalarCompute<volume_dim, ::Frame::Inertial,
-                                              DataVector>,
+          gr::Tags::SpatialRicciCompute<DataVector, volume_dim,
+                                        ::Frame::Inertial>,
+          gr::Tags::SpatialRicciScalarCompute<DataVector, volume_dim,
+                                              ::Frame::Inertial>,
           // following tags added to observe constraints
           ::Tags::PointwiseL2NormCompute<
-              GeneralizedHarmonic::Tags::GaugeConstraint<volume_dim,
-                                                         Frame::Inertial>>,
+              gh::Tags::GaugeConstraint<DataVector, volume_dim>>,
           ::Tags::PointwiseL2NormCompute<
-              GeneralizedHarmonic::Tags::TwoIndexConstraint<volume_dim,
-                                                            Frame::Inertial>>,
+              gh::Tags::TwoIndexConstraint<DataVector, volume_dim>>,
           ::Tags::PointwiseL2NormCompute<
-              GeneralizedHarmonic::Tags::ThreeIndexConstraint<volume_dim,
-                                                              Frame::Inertial>>,
+              gh::Tags::ThreeIndexConstraint<DataVector, volume_dim>>,
           ::domain::Tags::Coordinates<volume_dim, Frame::Grid>,
           ::domain::Tags::Coordinates<volume_dim, Frame::Inertial>>,
       error_tags,
@@ -252,23 +216,19 @@ struct ObserverTags {
       tmpl::conditional_t<
           volume_dim == 3,
           tmpl::list<
-              GeneralizedHarmonic::Tags::
-                  FourIndexConstraintCompute<3, Frame::Inertial>,
-              GeneralizedHarmonic::Tags::FConstraintCompute<3, Frame::Inertial>,
+              gh::Tags::FourIndexConstraintCompute<3, Frame::Inertial>,
+              gh::Tags::FConstraintCompute<3, Frame::Inertial>,
               ::Tags::PointwiseL2NormCompute<
-                  GeneralizedHarmonic::Tags::FConstraint<3, Frame::Inertial>>,
+                  gh::Tags::FConstraint<DataVector, 3>>,
               ::Tags::PointwiseL2NormCompute<
-                  GeneralizedHarmonic::Tags::FourIndexConstraint<
-                      3, Frame::Inertial>>,
-              GeneralizedHarmonic::Tags::ConstraintEnergyCompute<
-                  3, Frame::Inertial>,
-              GeneralizedHarmonic::Tags::ExtrinsicCurvatureCompute<
-                  3, Frame::Inertial>,
+                  gh::Tags::FourIndexConstraint<DataVector, 3>>,
+              gh::Tags::ConstraintEnergyCompute<3, Frame::Inertial>,
+              gh::Tags::ExtrinsicCurvatureCompute<3, Frame::Inertial>,
               ::Tags::DerivTensorCompute<
-                  gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>,
+                  gr::Tags::ExtrinsicCurvature<DataVector, 3>,
                   ::domain::Tags::InverseJacobian<
                       volume_dim, Frame::ElementLogical, Frame::Inertial>>,
-              gr::Tags::WeylElectricCompute<3, Frame::Inertial, DataVector>,
+              gr::Tags::WeylElectricCompute<DataVector, 3, Frame::Inertial>,
               gr::Tags::Psi4RealCompute<Frame::Inertial>>,
           tmpl::list<>>>;
   using non_tensor_compute_tags = tmpl::list<
@@ -282,7 +242,7 @@ struct ObserverTags {
                                                     Frame::Inertial>,
       ::Events::Tags::ObserverMeshVelocityCompute<volume_dim, Frame::Inertial>,
       analytic_compute, error_compute,
-      GeneralizedHarmonic::gauges::Tags::GaugeAndDerivativeCompute<volume_dim>>;
+      gh::gauges::Tags::GaugeAndDerivativeCompute<volume_dim>>;
 
   using field_observations =
       dg::Events::field_observations<volume_dim, Tags::Time, observe_fields,
@@ -291,35 +251,35 @@ struct ObserverTags {
 
 template <size_t volume_dim, bool LocalTimeStepping>
 struct FactoryCreation : tt::ConformsTo<Options::protocols::FactoryCreation> {
-  using system = GeneralizedHarmonic::System<volume_dim>;
+  using system = gh::System<volume_dim>;
 
   using factory_classes = tmpl::map<
       tmpl::pair<DenseTrigger, DenseTriggers::standard_dense_triggers>,
       tmpl::pair<DomainCreator<volume_dim>, domain_creators<volume_dim>>,
-      tmpl::pair<Event,
-                 tmpl::flatten<tmpl::list<Events::Completion,
-                                          typename detail::ObserverTags<
-                                              volume_dim>::field_observations,
-                                          Events::time_events<system>>>>,
-      tmpl::pair<GeneralizedHarmonic::BoundaryConditions::BoundaryCondition<
-                     volume_dim>,
-                 GeneralizedHarmonic::BoundaryConditions::
-                     standard_boundary_conditions<volume_dim>>,
-      tmpl::pair<GeneralizedHarmonic::gauges::GaugeCondition,
-                 GeneralizedHarmonic::gauges::all_gauges>,
-      tmpl::pair<evolution::initial_data::InitialData,
-                 GeneralizedHarmonic::Solutions::all_solutions<volume_dim>>,
+      tmpl::pair<
+          Event,
+          tmpl::flatten<tmpl::list<
+              Events::Completion,
+              Events::MonitorMemory<volume_dim, ::Tags::Time>,
+              typename detail::ObserverTags<volume_dim>::field_observations,
+              Events::time_events<system>>>>,
+      tmpl::pair<
+          gh::BoundaryConditions::BoundaryCondition<volume_dim>,
+          gh::BoundaryConditions::standard_boundary_conditions<volume_dim>>,
+      tmpl::pair<gh::gauges::GaugeCondition, gh::gauges::all_gauges>,
+      tmpl::pair<
+          evolution::initial_data::InitialData,
+          tmpl::append<gh::Solutions::all_solutions<volume_dim>,
+                       tmpl::conditional_t<volume_dim == 3,
+                                           tmpl::list<gh::NumericInitialData>,
+                                           tmpl::list<>>>>,
       tmpl::pair<LtsTimeStepper, TimeSteppers::lts_time_steppers>,
-      tmpl::pair<PhaseChange,
-                 tmpl::list<PhaseControl::VisitAndReturn<
-                                Parallel::Phase::LoadBalancing>,
-                            PhaseControl::CheckpointAndExitAfterWallclock>>,
+      tmpl::pair<PhaseChange, PhaseControl::factory_creatable_classes>,
       tmpl::pair<StepChooser<StepChooserUse::LtsStep>,
                  StepChoosers::standard_step_choosers<system>>,
       tmpl::pair<
           StepChooser<StepChooserUse::Slab>,
           StepChoosers::standard_slab_choosers<system, LocalTimeStepping>>,
-      tmpl::pair<StepController, StepControllers::standard_step_controllers>,
       tmpl::pair<TimeSequence<double>,
                  TimeSequences::all_time_sequences<double>>,
       tmpl::pair<TimeSequence<std::uint64_t>,
@@ -330,15 +290,10 @@ struct FactoryCreation : tt::ConformsTo<Options::protocols::FactoryCreation> {
 };
 }  // namespace detail
 
-template <template <size_t, bool> class EvolutionMetavarsDerived,
-          size_t VolumeDim, bool UseNumericalInitialData>
-struct GeneralizedHarmonicTemplateBase<
-    EvolutionMetavarsDerived<VolumeDim, UseNumericalInitialData>> {
-
-  using derived_metavars =
-      EvolutionMetavarsDerived<VolumeDim, UseNumericalInitialData>;
+template <size_t VolumeDim>
+struct GeneralizedHarmonicTemplateBase {
   static constexpr size_t volume_dim = VolumeDim;
-  using system = GeneralizedHarmonic::System<volume_dim>;
+  using system = gh::System<volume_dim>;
   static constexpr bool local_time_stepping = false;
 
   // NOLINTNEXTLINE(google-runtime-references)
@@ -352,69 +307,70 @@ struct GeneralizedHarmonicTemplateBase<
           tmpl::at<typename factory_creation::factory_classes, Event>>>;
 
   using initialize_initial_data_dependent_quantities_actions =
-      tmpl::list<Actions::MutateApply<
-                     GeneralizedHarmonic::gauges::SetPiFromGauge<volume_dim>>,
+      tmpl::list<Actions::MutateApply<gh::gauges::SetPiFromGauge<volume_dim>>,
                  Parallel::Actions::TerminatePhase>;
 
   // A tmpl::list of tags to be added to the GlobalCache by the
   // metavariables
-  using const_global_cache_tags = tmpl::list<
-      GeneralizedHarmonic::gauges::Tags::GaugeCondition,
-      evolution::initial_data::Tags::InitialData,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma0<
-          volume_dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma1<
-          volume_dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma2<
-          volume_dim, Frame::Grid>>;
+  using const_global_cache_tags =
+      tmpl::list<gh::gauges::Tags::GaugeCondition,
+                 evolution::initial_data::Tags::InitialData,
+                 gh::ConstraintDamping::Tags::DampingFunctionGamma0<
+                     volume_dim, Frame::Grid>,
+                 gh::ConstraintDamping::Tags::DampingFunctionGamma1<
+                     volume_dim, Frame::Grid>,
+                 gh::ConstraintDamping::Tags::DampingFunctionGamma2<
+                     volume_dim, Frame::Grid>>;
 
   using dg_registration_list =
       tmpl::list<observers::Actions::RegisterEventsWithObservers>;
 
-  static constexpr auto default_phase_order =
-      detail::make_default_phase_order<UseNumericalInitialData>();
+  // Register needs to be before InitializeTimeStepperHistory so that CCE is
+  // properly registered when the self-start happens
+  static constexpr std::array<Parallel::Phase, 8> default_phase_order{
+      {Parallel::Phase::Initialization,
+       Parallel::Phase::RegisterWithElementDataReader,
+       Parallel::Phase::ImportInitialData,
+       Parallel::Phase::InitializeInitialDataDependentQuantities,
+       Parallel::Phase::Register, Parallel::Phase::InitializeTimeStepperHistory,
+       Parallel::Phase::Evolve, Parallel::Phase::Exit}};
 
   using step_actions = tmpl::list<
       evolution::dg::Actions::ComputeTimeDerivative<
           volume_dim, system, AllStepChoosers, local_time_stepping>,
       tmpl::conditional_t<
           local_time_stepping,
-          tmpl::list<evolution::Actions::RunEventsAndDenseTriggers<
-                         tmpl::list<evolution::dg::ApplyBoundaryCorrections<
+          tmpl::list<evolution::Actions::RunEventsAndDenseTriggers<tmpl::list<
+                         ::domain::CheckFunctionsOfTimeAreReadyPostprocessor,
+                         evolution::dg::ApplyBoundaryCorrections<
                              local_time_stepping, system, volume_dim, true>>>,
                      evolution::dg::Actions::ApplyLtsBoundaryCorrections<
-                         system, volume_dim>>,
+                         system, volume_dim, false>>,
           tmpl::list<
               evolution::dg::Actions::ApplyBoundaryCorrectionsToTimeDerivative<
-                  system, volume_dim>,
-              Actions::RecordTimeStepperData<>,
+                  system, volume_dim, false>,
+              Actions::RecordTimeStepperData<system>,
               evolution::Actions::RunEventsAndDenseTriggers<tmpl::list<>>,
-              Actions::UpdateU<>,
+              Actions::UpdateU<system>,
               dg::Actions::Filter<
                   Filters::Exponential<0>,
-                  tmpl::list<gr::Tags::SpacetimeMetric<
-                                 volume_dim, Frame::Inertial, DataVector>,
-                             GeneralizedHarmonic::Tags::Pi<volume_dim,
-                                                           Frame::Inertial>,
-                             GeneralizedHarmonic::Tags::Phi<
-                                 volume_dim, Frame::Inertial>>>>>>;
+                  tmpl::list<gr::Tags::SpacetimeMetric<DataVector, volume_dim>,
+                             gh::Tags::Pi<DataVector, volume_dim>,
+                             gh::Tags::Phi<DataVector, volume_dim>>>>>>;
 
+  template <typename DerivedMetavars, bool UseControlSystems>
   using initialization_actions = tmpl::list<
       Initialization::Actions::InitializeItems<
-          Initialization::TimeStepping<derived_metavars, local_time_stepping>,
-          evolution::dg::Initialization::Domain<volume_dim>>,
+          Initialization::TimeStepping<DerivedMetavars, local_time_stepping>,
+          evolution::dg::Initialization::Domain<volume_dim, UseControlSystems>,
+          Initialization::TimeStepperHistory<DerivedMetavars>>,
       Initialization::Actions::NonconservativeSystem<system>,
-      std::conditional_t<
-          UseNumericalInitialData, tmpl::list<>,
-          evolution::Initialization::Actions::SetVariables<
-              domain::Tags::Coordinates<volume_dim, Frame::ElementLogical>>>,
       Initialization::Actions::AddComputeTags<::Tags::DerivCompute<
           typename system::variables_tag,
           domain::Tags::InverseJacobian<volume_dim, Frame::ElementLogical,
                                         Frame::Inertial>,
           typename system::gradient_variables>>,
-      Initialization::Actions::TimeStepperHistory<derived_metavars>,
-      GeneralizedHarmonic::Actions::InitializeGhAnd3Plus1Variables<volume_dim>,
+      gh::Actions::InitializeGhAnd3Plus1Variables<volume_dim>,
       Initialization::Actions::AddComputeTags<
           tmpl::push_back<StepChoosers::step_chooser_compute_tags<
               GeneralizedHarmonicTemplateBase, local_time_stepping>>>,

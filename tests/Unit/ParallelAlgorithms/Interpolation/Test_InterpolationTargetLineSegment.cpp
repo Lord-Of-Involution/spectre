@@ -12,7 +12,7 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
 #include "Domain/Domain.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Helpers/DataStructures/DataBox/TestHelpers.hpp"
@@ -27,6 +27,7 @@
 #include "Utilities/TMPL.hpp"
 
 namespace {
+template <typename Frame>
 struct MockMetavariables {
   struct InterpolationTargetA
       : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
@@ -35,7 +36,7 @@ struct MockMetavariables {
         tmpl::list<gr::Tags::Lapse<DataVector>>;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
-        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3>;
+        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3, Frame>;
     using post_interpolation_callback =
         intrp::callbacks::ObserveTimeSeriesOnSurface<tmpl::list<>,
                                                      InterpolationTargetA>;
@@ -66,8 +67,8 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.InterpolationTarget.LineSegment",
           "NumberOfPoints: 15");
   CHECK(created_opts == line_segment_opts);
 
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
 
   const auto expected_block_coord_holders = [&domain_creator]() {
     const size_t n_pts = 15;
@@ -80,13 +81,22 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.InterpolationTarget.LineSegment",
     return block_logical_coordinates(domain_creator.create_domain(), points);
   }();
 
-  TestHelpers::db::test_simple_tag<
-      intrp::Tags::LineSegment<MockMetavariables::InterpolationTargetA, 3>>(
+  TestHelpers::db::test_simple_tag<intrp::Tags::LineSegment<
+      MockMetavariables<Frame::Grid>::InterpolationTargetA, 3>>("LineSegment");
+  TestHelpers::db::test_simple_tag<intrp::Tags::LineSegment<
+      MockMetavariables<Frame::Inertial>::InterpolationTargetA, 3>>(
       "LineSegment");
 
   InterpTargetTestHelpers::test_interpolation_target<
-      MockMetavariables,
-      intrp::Tags::LineSegment<MockMetavariables::InterpolationTargetA, 3>>(
+      MockMetavariables<Frame::Grid>,
+      intrp::Tags::LineSegment<
+          MockMetavariables<Frame::Grid>::InterpolationTargetA, 3>>(
+      domain_creator, std::move(line_segment_opts),
+      expected_block_coord_holders);
+  InterpTargetTestHelpers::test_interpolation_target<
+      MockMetavariables<Frame::Inertial>,
+      intrp::Tags::LineSegment<
+          MockMetavariables<Frame::Inertial>::InterpolationTargetA, 3>>(
       domain_creator, std::move(line_segment_opts),
       expected_block_coord_holders);
 }

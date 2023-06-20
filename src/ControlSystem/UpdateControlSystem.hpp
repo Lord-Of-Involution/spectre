@@ -9,8 +9,9 @@
 #include "ControlSystem/CalculateMeasurementTimescales.hpp"
 #include "ControlSystem/Controller.hpp"
 #include "ControlSystem/ExpirationTimes.hpp"
-#include "ControlSystem/Tags.hpp"
+#include "ControlSystem/Tags/IsActive.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/TimescaleTuner.hpp"
 #include "ControlSystem/UpdateFunctionOfTime.hpp"
 #include "ControlSystem/WriteData.hpp"
@@ -19,7 +20,9 @@
 #include "DataStructures/LinkedMessageId.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/Tags.hpp"
+#include "IO/Logging/Verbosity.hpp"
 #include "Parallel/GlobalCache.hpp"
+#include "Parallel/Printf.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -122,6 +125,12 @@ struct UpdateControlSystem {
     const DataVector Q =
         control_error(cache, time, function_of_time_name, data);
 
+    if (Parallel::get<Tags::Verbosity>(cache) >= ::Verbosity::Verbose) {
+      Parallel::printf(
+          "%s, time = %.16f: current measurement = %d, control error = %s\n",
+          function_of_time_name, time, current_measurement, Q);
+    }
+
     // Update the averager. We do this for every measurement because we still
     // want the averager to be up-to-date even if we aren't updating at this
     // time
@@ -131,6 +140,11 @@ struct UpdateControlSystem {
     const auto& opt_avg_values = averager(time);
 
     if (not opt_avg_values.has_value()) {
+      if (Parallel::get<Tags::Verbosity>(cache) >= ::Verbosity::Verbose) {
+        Parallel::printf(
+            "%s, time = %.16f: Averager does not have enough data.\n",
+            function_of_time_name, time);
+      }
       return;
     }
 
@@ -142,16 +156,23 @@ struct UpdateControlSystem {
       q_and_dtq[1] = (*opt_avg_values)[1];
     }
 
-    if (db::get<control_system::Tags::WriteDataToDisk>(*box)) {
+    if (Parallel::get<control_system::Tags::WriteDataToDisk>(cache)) {
       // LCOV_EXCL_START
       write_components_to_disk<ControlSystem>(time, cache, function_of_time,
-                                              q_and_dtq);
+                                              q_and_dtq, current_timescale);
       // LCOV_EXCL_STOP
     }
 
     // Begin step 5
     // Check if it is time to update
     if (current_measurement != measurements_per_update) {
+      if (Parallel::get<Tags::Verbosity>(cache) >= ::Verbosity::Verbose) {
+        Parallel::printf(
+            "%s, time = %.16f: current measurement = %d is not at "
+            "measurements_per_update = %d. Waiting for more data.\n",
+            function_of_time_name, time, current_measurement,
+            measurements_per_update);
+      }
       return;
     }
 
@@ -203,6 +224,23 @@ struct UpdateControlSystem {
     const double new_measurement_expiration_time = measurement_expiration_time(
         time, old_measurement_timescale, new_measurement_timescale,
         measurements_per_update);
+
+    if (Parallel::get<Tags::Verbosity>(cache) >= ::Verbosity::Verbose) {
+      Parallel::printf("%s, time = %.16f: Control signal = %s\n",
+                       function_of_time_name, time, control_signal);
+      Parallel::printf(
+          "%s, time = %.16f: Updating the functions of time.\n"
+          " min(old_measure_timescale) = %.16f\n"
+          " min(new_measure_timescale) = %.16f\n"
+          " old_measure_expr_time = %.16f\n"
+          " new_measure_expr_time = %.16f\n"
+          " old_function_expr_time = %.16f\n"
+          " new_function_expr_time = %.16f\n",
+          function_of_time_name, time, min(old_measurement_timescale),
+          min(new_measurement_timescale), current_measurement_expiration_time,
+          new_measurement_expiration_time, current_fot_expiration_time,
+          new_fot_expiration_time);
+    }
 
     Parallel::mutate<::domain::Tags::FunctionsOfTime, UpdateFunctionOfTime>(
         cache, function_of_time_name, current_fot_expiration_time,

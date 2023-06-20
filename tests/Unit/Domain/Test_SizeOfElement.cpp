@@ -19,6 +19,7 @@
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
 #include "Domain/CoordinateMaps/Rotation.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/CubicScale.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
@@ -208,8 +209,8 @@ void test_compute_tag(const std::array<double, 4>& times_to_check) {
 
   for (const double time : times_to_check) {
     db::mutate<::Tags::Time>(
-        make_not_null(&box),
-        [time](const gsl::not_null<double*> time_ptr) { *time_ptr = time; });
+        [time](const gsl::not_null<double*> time_ptr) { *time_ptr = time; },
+        make_not_null(&box));
     const auto expected_size_of_element = make_array(0.05, 0.425) * time;
     CHECK_ITERABLE_APPROX(db::get<domain::Tags::SizeOfElement<2>>(box),
                           expected_size_of_element);

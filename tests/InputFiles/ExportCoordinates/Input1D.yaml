@@ -1,11 +1,14 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: ExportCoordinates1D
-# Check: parse;execute
-# ExpectedOutput:
-#   ExportCoordinates1DVolume0.h5
-#   ExportCoordinates1DReductions.h5
+Executable: ExportCoordinates1D
+Testing:
+  Check: parse;execute
+ExpectedOutput:
+  - ExportCoordinates1DVolume0.h5
+  - ExportCoordinates1DReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -14,6 +17,8 @@ DomainCreator:
   Interval:
     LowerBound: [0]
     UpperBound: [1]
+    Distribution: Linear
+    Singularity: None
     IsPeriodicIn: [false]
     InitialRefinement: [1]
     InitialGridPoints: [3]
@@ -23,14 +28,17 @@ DomainCreator:
         Velocity: [0.5]
 
 SpatialDiscretization:
+  ActiveGrid: Dg
   DiscontinuousGalerkin:
     Quadrature: GaussLobatto
 
 EventsAndTriggers:
-  - - TimeCompares:
+  - Trigger:
+      TimeCompares:
         Comparison: GreaterThanOrEqualTo
         Value: 1.0
-    - - Completion
+    Events:
+      - Completion
 
 Evolution:
   InitialTime: 0.0

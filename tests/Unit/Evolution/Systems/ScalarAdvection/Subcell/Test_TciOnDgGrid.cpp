@@ -66,12 +66,16 @@ void test(const TestThis& test_this) {
       persson_exponent,
       persson_exponent,
       false,
-      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim};
+      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim,
+      false,
+      std::nullopt,
+      fd::DerivativeOrder::Two};
 
+  const bool element_stays_on_dg = false;
   const std::tuple<bool, evolution::dg::subcell::RdmpTciData> result =
       ScalarAdvection::subcell::TciOnDgGrid<Dim>::apply(
           u, dg_mesh, subcell_mesh, past_rdmp_tci_data, subcell_options,
-          tci_options, persson_exponent);
+          tci_options, persson_exponent, element_stays_on_dg);
 
   CHECK(std::get<1>(result) == expected_rdmp_data);
 

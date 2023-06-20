@@ -37,6 +37,7 @@ target_link_libraries(
   ErrorHandling
   InitialDataUtilities
   Options
+  Serialization
   Spectral
   Time
   Utilities
@@ -62,4 +63,5 @@ add_subdirectory(EventsAndDenseTriggers)
 add_subdirectory(Executables)
 add_subdirectory(Initialization)
 add_subdirectory(Systems)
+add_subdirectory(Tags)
 add_subdirectory(VariableFixing)

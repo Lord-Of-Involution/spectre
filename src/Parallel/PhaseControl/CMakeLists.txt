@@ -18,6 +18,7 @@ spectre_target_headers(
   CheckpointAndExitAfterWallclock.hpp
   ContributeToPhaseChangeReduction.hpp
   ExecutePhaseChange.hpp
+  Factory.hpp
   InitializePhaseChangeDecisionData.hpp
   PhaseChange.hpp
   PhaseControlTags.hpp
@@ -33,6 +34,7 @@ target_link_libraries(
   Charmxx::charmxx
   Options
   Parallel
+  Serialization
   Utilities
   )
 

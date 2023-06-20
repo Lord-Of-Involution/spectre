@@ -12,7 +12,6 @@
 #include "Informer/InfoFromBuild.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticData/GrMhd/CcsnCollapse.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
@@ -21,6 +20,7 @@
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
 #include "Utilities/GetOutput.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace grmhd::AnalyticData {
 namespace {
@@ -36,7 +36,7 @@ static_assert(
 void test_equality(std::string progenitor_filename, double polytropic_constant,
                    double adiabatic_index, double central_angular_velocity,
                    double diff_rot_parameter, double max_dens_ratio) {
-  Parallel::register_classes_with_charm<grmhd::AnalyticData::CcsnCollapse>();
+  register_classes_with_charm<grmhd::AnalyticData::CcsnCollapse>();
   // Base case for comparison
   const CcsnCollapse ccsn_progenitor_original{
       progenitor_filename,      polytropic_constant, adiabatic_index,
@@ -76,7 +76,7 @@ void test_ccsn_collapse(std::string progenitor_filename,
                         double polytropic_constant, double adiabatic_index,
                         double central_angular_velocity,
                         double diff_rot_parameter, double max_dens_ratio) {
-  Parallel::register_classes_with_charm<grmhd::AnalyticData::CcsnCollapse>();
+  register_classes_with_charm<grmhd::AnalyticData::CcsnCollapse>();
 
   const std::unique_ptr<evolution::initial_data::InitialData> option_solution =
       TestHelpers::test_option_tag_factory_creation<
@@ -131,28 +131,26 @@ void test_ccsn_collapse(std::string progenitor_filename,
 
   const auto vars = ccsn_progenitor.variables(
       in_coords,
-      tmpl::list<
-          hydro::Tags::RestMassDensity<DataVector>,
-          hydro::Tags::ElectronFraction<DataVector>,
-          hydro::Tags::SpatialVelocity<DataVector, 3>,
-          hydro::Tags::SpecificEnthalpy<DataVector>,
-          hydro::Tags::Pressure<DataVector>,
-          hydro::Tags::SpecificInternalEnergy<DataVector>,
-          hydro::Tags::LorentzFactor<DataVector>,
-          hydro::Tags::MagneticField<DataVector, 3>,
-          hydro::Tags::DivergenceCleaningField<DataVector>,
-          gr::Tags::Lapse<DataVector>,
-          gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-          gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-          gr::Tags::SqrtDetSpatialMetric<DataVector>,
-          gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-          gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>,
-          ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
-                        Frame::Inertial>,
-          ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>,
-          ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>{});
+      tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                 hydro::Tags::ElectronFraction<DataVector>,
+                 hydro::Tags::SpatialVelocity<DataVector, 3>,
+                 hydro::Tags::SpecificEnthalpy<DataVector>,
+                 hydro::Tags::Pressure<DataVector>,
+                 hydro::Tags::SpecificInternalEnergy<DataVector>,
+                 hydro::Tags::LorentzFactor<DataVector>,
+                 hydro::Tags::MagneticField<DataVector, 3>,
+                 hydro::Tags::DivergenceCleaningField<DataVector>,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                 gr::Tags::SpatialMetric<DataVector, 3>,
+                 gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                 gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>,
+                 ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>,
+                               tmpl::size_t<3>, Frame::Inertial>>{});
 
   // Check velocity > c check and provide small interpolation ratio test
   // coverage
@@ -203,7 +201,7 @@ void test_ccsn_collapse(std::string progenitor_filename,
 
   // Relevant metric variables
   const auto& spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(vars);
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(vars);
   const auto& sqrt_det_spatial_metric_analytic =
       get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(vars);
   const auto& det_spatial_metric_numeric =

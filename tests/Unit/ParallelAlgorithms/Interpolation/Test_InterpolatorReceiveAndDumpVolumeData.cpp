@@ -25,13 +25,13 @@
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/BlockId.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
-#include "Domain/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "IO/H5/AccessType.hpp"
 #include "IO/H5/File.hpp"
@@ -146,10 +146,10 @@ struct ClearVolumeVarsInfo {
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/) {
     db::mutate<intrp::Tags::VolumeVarsInfo<Metavariables, TemporalIdTag>>(
-        make_not_null(&box),
         [](const gsl::not_null<typename intrp::Tags::VolumeVarsInfo<
                Metavariables, TemporalIdTag>::type*>
-               container) { container->clear(); });
+               container) { container->clear(); },
+        make_not_null(&box));
   }
 };
 
@@ -168,7 +168,6 @@ struct AddToTemporalIdsWhenDataHasBeenInterpolated {
       const ArrayIndex& /*array_index*/,
       const typename InterpolationTargetTag::temporal_id::type& temporal_id) {
     db::mutate<intrp::Tags::InterpolatedVarsHolders<Metavariables>>(
-        make_not_null(&box),
         [&temporal_id](
             const gsl::not_null<typename intrp::Tags::InterpolatedVarsHolders<
                 Metavariables>::type*>
@@ -177,7 +176,8 @@ struct AddToTemporalIdsWhenDataHasBeenInterpolated {
               *holders)
               .temporal_ids_when_data_has_been_interpolated.push_back(
                   temporal_id);
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -227,11 +227,11 @@ struct MockInterpolationTargetReceiveVars {
     Slab slab(0.0, 1.0);
     TimeStepId strange_temporal_id(true, 0, Time(slab, Rational(111, 135)));
     db::mutate<intrp::Tags::TemporalIds<TemporalId>>(
-        make_not_null(&box),
         [&strange_temporal_id](
             const gsl::not_null<std::deque<TemporalId>*> temporal_ids) {
           temporal_ids->push_back(strange_temporal_id);
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -318,7 +318,8 @@ struct MockMetavariables {
     using compute_vars_to_interpolate = ComputeSquare;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
-        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3>;
+        ::intrp::TargetPoints::LineSegment<InterpolationTargetA, 3,
+                                           Frame::Inertial>;
     using post_interpolation_callback =
         intrp::callbacks::ObserveTimeSeriesOnSurface<tmpl::list<>,
                                                      InterpolationTargetA>;
@@ -396,8 +397,8 @@ void test(const bool dump_vol_data) {
   using observer_writer = mock_observer_writer<metavars>;
 
   // Make an InterpolatedVarsHolders containing the target points.
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{7, 7}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 7_st, false);
   const auto domain = domain_creator.create_domain();
   Slab slab(0.0, 1.0);
   TimeStepId temporal_id(true, 0, Time(slab, Rational(11, 15)));

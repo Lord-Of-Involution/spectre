@@ -30,9 +30,9 @@ namespace callbacks {
 ///
 /// Uses:
 /// - DataBox:
-///   - `::gr::Tags::SpacetimeMetric<3,Frame::Inertial>`
-///   - `::GeneralizedHarmonic::Tags::Pi<3,Frame::Inertial>`
-///   - `::GeneralizedHarmonic::Tags::Phi<3,Frame::Inertial>`
+///   - `::gr::Tags::SpacetimeMetric<DataVector, 3, Frame::Inertial>`
+///   - `::gh::Tags::Pi<DataVector, 3>`
+///   - `::gh::Tags::Phi<DataVector, 3>`
 ///
 /// Conforms to the intrp::protocols::PostInterpolationCallback protocol
 ///
@@ -64,17 +64,17 @@ struct SendGhWorldtubeData
       Parallel::simple_action<typename Cce::Actions::ReceiveGhWorldtubeData<
           CceEvolutionComponent, DuringSelfStart>>(
           cce_gh_boundary_component, temporal_id,
-          db::get<::gr::Tags::SpacetimeMetric<3, Frame::Inertial>>(box),
-          db::get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(box),
-          db::get<::GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>>(box));
+          db::get<::gr::Tags::SpacetimeMetric<DataVector, 3>>(box),
+          db::get<::gh::Tags::Phi<DataVector, 3>>(box),
+          db::get<::gh::Tags::Pi<DataVector, 3>>(box));
     } else {
       // We want to avoid interface manager for global time stepping
       Parallel::simple_action<Cce::Actions::SendToEvolution<
           Cce::GhWorldtubeBoundary<Metavariables>, CceEvolutionComponent>>(
           cce_gh_boundary_component, temporal_id,
-          db::get<::gr::Tags::SpacetimeMetric<3, Frame::Inertial>>(box),
-          db::get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(box),
-          db::get<::GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>>(box));
+          db::get<::gr::Tags::SpacetimeMetric<DataVector, 3>>(box),
+          db::get<::gh::Tags::Phi<DataVector, 3>>(box),
+          db::get<::gh::Tags::Pi<DataVector, 3>>(box));
     }
   }
 };

@@ -595,6 +595,12 @@ class MockDistributedObject {
         std::forward<Data>(data));
   }
 
+  template <typename InboxTag, typename MessageType>
+  void receive_data(MessageType* message) {
+    InboxTag::insert_into_inbox(
+        make_not_null(&tuples::get<InboxTag>(*inboxes_)), message);
+  }
+
   Parallel::GlobalCache<typename Component::metavariables>& cache() {
     return *global_cache_;
   }
@@ -654,7 +660,9 @@ class MockDistributedObject {
 
   template <typename ThisAction, typename ActionList, typename DbTags>
   bool invoke_iterable_action(db::DataBox<DbTags>& my_box) {
-    const auto& [requested_execution, next_action_step] = ThisAction::apply(
+    Parallel::AlgorithmExecution requested_execution{};
+    std::optional<std::size_t> next_action_step{};
+    std::tie(requested_execution, next_action_step) = ThisAction::apply(
         my_box, *inboxes_, *global_cache_, std::as_const(array_index_),
         ActionList{}, std::add_pointer_t<Component>{});
 

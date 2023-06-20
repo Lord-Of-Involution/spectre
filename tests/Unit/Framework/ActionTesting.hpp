@@ -20,13 +20,13 @@
 #include "Framework/MockRuntimeSystemFreeFunctions.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/GlobalCache.hpp"
-#include "Parallel/Serialize.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -476,6 +476,12 @@ class MockDistributedObjectProxy : public CProxyElement_ArrayElement {
                                 id, std::forward<Data>(data));
   }
 
+  template <typename InboxTag, typename MessageType>
+  void receive_data(MessageType* message) {
+    InboxTag::insert_into_inbox(make_not_null(&tuples::get<InboxTag>(inbox_)),
+                                message);
+  }
+
   template <typename Action, typename... Args>
   void simple_action(std::tuple<Args...> args) {
     mock_distributed_object_.template simple_action<Action>(std::move(args));
@@ -511,6 +517,20 @@ class MockDistributedObjectProxy : public CProxyElement_ArrayElement {
                ? &mock_distributed_object_
                : nullptr;
   }
+
+  // This does not create a new MockDistributedObject as dynamically
+  // creating/destroying MockDistributedObjects is not supported; it must be
+  // called on an existing MockDistrubtedObject.
+  template <typename CacheProxy>
+  void insert(const CacheProxy& /*global_cache_proxy*/,
+              Parallel::Phase /*current_phase*/,
+              const std::unique_ptr<Parallel::Callback>& callback) {
+    callback->invoke();
+  }
+
+  // This does nothing as dynamically creating/destroying MockDistributedObjects
+  // is not supported; the mock object will still exist...
+  void ckDestroy() {}
 
   // NOLINTNEXTLINE(google-runtime-references)
   void pup(PUP::er& /*p*/) {

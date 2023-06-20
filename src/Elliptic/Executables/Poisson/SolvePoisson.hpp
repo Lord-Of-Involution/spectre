@@ -10,6 +10,7 @@
 #include "Domain/Creators/Factory2D.hpp"
 #include "Domain/Creators/Factory3D.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
+#include "Domain/RadiallyCompressedCoordinates.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/Actions/InitializeAnalyticSolution.hpp"
 #include "Elliptic/Actions/InitializeFields.hpp"
@@ -28,14 +29,13 @@
 #include "IO/Observer/Helpers.hpp"
 #include "IO/Observer/ObserverComponent.hpp"
 #include "NumericalAlgorithms/Convergence/Tags.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "Parallel/Reduction.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/RandomizeVariables.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "ParallelAlgorithms/Events/Factory.hpp"
@@ -54,11 +54,14 @@
 #include "PointwiseFunctions/InitialDataUtilities/AnalyticSolution.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Background.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialGuess.hpp"
+#include "PointwiseFunctions/MathFunctions/Factory.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Functional.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -154,13 +157,17 @@ struct Metavariables {
   using error_tags = db::wrap_tags_in<Tags::Error, analytic_solution_fields>;
   using observe_fields = tmpl::append<
       analytic_solution_fields, error_tags,
-      tmpl::list<domain::Tags::Coordinates<volume_dim, Frame::Inertial>>>;
+      tmpl::list<domain::Tags::Coordinates<volume_dim, Frame::Inertial>,
+                 domain::Tags::RadiallyCompressedCoordinatesCompute<
+                     volume_dim, Frame::Inertial>>>;
   using observer_compute_tags =
       tmpl::list<::Events::Tags::ObserverMeshCompute<volume_dim>,
                  error_compute>;
 
   // Collect all items to store in the cache.
-  using const_global_cache_tags = tmpl::list<background_tag, initial_guess_tag>;
+  using const_global_cache_tags =
+      tmpl::list<background_tag, initial_guess_tag,
+                 domain::Tags::RadiallyCompressedCoordinatesOptions>;
 
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
@@ -172,6 +179,9 @@ struct Metavariables {
                    Poisson::Solutions::all_analytic_solutions<volume_dim>>,
         tmpl::pair<elliptic::analytic_data::AnalyticSolution,
                    Poisson::Solutions::all_analytic_solutions<volume_dim>>,
+        tmpl::pair<
+            ::MathFunction<volume_dim, Frame::Inertial>,
+            MathFunctions::all_math_functions<volume_dim, Frame::Inertial>>,
         tmpl::pair<
             elliptic::BoundaryConditions::BoundaryCondition<volume_dim>,
             Poisson::BoundaryConditions::standard_boundary_conditions<system>>,
@@ -237,15 +247,16 @@ struct Metavariables {
                                                 Label>;
 
   using solve_actions = tmpl::list<
-      typename linear_solver::template solve<tmpl::list<
-          Actions::RunEventsAndTriggers,
-          typename multigrid::template solve<
-              build_linear_operator_actions,
-              smooth_actions<LinearSolver::multigrid::VcycleDownLabel>,
-              smooth_actions<LinearSolver::multigrid::VcycleUpLabel>>,
-          ::LinearSolver::Actions::make_identity_if_skipped<
-              multigrid, build_linear_operator_actions>>>,
-      Actions::RunEventsAndTriggers, Parallel::Actions::TerminatePhase>;
+      typename linear_solver::template solve<
+          tmpl::list<
+              typename multigrid::template solve<
+                  build_linear_operator_actions,
+                  smooth_actions<LinearSolver::multigrid::VcycleDownLabel>,
+                  smooth_actions<LinearSolver::multigrid::VcycleUpLabel>>,
+              ::LinearSolver::Actions::make_identity_if_skipped<
+                  multigrid, build_linear_operator_actions>>,
+          Actions::RunEventsAndTriggers>,
+      Parallel::Actions::TerminatePhase>;
 
   using dg_element_array = elliptic::DgElementArray<
       Metavariables,
@@ -278,9 +289,9 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_memory_allocation_failure_reporting,
     &disable_openblas_multithreading,
     &domain::creators::register_derived_with_charm,
-    &Parallel::register_derived_classes_with_charm<
+    &register_derived_classes_with_charm<
         metavariables::schwarz_smoother::subdomain_solver>,
-    &Parallel::register_factory_classes_with_charm<metavariables>};
+    &register_factory_classes_with_charm<metavariables>};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 /// \endcond

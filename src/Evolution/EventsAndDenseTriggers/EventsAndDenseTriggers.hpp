@@ -12,6 +12,7 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "Evolution/EventsAndDenseTriggers/DenseTrigger.hpp"
 #include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
 #include "Time/EvolutionOrdering.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -58,9 +59,28 @@ class EventsAndDenseTriggers {
   };
 
  public:
-  using ConstructionType =
-      std::vector<std::pair<std::unique_ptr<DenseTrigger>,
-                            std::vector<std::unique_ptr<Event>>>>;
+  struct TriggerAndEvents {
+    struct Trigger {
+      using type = std::unique_ptr<::DenseTrigger>;
+      static constexpr Options::String help = "Determines when the Events run.";
+    };
+    struct Events {
+      using type = std::vector<std::unique_ptr<::Event>>;
+      static constexpr Options::String help =
+          "These events run when the Trigger fires.";
+    };
+    static constexpr Options::String help =
+        "Events that run when the Trigger fires.";
+    using options = tmpl::list<Trigger, Events>;
+    void pup(PUP::er& p) {
+      p | trigger;
+      p | events;
+    }
+    std::unique_ptr<::DenseTrigger> trigger;
+    std::vector<std::unique_ptr<::Event>> events;
+  };
+
+  using ConstructionType = std::vector<TriggerAndEvents>;
 
  private:
   struct TriggerRecord {
@@ -221,22 +241,23 @@ void EventsAndDenseTriggers::run_events(
   for (auto& trigger_entry : events_and_triggers_) {
     if (trigger_entry.is_triggered == std::optional{true}) {
       db::mutate<::evolution::Tags::PreviousTriggerTime>(
-          make_not_null(&box),
           [&trigger_entry](const gsl::not_null<std::optional<double>*>
                                previous_trigger_time) {
             *previous_trigger_time =
                 trigger_entry.trigger->previous_trigger_time();
-          });
+          },
+          make_not_null(&box));
       const auto observation_box = make_observation_box<compute_tags>(box);
       for (const auto& event : trigger_entry.events) {
         event->run(observation_box, cache, array_index, component);
       }
       db::mutate<::evolution::Tags::PreviousTriggerTime>(
-          make_not_null(&box), [](const gsl::not_null<std::optional<double>*>
-                                      previous_trigger_time) {
+          [](const gsl::not_null<std::optional<double>*>
+                 previous_trigger_time) {
             *previous_trigger_time =
                 std::numeric_limits<double>::signaling_NaN();
-          });
+          },
+          make_not_null(&box));
     }
     // Mark this trigger as handled so we will not reprocess it if
     // this method or is_ready is called again.

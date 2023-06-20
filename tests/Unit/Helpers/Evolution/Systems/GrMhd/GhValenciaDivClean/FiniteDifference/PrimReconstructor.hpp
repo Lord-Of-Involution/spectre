@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <unordered_set>
 #include <utility>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
@@ -23,6 +24,7 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Structure/Neighbors.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/FiniteDifference/Reconstructor.hpp"
@@ -46,19 +48,20 @@
 
 namespace TestHelpers::grmhd::GhValenciaDivClean::fd {
 namespace detail {
+using GhostData = evolution::dg::subcell::GhostData;
 template <typename F>
 FixedHashMap<maximum_number_of_neighbors(3),
-             std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+             std::pair<Direction<3>, ElementId<3>>, GhostData,
              boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-compute_neighbor_data(
+compute_ghost_data(
     const Mesh<3>& subcell_mesh,
     const tnsr::I<DataVector, 3, Frame::ElementLogical>& volume_logical_coords,
     const DirectionMap<3, Neighbors<3>>& neighbors,
     const size_t ghost_zone_size, const F& compute_variables_of_neighbor_data) {
   FixedHashMap<maximum_number_of_neighbors(3),
-               std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+               std::pair<Direction<3>, ElementId<3>>, GhostData,
                boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-      neighbor_data{};
+      ghost_data{};
   for (const auto& [direction, neighbors_in_direction] : neighbors) {
     REQUIRE(neighbors_in_direction.size() == 1);
     const ElementId<3>& neighbor_id = *neighbors_in_direction.begin();
@@ -68,18 +71,19 @@ compute_neighbor_data(
     const auto neighbor_vars_for_reconstruction =
         compute_variables_of_neighbor_data(neighbor_logical_coords);
 
-    DirectionMap<3, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
     const auto sliced_data = evolution::dg::subcell::detail::slice_data_impl(
         gsl::make_span(neighbor_vars_for_reconstruction.data(),
                        neighbor_vars_for_reconstruction.size()),
-        subcell_mesh.extents(), ghost_zone_size, directions_to_slice, 0);
+        subcell_mesh.extents(), ghost_zone_size,
+        std::unordered_set{direction.opposite()}, 0);
     REQUIRE(sliced_data.size() == 1);
     REQUIRE(sliced_data.contains(direction.opposite()));
-    neighbor_data[std::pair{direction, neighbor_id}] =
+    ghost_data[std::pair{direction, neighbor_id}] = GhostData{1};
+    ghost_data.at(std::pair{direction, neighbor_id})
+        .neighbor_ghost_data_for_reconstruction() =
         sliced_data.at(direction.opposite());
   }
-  return neighbor_data;
+  return ghost_data;
 }
 
 inline Variables<::grmhd::GhValenciaDivClean::Tags::
@@ -114,8 +118,7 @@ compute_prim_solution(
     get<VelocityW>(vars).get(j) += 1.0e-2 * (j + 2.0) + 10.0;
     get<MagField>(vars).get(j) += 1.0e-2 * (j + 2.0) + 60.0;
   }
-  auto& spacetime_metric =
-      get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(vars);
+  auto& spacetime_metric = get<gr::Tags::SpacetimeMetric<DataVector, 3>>(vars);
   spacetime_metric.get(0, 0) = -1.0;
   for (size_t j = 1; j < 4; ++j) {
     spacetime_metric.get(j, j) = 1.0;
@@ -125,7 +128,7 @@ compute_prim_solution(
       }
     }
   }
-  auto& phi = get<GeneralizedHarmonic::Tags::Phi<3>>(vars);
+  auto& phi = get<gh::Tags::Phi<DataVector, 3>>(vars);
   for (size_t i = 0; i < 3; ++i) {
     for (size_t a = 0; a < 4; ++a) {
       for (size_t b = a; b < 4; ++b) {
@@ -134,7 +137,7 @@ compute_prim_solution(
     }
   }
 
-  auto& pi = get<GeneralizedHarmonic::Tags::Pi<3>>(vars);
+  auto& pi = get<gh::Tags::Pi<DataVector, 3>>(vars);
   for (size_t a = 0; a < 4; ++a) {
     for (size_t b = a; b < 4; ++b) {
       pi.get(a, b) = (500 * a + 10000 * b + 1) * get<0>(coords);
@@ -194,12 +197,12 @@ void test_prim_reconstructor_impl(
       hydro::Tags::SpecificInternalEnergy<DataVector>;
   using SpecificEnthalpy = hydro::Tags::SpecificEnthalpy<DataVector>;
   using LorentzFactor = hydro::Tags::LorentzFactor<DataVector>;
-  using SpacetimeMetric = gr::Tags::SpacetimeMetric<3>;
-  using Lapse = gr::Tags::Lapse<>;
-  using Shift = gr::Tags::Shift<3>;
-  using SpatialMetric = gr::Tags::SpatialMetric<3>;
-  using InverseSpatialMetric = gr::Tags::InverseSpatialMetric<3>;
-  using SqrtDetSpatialMetric = gr::Tags::SqrtDetSpatialMetric<>;
+  using SpacetimeMetric = gr::Tags::SpacetimeMetric<DataVector, 3>;
+  using Lapse = gr::Tags::Lapse<DataVector>;
+  using Shift = gr::Tags::Shift<DataVector, 3>;
+  using SpatialMetric = gr::Tags::SpatialMetric<DataVector, 3>;
+  using InverseSpatialMetric = gr::Tags::InverseSpatialMetric<DataVector, 3>;
+  using SqrtDetSpatialMetric = gr::Tags::SqrtDetSpatialMetric<DataVector>;
 
   using prims_tags = hydro::grmhd_tags<DataVector>;
   using cons_tags = typename ghmhd::System::variables_tag::tags_list;
@@ -219,9 +222,9 @@ void test_prim_reconstructor_impl(
   neighbors_for_data[gsl::at(Direction<3>::all_directions(), 5)] =
       Neighbors<3>{{ElementId<3>::external_boundary_id()}, {}};
   const FixedHashMap<maximum_number_of_neighbors(3),
-                     std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+                     std::pair<Direction<3>, ElementId<3>>, GhostData,
                      boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-      neighbor_data = compute_neighbor_data(
+      ghost_data = compute_ghost_data(
           subcell_mesh, logical_coords, neighbors_for_data,
           reconstructor.ghost_zone_size(), compute_prim_solution);
 
@@ -244,10 +247,9 @@ void test_prim_reconstructor_impl(
           prims_tags,
           hydro::Tags::LorentzFactorTimesSpatialVelocity<DataVector, 3>>,
       flux_tags,
-      tmpl::list<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-                 GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-                 Lapse, Shift, SpatialMetric, SqrtDetSpatialMetric,
-                 InverseSpatialMetric,
+      tmpl::list<gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 gh::ConstraintDamping::Tags::ConstraintGamma2, Lapse, Shift,
+                 SpatialMetric, SqrtDetSpatialMetric, InverseSpatialMetric,
                  evolution::dg::Actions::detail::NormalVector<3>>>>;
 
   std::array<Variables<fd_package_data_argument_tags>, 3> vars_on_lower_face =
@@ -268,10 +270,10 @@ void test_prim_reconstructor_impl(
           using tag = tmpl::type_from<decltype(tag_v)>;
           get<tag>(volume_prims) = get<tag>(volume_prims_for_recons);
         });
-    get<gr::Tags::SpacetimeMetric<3>>(volume_cons_vars) =
-        get<gr::Tags::SpacetimeMetric<3>>(volume_prims_for_recons);
-    const auto spatial_metric =
-        gr::spatial_metric(get<gr::Tags::SpacetimeMetric<3>>(volume_cons_vars));
+    get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_cons_vars) =
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_prims_for_recons);
+    const auto spatial_metric = gr::spatial_metric(
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_cons_vars));
 
     get(get<LorentzFactor>(volume_prims)) =
         sqrt(1.0 + get(dot_product(get<VelocityW>(volume_prims_for_recons),
@@ -282,21 +284,21 @@ void test_prim_reconstructor_impl(
           get<VelocityW>(volume_prims_for_recons).get(i) /
           get(get<LorentzFactor>(volume_prims));
     }
-    get<gr::Tags::SpacetimeMetric<3>>(volume_cons_vars) =
-        get<gr::Tags::SpacetimeMetric<3>>(volume_prims_for_recons);
-    get<gr::Tags::SpacetimeMetric<3>>(volume_spacetime_vars) =
-        get<gr::Tags::SpacetimeMetric<3>>(volume_prims_for_recons);
-    get<GeneralizedHarmonic::Tags::Phi<3>>(volume_spacetime_vars) =
-        get<GeneralizedHarmonic::Tags::Phi<3>>(volume_prims_for_recons);
-    get<GeneralizedHarmonic::Tags::Pi<3>>(volume_spacetime_vars) =
-        get<GeneralizedHarmonic::Tags::Pi<3>>(volume_prims_for_recons);
+    get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_cons_vars) =
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_prims_for_recons);
+    get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_spacetime_vars) =
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(volume_prims_for_recons);
+    get<gh::Tags::Phi<DataVector, 3>>(volume_spacetime_vars) =
+        get<gh::Tags::Phi<DataVector, 3>>(volume_prims_for_recons);
+    get<gh::Tags::Pi<DataVector, 3>>(volume_spacetime_vars) =
+        get<gh::Tags::Pi<DataVector, 3>>(volume_prims_for_recons);
   }
 
   // Now we have everything to call the reconstruction
   dynamic_cast<const Reconstructor&>(reconstructor)
       .reconstruct(make_not_null(&vars_on_lower_face),
                    make_not_null(&vars_on_upper_face), volume_prims,
-                   volume_cons_vars, eos, element, neighbor_data, subcell_mesh);
+                   volume_cons_vars, eos, element, ghost_data, subcell_mesh);
 
   for (size_t dim = 0; dim < 3; ++dim) {
     CAPTURE(dim);
@@ -393,14 +395,13 @@ void test_prim_reconstructor_impl(
         get<Rho>(expected_lower_face_values),
         get<ElectronFraction>(expected_lower_face_values),
         get<SpecificInternalEnergy>(expected_lower_face_values),
-        get<SpecificEnthalpy>(expected_lower_face_values),
         get<Pressure>(expected_lower_face_values),
         get<Velocity>(expected_lower_face_values),
         get<LorentzFactor>(expected_lower_face_values),
         get<MagField>(expected_lower_face_values),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
             expected_lower_face_values),
-        get<gr::Tags::SpatialMetric<3>>(expected_lower_face_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_lower_face_values),
         get<Phi>(expected_lower_face_values));
     mhd::ConservativeFromPrimitive::apply(
         make_not_null(&get<mhd::Tags::TildeD>(expected_upper_face_values)),
@@ -412,14 +413,13 @@ void test_prim_reconstructor_impl(
         get<Rho>(expected_upper_face_values),
         get<ElectronFraction>(expected_upper_face_values),
         get<SpecificInternalEnergy>(expected_upper_face_values),
-        get<SpecificEnthalpy>(expected_upper_face_values),
         get<Pressure>(expected_upper_face_values),
         get<Velocity>(expected_upper_face_values),
         get<LorentzFactor>(expected_upper_face_values),
         get<MagField>(expected_upper_face_values),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
             expected_upper_face_values),
-        get<gr::Tags::SpatialMetric<3>>(expected_upper_face_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_upper_face_values),
         get<Phi>(expected_upper_face_values));
 
     using tags_to_test = tmpl::push_back<
@@ -448,7 +448,7 @@ void test_prim_reconstructor_impl(
       dynamic_cast<const Reconstructor&>(reconstructor)
           .reconstruct_fd_neighbor(make_not_null(&upper_side_vars_on_mortar),
                                    volume_prims, volume_spacetime_vars, eos,
-                                   element, neighbor_data, subcell_mesh,
+                                   element, ghost_data, subcell_mesh,
                                    Direction<3>{dim, Side::Upper});
     }
 
@@ -457,7 +457,7 @@ void test_prim_reconstructor_impl(
     dynamic_cast<const Reconstructor&>(reconstructor)
         .reconstruct_fd_neighbor(make_not_null(&lower_side_vars_on_mortar),
                                  volume_prims, volume_spacetime_vars, eos,
-                                 element, neighbor_data, subcell_mesh,
+                                 element, ghost_data, subcell_mesh,
                                  Direction<3>{dim, Side::Lower});
 
     tmpl::for_each<tmpl::append<tags_to_test, spacetime_tags>>(

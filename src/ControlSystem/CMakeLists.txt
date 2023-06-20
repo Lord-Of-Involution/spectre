@@ -13,7 +13,6 @@ spectre_target_sources(
   Controller.cpp
   DataVectorHelpers.cpp
   ExpirationTimes.cpp
-  Tags.cpp
   TimescaleTuner.cpp
   )
 
@@ -31,7 +30,6 @@ spectre_target_headers(
   Metafunctions.hpp
   NamespaceDocs.hpp
   RunCallbacks.hpp
-  Tags.hpp
   TimescaleTuner.hpp
   Trigger.hpp
   UpdateControlSystem.hpp
@@ -45,15 +43,19 @@ target_link_libraries(
   Boost::boost
   DataStructures
   Domain
+  DomainStructure
   ErrorHandling
+  FiniteDifference
   FunctionsOfTime
+  Logging
+  Serialization
   INTERFACE
   Observer
   )
 
 add_subdirectory(Actions)
-add_subdirectory(ApparentHorizons)
 add_subdirectory(ControlErrors)
+add_subdirectory(Measurements)
 add_subdirectory(Protocols)
 add_subdirectory(Systems)
 add_subdirectory(Tags)

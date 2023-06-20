@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: CharacteristicExtract
-# Check: parse
+Executable: CharacteristicExtract
+Testing:
+  Check: parse
+
+---
 
 Evolution:
   InitialTimeStep: 0.25
@@ -43,8 +46,6 @@ Cce:
           MaxFactor: 2
           MinFactor: 0.25
           SafetyFactor: 0.9
-    StepController:
-      BinaryFraction
 
   LMax: 20
   NumberOfRadialPoints: 12

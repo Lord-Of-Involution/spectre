@@ -29,7 +29,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \ingroup GeneralRelativityGroup
@@ -48,7 +48,7 @@ namespace GeneralizedHarmonic {
  *     \Phi_{kij} &= \partial_k \gamma_{ij}
  * \f}
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void phi(gsl::not_null<tnsr::iaa<DataType, SpatialDim, Frame>*> phi,
          const Scalar<DataType>& lapse,
          const tnsr::i<DataType, SpatialDim, Frame>& deriv_lapse,
@@ -57,7 +57,7 @@ void phi(gsl::not_null<tnsr::iaa<DataType, SpatialDim, Frame>*> phi,
          const tnsr::ii<DataType, SpatialDim, Frame>& spatial_metric,
          const tnsr::ijj<DataType, SpatialDim, Frame>& deriv_spatial_metric);
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::iaa<DataType, SpatialDim, Frame> phi(
     const Scalar<DataType>& lapse,
     const tnsr::i<DataType, SpatialDim, Frame>& deriv_lapse,
@@ -73,19 +73,19 @@ namespace Tags {
  * generalized harmonic formulation of Einstein's equations.
  *
  * \details See `phi()`. Can be retrieved using
- * `GeneralizedHarmonic::Tags::Phi`.
+ * `gh::Tags::Phi`.
  */
 template <size_t SpatialDim, typename Frame>
-struct PhiCompute : Phi<SpatialDim, Frame>, db::ComputeTag {
+struct PhiCompute : Phi<DataVector, SpatialDim, Frame>, db::ComputeTag {
   using argument_tags = tmpl::list<
       gr::Tags::Lapse<DataVector>,
       ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<SpatialDim>,
                     Frame>,
-      gr::Tags::Shift<SpatialDim, Frame, DataVector>,
-      ::Tags::deriv<gr::Tags::Shift<SpatialDim, Frame, DataVector>,
+      gr::Tags::Shift<DataVector, SpatialDim, Frame>,
+      ::Tags::deriv<gr::Tags::Shift<DataVector, SpatialDim, Frame>,
                     tmpl::size_t<SpatialDim>, Frame>,
-      gr::Tags::SpatialMetric<SpatialDim, Frame, DataVector>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<SpatialDim, Frame, DataVector>,
+      gr::Tags::SpatialMetric<DataVector, SpatialDim, Frame>,
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, SpatialDim, Frame>,
                     tmpl::size_t<SpatialDim>, Frame>>;
 
   using return_type = tnsr::iaa<DataVector, SpatialDim, Frame>;
@@ -97,9 +97,9 @@ struct PhiCompute : Phi<SpatialDim, Frame>, db::ComputeTag {
       const tnsr::iJ<DataVector, SpatialDim, Frame>&,
       const tnsr::ii<DataVector, SpatialDim, Frame>&,
       const tnsr::ijj<DataVector, SpatialDim, Frame>&)>(
-      &phi<SpatialDim, Frame, DataVector>);
+      &phi<DataVector, SpatialDim, Frame>);
 
-  using base = Phi<SpatialDim, Frame>;
+  using base = Phi<DataVector, SpatialDim, Frame>;
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

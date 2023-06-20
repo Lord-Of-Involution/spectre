@@ -19,11 +19,13 @@
 #include "Domain/BoundaryConditions/GetBoundaryConditionsBase.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/Distribution.hpp"
+#include "Domain/Creators/BinaryCompactObjectHelpers.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
 #include "Options/Auto.hpp"
-#include "Options/Options.hpp"
+#include "Options/Context.hpp"
+#include "Options/String.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -43,14 +45,6 @@ class Wedge;
 template <size_t VolumeDim>
 class DiscreteRotation;
 class Frustum;
-namespace TimeDependent {
-template <size_t VolumeDim>
-class CubicScale;
-template <size_t VolumeDim>
-class Rotation;
-template <bool InteriorMap>
-class SphericalCompression;
-}  // namespace TimeDependent
 }  // namespace CoordinateMaps
 
 template <typename SourceFrame, typename TargetFrame, typename... Maps>
@@ -62,26 +56,11 @@ class FunctionOfTime;
 }  // namespace domain
 
 namespace Frame {
+struct Grid;
+struct Distorted;
 struct Inertial;
 struct BlockLogical;
 }  // namespace Frame
-
-namespace BinaryCompactObject_detail {
-// If `Metavariables` has a `domain_parameters` member struct and
-// `domain_parameters::enable_time_dependent_maps` is `true`, then
-// inherit from `std::true_type`; otherwise, inherit from `std::false_type`.
-template <typename Metavariables, typename = std::void_t<>>
-struct enable_time_dependent_maps : std::false_type {};
-
-template <typename Metavariables>
-struct enable_time_dependent_maps<Metavariables,
-                                  std::void_t<typename Metavariables::domain>>
-    : std::bool_constant<Metavariables::domain::enable_time_dependent_maps> {};
-
-template <typename Metavariables>
-constexpr bool enable_time_dependent_maps_v =
-    enable_time_dependent_maps<Metavariables>::value;
-}  // namespace BinaryCompactObject_detail
 /// \endcond
 
 namespace domain {
@@ -95,63 +74,63 @@ namespace creators {
  * \image html binary_compact_object_domain.png "A BHNS domain."
  *
  * Creates a 3D Domain that represents a binary compact object solution. The
- * Domain consists of 4, 5, or 6 nested layers of blocks; these layers are,
- * working from the interior toward the exterior:
- * - 0: (optionally) The block at the center of each compact object, if not
- *      excised. If present, this block is a cube. If excised, the hole left
- *      by its absence is spherical.
- * - 1: The blocks that resolve each individual compact object. This layer has
- *      a spherical outer boundary - if the corresponding layer-0 block exists,
- *      then the layer is a cube-to-sphere transition; if the layer-0 block is
- *      excised, then the layer is a spherical shell.
- * - 2: The blocks that surround each object with a cube. Around each compact
- *      object, this layer transitions from a sphere to a cube.
- * - 3: The blocks that surround each cube with a half-cube. At this layer, the
- *      two compact objects are enclosed in a single cube-shaped grid. This
- *      layer can have a spherical outer shape by setting the "frustum
- *      sphericity" to one.
- * - 4: The 10 blocks that form the first outer shell. This layer transitions
- *      back to spherical. The gridpoints are distributed linearly with respect
- *      to radius. This layer can be omitted if the "frustum sphericity" is one,
- *      so layer 3 is already spherical.
- * - 5: The 10 blocks that form a second outer shell. This layer is
- *      spherical, so a logarithmic map can optionally be used in this layer.
- *      This allows the domain to extend to large radial distances from the
- *      compact objects. This layer can be h-refined radially,
- *      creating a layer of multiple concentric spherical shells.
+ * Domain consists of 4 or 5 nested layers of blocks; these layers are, working
+ * from the interior toward the exterior:
  *
- * In the code and options below, `ObjectA` and `ObjectB` refer to the two
- * compact objects, and by extension, also refer to the layers that immediately
- * surround each compact object. Note that `ObjectA` is located to the right of
- * the origin (along the positive x-axis) and `ObjectB` is located to the left
- * of the origin. `enveloping cube` refers to the outer surface of Layer 3.
- * `outer sphere` is the radius of the spherical outer boundary, which is
- * the outer boundary of Layer 5. The `enveloping cube` and `outer sphere`
- * are both centered at the origin. `cutting plane` refers to the plane along
- * which the domain divides into two hemispheres. In the final coordinates, the
- * cutting plane always intersects the x-axis at the origin.
+ * - **Object A/B interior**: (optional) The block at the center of each
+ *   compact object, if not excised. If present, this block is a cube. If
+ *   excised, the hole left by its absence is spherical.
+ * - **Object A/B shell**: The 6 blocks that resolve each individual compact
+ *   object. This layer has a spherical outer boundary - if the corresponding
+ *   interior block exists, then the layer is a cube-to-sphere transition; if
+ *   the interior block is excised, then the layer is a spherical shell.
+ * - **Object A/B cube**: The 6 blocks that surround each object with a cube.
+ *   Around each compact object, this layer transitions from a sphere to a cube.
+ * - **Envelope**: The 10 blocks that transition from the two inner cubes to a
+ *   sphere centered at the origin.
+ * - **Outer shell**: The 10 blocks that form an outer shell centered at the
+ *   origin, consisting of 2 endcap Wedges on the +x and -x axes, and 8 half
+ *   Wedges along the yz plane. This layer is spherical, so a logarithmic map
+ *   can optionally be used in this layer. This allows the domain to extend to
+ *   large radial distances from the compact objects. This layer can be
+ *   h-refined radially, creating a layer of multiple concentric spherical
+ *   shells.
  *
- * \note The x-coordinate locations of the `ObjectA` and `ObjectB` should be
- * chosen such that the center of mass is located at x=0.
+ * \par Notes:
  *
- * \note When using this domain, the
- * metavariables struct can contain a struct named `domain`
- * that conforms to domain::protocols::Metavariables. If
- * domain::enable_time_dependent_maps is either set to `false`
- * or not specified in the metavariables, then this domain will be
- * time-independent. If domain::enable_time_dependent_maps is set
- * to `true`, then this domain also includes a time-dependent map, along with
- * additional options (and a corresponding constructor) for initializing the
- * time-dependent map. These options include the `InitialTime` which specifies
- * the initial time for the FunctionsOfTime controlling the map. The
- * time-dependent map itself consists of a composition of a CubicScale expansion
- * map and a Rotation map everywhere except possibly in layer 1; in that case,
- * if `ObjectA` or `ObjectB` is excised, then the time-dependent map in the
- * corresponding blocks in layer 1 is a composition of a SphericalCompression
- * size map, a CubicScale expansion map, and a Rotation map.
+ * - Object A is located to the right of the origin (along the positive x-axis)
+ *   and Object B is located to the left of the origin.
+ * - "Cutting plane" refers to the plane along which the domain divides into two
+ *   hemispheres. The cutting plane always intersects the x-axis at the origin.
+ * - The x-coordinate locations of the two objects should be chosen such that
+ *   the center of mass is located at x=0.
+ * -  Alternatively, one can replace the inner shell and cube blocks of each
+ *    object with a single cartesian cube. This is less efficient, but allows
+ *    testing of methods only coded on cartesian grids.
+ *
+ * \par Time dependence:
+ * When using this domain, the metavariables struct can contain a struct named
+ * `domain` that conforms to `domain::protocols::Metavariables`. If
+ * `domain::enable_time_dependent_maps` is either set to `false` or not
+ * specified in the metavariables, then this domain will be time-independent. If
+ * `domain::enable_time_dependent_maps` is set to `true`, then this domain also
+ * includes a time-dependent map, along with additional options (and a
+ * corresponding constructor) for initializing the time-dependent map. These
+ * options include the `InitialTime` which specifies the initial time for the
+ * FunctionsOfTime controlling the map. The following time-dependent maps are
+ * applied:
+ *
+ * - A `CubicScale` expansion and a `Rotation` applied to all blocks from the
+ *   Grid to the Inertial frame. However, if there is a size map in the block
+ *   (defined below), then the expansion and rotation maps go from the Distorted
+ *   to the Inertial frame.
+ * - If an object is excised, then the corresponding shell has a
+ *   `SphericalCompression` size map. The size map goes from the Grid to the
+ *   Distorted frame. We will also add a shape map here.
  */
 class BinaryCompactObject : public DomainCreator<3> {
  private:
+  // Time-independent maps
   using Affine = CoordinateMaps::Affine;
   using Affine3D = CoordinateMaps::ProductOf3Maps<Affine, Affine, Affine>;
   using Identity2D = CoordinateMaps::Identity<2>;
@@ -161,7 +140,7 @@ class BinaryCompactObject : public DomainCreator<3> {
       CoordinateMaps::ProductOf3Maps<Equiangular, Equiangular, Equiangular>;
 
  public:
-  using maps_list = tmpl::list<
+  using maps_list = tmpl::flatten<tmpl::list<
       domain::CoordinateMap<Frame::BlockLogical, Frame::Inertial, Affine3D>,
       domain::CoordinateMap<Frame::BlockLogical, Frame::Inertial,
                             Equiangular3D>,
@@ -179,15 +158,7 @@ class BinaryCompactObject : public DomainCreator<3> {
                             CoordinateMaps::Wedge<3>>,
       domain::CoordinateMap<Frame::BlockLogical, Frame::Inertial,
                             CoordinateMaps::Wedge<3>, Translation>,
-      domain::CoordinateMap<
-          Frame::Grid, Frame::Inertial,
-          domain::CoordinateMaps::TimeDependent::CubicScale<3>,
-          domain::CoordinateMaps::TimeDependent::Rotation<3>>,
-      domain::CoordinateMap<
-          Frame::Grid, Frame::Inertial,
-          domain::CoordinateMaps::TimeDependent::SphericalCompression<false>,
-          domain::CoordinateMaps::TimeDependent::CubicScale<3>,
-          domain::CoordinateMaps::TimeDependent::Rotation<3>>>;
+      bco::TimeDependentMapOptions::maps_list>>;
 
   /// Options for an excision region in the domain
   struct Excision {
@@ -295,31 +266,45 @@ class BinaryCompactObject : public DomainCreator<3> {
     bool use_logarithmic_map;
   };
 
+  // Simpler version of an object: a single cube centered on (xCoord,0,0)
+  struct CartesianCubeAtXCoord {
+    static constexpr Options::String help = {
+        "Options to set a single cube at a location on the x-axis"};
+    struct XCoord {
+      static std::string name() { return "CartesianCubeAtXCoord"; }
+      using type = double;
+      static constexpr Options::String help = {"x-coordinate of center."};
+    };
+    using options = tmpl::list<XCoord>;
+    bool is_excised() const { return false; }
+    double x_coord;
+  };
+
   struct ObjectA {
-    using type = Object;
+    using type = std::variant<Object, CartesianCubeAtXCoord>;
     static constexpr Options::String help = {
         "Options for the object to the right of the origin (along the positive "
         "x-axis)."};
   };
 
   struct ObjectB {
-    using type = Object;
+    using type = std::variant<Object, CartesianCubeAtXCoord>;
     static constexpr Options::String help = {
         "Options for the object to the left of the origin (along the negative "
         "x-axis)."};
   };
 
-  struct EnvelopingCube {
+  struct Envelope {
     static constexpr Options::String help = {
-        "Options for the cube enveloping the two objects."};
+        "Options for the sphere enveloping the two objects."};
   };
 
-  struct RadiusEnvelopingCube {
-    using group = EnvelopingCube;
+  struct EnvelopeRadius {
+    using group = Envelope;
     static std::string name() { return "Radius"; }
     using type = double;
     static constexpr Options::String help = {
-        "Radius of Layer 3 which circumscribes the Frustums."};
+        "Radius of the sphere enveloping the two objects."};
   };
 
   struct OuterShell {
@@ -329,20 +314,19 @@ class BinaryCompactObject : public DomainCreator<3> {
 
   struct OuterRadius {
     using group = OuterShell;
+    static std::string name() { return "Radius"; }
     using type = double;
     static constexpr Options::String help = {"Radius of the entire domain."};
   };
 
-  struct RadiusEnvelopingSphere {
+  struct OpeningAngle {
     using group = OuterShell;
-    static std::string name() { return "InnerRadius"; }
-    using type = Options::Auto<double>;
+    static std::string name() { return "OpeningAngle"; }
+    using type = double;
     static constexpr Options::String help = {
-        "Inner radius of the outer spherical shell. Set to 'Auto' to compute a "
-        "reasonable value automatically based on the "
-        "'OuterShell.RadialDistribution', or to omit the layer of blocks "
-        "altogether when EnvelopingCube.Sphericity is 1 and hence the "
-        "cube-to-sphere transition is not needed."};
+        "The combined opening angle of the two half wedges of the outer shell"
+        " in degrees. A value of 120.0 partitions the x-y and x-z slices of the"
+        " outer shell into six Blocks of equal angular size."};
   };
 
   struct InitialRefinement {
@@ -365,26 +349,18 @@ class BinaryCompactObject : public DomainCreator<3> {
         "domain. See main help text for details."};
   };
 
-  struct UseProjectiveMap {
-    using group = EnvelopingCube;
+  struct UseEquiangularMap {
     using type = bool;
     static constexpr Options::String help = {
-        "Use projective scaling on the frustal cloak."};
+        "Distribute grid points equiangularly."};
+    static bool suggested_value() { return true; }
   };
 
-  struct FrustumSphericity {
-    using group = EnvelopingCube;
-    static std::string name() { return "Sphericity"; }
-    using type = double;
+  struct UseProjectiveMap {
+    using group = Envelope;
+    using type = bool;
     static constexpr Options::String help = {
-        "Sphericity of the enveloping cube. The value 0.0 corresponds "
-        "to a cubical envelope of frustums, the value 1.0 corresponds "
-        "to a spherical envelope of frustums."};
-    static double lower_bound() { return 0.; }
-    static double upper_bound() { return 1.; }
-    // Suggest spherical frustums to encourage upgrading, but keep supporting
-    // cubical frustums until spherical frustums are sufficiently battle-tested
-    static double suggested_value() { return 1.; }
+        "Use projective scaling on the frustums in the envelope."};
   };
 
   struct RadialDistributionOuterShell {
@@ -405,134 +381,17 @@ class BinaryCompactObject : public DomainCreator<3> {
     using type = std::unique_ptr<BoundaryConditionsBase>;
   };
 
-  // The following options are for optional time dependent maps
+  // This is for optional time dependent maps
   struct TimeDependentMaps {
-    static constexpr Options::String help = {"Options for time-dependent maps"};
-  };
-
-  /// \brief The initial time of the functions of time.
-  struct InitialTime {
-    using type = double;
-    static constexpr Options::String help = {
-        "The initial time of the functions of time"};
-    using group = TimeDependentMaps;
-  };
-
-  struct ExpansionMap {
-    static constexpr Options::String help = {
-        "Options for a time-dependent expansion map (specifically, a "
-        "CubicScale map)"};
-    using group = TimeDependentMaps;
-  };
-
-  /// \brief The outer boundary or pivot point of the
-  /// `domain::CoordinateMaps::TimeDependent::CubicScale` map
-  struct ExpansionMapOuterBoundary {
-    using type = double;
-    static constexpr Options::String help = {
-        "Outer boundary or pivot point of the map"};
-    using group = ExpansionMap;
-    static std::string name() { return "OuterBoundary"; }
-  };
-  /// \brief The initial value of the expansion factor.
-  struct InitialExpansion {
-    using type = double;
-    static constexpr Options::String help = {
-        "Expansion value at initial time."};
-    using group = ExpansionMap;
-  };
-  /// \brief The velocity of the expansion factor.
-  struct InitialExpansionVelocity {
-    using type = double;
-    static constexpr Options::String help = {"The rate of expansion."};
-    using group = ExpansionMap;
-  };
-  /// \brief The asymptotic radial velocity of the outer boundary.
-  struct AsymptoticVelocityOuterBoundary {
-    using type = double;
-    static constexpr Options::String help = {
-        "The asymptotic velocity of the outer boundary."};
-    using group = ExpansionMap;
-  };
-  /// \brief The timescale for how fast the outer boundary velocity approaches
-  /// its asymptotic value.
-  struct DecayTimescaleOuterBoundaryVelocity {
-    using type = double;
-    static constexpr Options::String help = {
-        "The timescale for how fast the outer boundary velocity approaches its "
-        "asymptotic value."};
-    using group = ExpansionMap;
-  };
-
-  struct RotationMap {
-    static constexpr Options::String help = {
-        "Options for a time-dependent rotation map about an arbitrary axis."};
-    using group = TimeDependentMaps;
-  };
-  /// \brief The angular velocity of the rotation.
-  struct InitialAngularVelocity {
-    using type = std::array<double, 3>;
-    static constexpr Options::String help = {"The angular velocity."};
-    using group = RotationMap;
-  };
-
-  struct SizeMap {
-    static constexpr Options::String help = {
-        "Options for a time-dependent size maps."};
-    using group = TimeDependentMaps;
-  };
-
-  /// \brief Initial values for functions of time for size maps for objects A,B.
-  ///
-  /// \details If object A is not excised, no size map is applied for object A,
-  /// and this option is ignored for object A. If object B is not excised, no
-  /// size map is applied for object B, and this option is ignored for object B.
-  /// If neither object A nor object B are excised, this option is completely
-  /// ignored.
-  struct InitialSizeMapValues {
-    using type = std::array<double, 2>;
-    static constexpr Options::String help = {
-        "SizeMapA, SizeMapB values at initial time."};
-    using group = SizeMap;
-    static std::string name() { return "InitialValues"; }
-  };
-  /// \brief Initial velocities for functions of time for size maps for objects
-  /// A,B.
-  ///
-  /// \details If object A is not excised, no size map is applied for object A,
-  /// and this option is ignored for object A. If object B is not excised, no
-  /// size map is applied for object B, and this option is ignored for object B.
-  /// If neither object A nor object B are excised, this option is completely
-  /// ignored.
-  struct InitialSizeMapVelocities {
-    using type = std::array<double, 2>;
-    static constexpr Options::String help = {
-        "SizeMapA, SizeMapB initial velocities."};
-    using group = SizeMap;
-    static std::string name() { return "InitialVelocities"; }
-  };
-  /// \brief Initial accelerations for functions of time for size maps for
-  /// objects A,B
-  ///
-  /// \details If object A is not excised, no size map is applied for object A,
-  /// and this option is ignored for object A. If object B is not excised, no
-  /// size map is applied for object B, and this option is ignored for object B.
-  /// If neither object A nor object B are excised, this option is completely
-  /// ignored.
-  struct InitialSizeMapAccelerations {
-    using type = std::array<double, 2>;
-    static constexpr Options::String help = {
-        "SizeMapA, SizeMapB initial accelerations."};
-    using group = SizeMap;
-    static std::string name() { return "InitialAccelerations"; }
+    using type = bco::TimeDependentMapOptions;
+    static constexpr Options::String help = bco::TimeDependentMapOptions::help;
   };
 
   template <typename Metavariables>
   using time_independent_options = tmpl::append<
-      tmpl::list<ObjectA, ObjectB, RadiusEnvelopingCube, OuterRadius,
-                 InitialRefinement, InitialGridPoints, UseProjectiveMap,
-                 FrustumSphericity, RadiusEnvelopingSphere,
-                 RadialDistributionOuterShell>,
+      tmpl::list<ObjectA, ObjectB, EnvelopeRadius, OuterRadius,
+                 InitialRefinement, InitialGridPoints, UseEquiangularMap,
+                 UseProjectiveMap, RadialDistributionOuterShell, OpeningAngle>,
       tmpl::conditional_t<
           domain::BoundaryConditions::has_boundary_conditions_base_v<
               typename Metavariables::system>,
@@ -541,41 +400,23 @@ class BinaryCompactObject : public DomainCreator<3> {
                   typename Metavariables::system>>>,
           tmpl::list<>>>;
 
-  using time_dependent_options =
-      tmpl::list<InitialTime, ExpansionMapOuterBoundary, InitialExpansion,
-                 InitialExpansionVelocity, AsymptoticVelocityOuterBoundary,
-                 DecayTimescaleOuterBoundaryVelocity, InitialAngularVelocity,
-                 InitialSizeMapValues, InitialSizeMapVelocities,
-                 InitialSizeMapAccelerations>;
-
   template <typename Metavariables>
   using options = tmpl::conditional_t<
-      BinaryCompactObject_detail::enable_time_dependent_maps_v<Metavariables>,
-      tmpl::append<time_dependent_options,
-                   time_independent_options<Metavariables>>,
+      domain::creators::bco::enable_time_dependent_maps_v<Metavariables>,
+      tmpl::push_front<time_independent_options<Metavariables>,
+                       TimeDependentMaps>,
       time_independent_options<Metavariables>>;
 
   static constexpr Options::String help{
-      "The BinaryCompactObject domain is a general domain for two compact "
-      "objects. The user must provide the inner and outer radii of the "
-      "spherical shells surrounding each of the two compact objects A and B "
-      "(\"ObjectAShell\" and \"ObjectBShell\"). Each object is enveloped in "
-      "a cube (\"ObjectACube\" and \"ObjectBCube\")."
-      "The user must also provide the radius of the sphere that circumscribes "
-      "the cube containing both compact objects (\"EnvelopingCube\"). "
-      "A radial layer transitions from the enveloping cube to a sphere "
-      "(\"CubedShell\"). A final radial layer transitions to the outer "
-      "boundary (\"OuterShell\"). The options Object{A,B}.Interior (or "
-      "Object{A,B}.ExciseInterior if we're not working with boundary "
-      "conditions) determine whether blocks are present inside each compact "
-      "object (\"ObjectAInterior\" and \"ObjectBInterior\"). If set to a "
-      "boundary condition or 'false', the region will be excised. The user "
-      "specifies Object{A,B}.XCoord, the x-coordinates of the locations of the "
-      "centers of each compact object. In these coordinates, the location for "
-      "the axis of rotation is x=0. ObjectA is located on the right and ObjectB"
-      "is located on the left. Please make sure that your choices of "
-      "x-coordinate locations are such that the resulting center of mass "
-      "is located at zero.\n"
+      "A general domain for two compact objects. Each object is represented by "
+      "a cube along the x-axis. Object A is located on the right and Object B "
+      "is located on the left. Their locations should be chosen such that "
+      "their center of mass is located at the origin."
+      "The interior of each object can have a spherical excision to "
+      "represent a black hole."
+      "\n"
+      "The two objects are enveloped by a sphere centered at the origin, "
+      "and by an outer shell that can transition to large outer radii."
       "\n"
       "Both the InitialRefinement and the InitialGridPoints can be one of "
       "the following:\n"
@@ -587,13 +428,10 @@ class BinaryCompactObject : public DomainCreator<3> {
       "refinement in [polar, azimuthal, radial] direction\n"
       "  - A list, with [polar, azimuthal, radial] refinement for each block\n"
       "\n"
-      "The domain optionally includes time-dependent maps. Enabling "
-      "the time-dependent maps requires adding a "
-      "struct named domain to the Metavariables, with this "
-      "struct conforming to domain::protocols::Metavariables. To enable the "
-      "time-dependent maps, set "
-      "Metavariables::domain::enable_time_dependent_maps to "
-      "true."};
+      "If time-dependent maps are enabled, the domain can rotate around the "
+      "z-axis and expand/compress radially. The two objects can also have a "
+      "spherical compression (size map), and we will add a spherical "
+      "distortion (shape map)."};
 
   // Constructor for time-independent version of the domain
   // (i.e., for when
@@ -601,14 +439,14 @@ class BinaryCompactObject : public DomainCreator<3> {
   // when the metavariables do not define
   // Metavariables::domain::enable_time_dependent_maps)
   BinaryCompactObject(
-      Object object_A, Object object_B, double radius_enveloping_cube,
-      double outer_radius_domain,
+      typename ObjectA::type object_A, typename ObjectB::type object_B,
+      double envelope_radius, double outer_radius,
       const typename InitialRefinement::type& initial_refinement,
       const typename InitialGridPoints::type& initial_number_of_grid_points,
-      bool use_projective_map = true, double frustum_sphericity = 0.0,
-      const std::optional<double>& radius_enveloping_sphere = std::nullopt,
+      bool use_equiangular_map = true, bool use_projective_map = true,
       CoordinateMaps::Distribution radial_distribution_outer_shell =
           CoordinateMaps::Distribution::Linear,
+      double opening_angle_in_degrees = 90.0,
       std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
           outer_boundary_condition = nullptr,
       const Options::Context& context = {});
@@ -616,24 +454,17 @@ class BinaryCompactObject : public DomainCreator<3> {
   // Constructor for time-dependent version of the domain
   // (i.e., for when
   // Metavariables::domain::enable_time_dependent_maps == true),
-  // with parameters corresponding to the additional options
+  // with an additional parameter
   BinaryCompactObject(
-      double initial_time, double expansion_map_outer_boundary,
-      double initial_expansion, double initial_expansion_velocity,
-      double asymptotic_velocity_outer_boundary,
-      double decay_timescale_outer_boundary_velocity,
-      std::array<double, 3> initial_angular_velocity,
-      std::array<double, 2> initial_size_map_values,
-      std::array<double, 2> initial_size_map_velocities,
-      std::array<double, 2> initial_size_map_accelerations, Object object_A,
-      Object object_B, double radius_enveloping_cube,
-      double outer_radius_domain,
+      bco::TimeDependentMapOptions time_dependent_options,
+      typename ObjectA::type object_A, typename ObjectB::type object_B,
+      double envelope_radius, double outer_radius,
       const typename InitialRefinement::type& initial_refinement,
       const typename InitialGridPoints::type& initial_number_of_grid_points,
-      bool use_projective_map = true, double frustum_sphericity = 0.0,
-      const std::optional<double>& radius_enveloping_sphere = std::nullopt,
+      bool use_equiangular_map = true, bool use_projective_map = true,
       CoordinateMaps::Distribution radial_distribution_outer_shell =
           CoordinateMaps::Distribution::Linear,
+      double opening_angle_in_degrees = 90.0,
       std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
           outer_boundary_condition = nullptr,
       const Options::Context& context = {});
@@ -674,18 +505,14 @@ class BinaryCompactObject : public DomainCreator<3> {
           std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>> override;
 
  private:
-  Object object_A_{};
-  Object object_B_{};
-  bool need_cube_to_sphere_transition_{};
-  double radius_enveloping_cube_{};
-  double radius_enveloping_sphere_{};
-  double outer_radius_domain_{};
+  typename ObjectA::type object_A_{};
+  typename ObjectB::type object_B_{};
+  double envelope_radius_ = std::numeric_limits<double>::signaling_NaN();
+  double outer_radius_ = std::numeric_limits<double>::signaling_NaN();
   std::vector<std::array<size_t, 3>> initial_refinement_{};
   std::vector<std::array<size_t, 3>> initial_number_of_grid_points_{};
-  static constexpr bool use_equiangular_map_ =
-      false;  // Doesn't work properly yet
+  bool use_equiangular_map_ = true;
   bool use_projective_map_ = true;
-  double frustum_sphericity_{};
   CoordinateMaps::Distribution radial_distribution_outer_shell_ =
       CoordinateMaps::Distribution::Linear;
   double projective_scale_factor_{};
@@ -699,33 +526,15 @@ class BinaryCompactObject : public DomainCreator<3> {
   std::unordered_map<std::string, std::unordered_set<std::string>>
       block_groups_{};
 
-  // Variables for FunctionsOfTime options
-  bool enable_time_dependence_{false};
-  double initial_time_{std::numeric_limits<double>::signaling_NaN()};
-  double expansion_map_outer_boundary_{
-      std::numeric_limits<double>::signaling_NaN()};
-  double initial_expansion_{std::numeric_limits<double>::signaling_NaN()};
-  double initial_expansion_velocity_{
-      std::numeric_limits<double>::signaling_NaN()};
-  inline static const std::string expansion_function_of_time_name_{"Expansion"};
-  double asymptotic_velocity_outer_boundary_{
-      std::numeric_limits<double>::signaling_NaN()};
-  double decay_timescale_outer_boundary_velocity_{
-      std::numeric_limits<double>::signaling_NaN()};
-  DataVector initial_angular_velocity_{3, 0.0};
-  DataVector initial_quaternion_{4, 0.0};
-  inline static const std::string rotation_function_of_time_name_{"Rotation"};
-  std::array<double, 2> initial_size_map_values_{
-      std::numeric_limits<double>::signaling_NaN(),
-      std::numeric_limits<double>::signaling_NaN()};
-  std::array<double, 2> initial_size_map_velocities_{
-      std::numeric_limits<double>::signaling_NaN(),
-      std::numeric_limits<double>::signaling_NaN()};
-  std::array<double, 2> initial_size_map_accelerations_{
-      std::numeric_limits<double>::signaling_NaN(),
-      std::numeric_limits<double>::signaling_NaN()};
-  inline static const std::array<std::string, 2>
-      size_map_function_of_time_names_{{"SizeA", "SizeB"}};
+  // Variables to handle std::variant on Object A and B
+  double x_coord_a_{};
+  double x_coord_b_{};
+  bool is_excised_a_ = false;
+  bool is_excised_b_ = false;
+  bool use_single_block_a_ = false;
+  bool use_single_block_b_ = false;
+  std::optional<bco::TimeDependentMapOptions> time_dependent_options_{};
+  double opening_angle_ = std::numeric_limits<double>::signaling_NaN();
 };
 }  // namespace creators
 }  // namespace domain

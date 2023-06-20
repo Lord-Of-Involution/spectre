@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -23,11 +24,12 @@
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Tags.hpp"
 #include "Evolution/BoundaryCorrectionTags.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/MortarTags.hpp"
 #include "Evolution/Systems/NewtonianEuler/BoundaryCorrections/BoundaryCorrection.hpp"
 #include "Evolution/Systems/NewtonianEuler/BoundaryCorrections/Factory.hpp"
@@ -177,8 +179,8 @@ std::array<double, 3> test(const size_t num_dg_pts) {
   // 1. compute prims from solution
   // 2. compute prims needed for reconstruction
   // 3. set neighbor data
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<
-      dim>::type neighbor_data{};
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<dim>::type
+      neighbor_data{};
   using prims_to_reconstruct_tags =
       tmpl::list<NewtonianEuler::Tags::MassDensity<DataVector>,
                  NewtonianEuler::Tags::Velocity<DataVector, dim>,
@@ -199,16 +201,16 @@ std::array<double, 3> test(const size_t num_dg_pts) {
         });
 
     // Slice data so we can add it to the element's neighbor data
-    DirectionMap<dim, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
-    std::vector<double> neighbor_data_in_direction =
+    DataVector neighbor_data_in_direction =
         evolution::dg::subcell::slice_data(
             prims_to_reconstruct, subcell_mesh.extents(),
             NewtonianEuler::fd::MonotonisedCentralPrim<dim>{}.ghost_zone_size(),
-            directions_to_slice, 0)
+            std::unordered_set{direction.opposite()}, 0)
             .at(direction.opposite());
-    neighbor_data[std::pair{direction,
-                            *element.neighbors().at(direction).begin()}] =
+    const auto key =
+        std::pair{direction, *element.neighbors().at(direction).begin()};
+    neighbor_data[key] = evolution::dg::subcell::GhostData{1};
+    neighbor_data[key].neighbor_ghost_data_for_reconstruction() =
         neighbor_data_in_direction;
   }
 
@@ -224,7 +226,7 @@ std::array<double, 3> test(const size_t num_dg_pts) {
           hydro::Tags::EquationOfState<eos>,
           typename system::primitive_variables_tag, dt_variables_tag,
           variables_tag,
-          evolution::dg::subcell::Tags::NeighborDataForReconstruction<dim>,
+          evolution::dg::subcell::Tags::GhostDataForReconstruction<dim>,
           evolution::dg::Tags::MortarData<dim>>,
       db::AddComputeTags<
           evolution::dg::subcell::Tags::LogicalCoordinatesCompute<dim>>>(

@@ -1,10 +1,13 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarWave1D
-# Check: parse
-# ExpectedOutput:
-#   ScalarWavePlaneWave1DEventsAndTriggersExampleVolume.h5
+Executable: EvolveScalarWave1D
+Testing:
+  Check: parse
+ExpectedOutput:
+  - ScalarWavePlaneWave1DEventsAndTriggersExampleVolume.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -28,7 +31,6 @@ Evolution:
   TimeStepper:
     AdamsBashforth:
       Order: 3
-  StepController: BinaryFraction
   StepChoosers:
     - Constant: 0.001
 
@@ -36,6 +38,8 @@ DomainCreator:
   Interval:
     LowerBound: [0.0]
     UpperBound: [6.283185307179586]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [0]
     InitialGridPoints: [2]
     TimeDependence: None
@@ -54,16 +58,19 @@ EventsAndDenseTriggers:
 
 # [multiple_events]
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 10
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: Fields
           VariablesToObserve: [Psi]
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None
       - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
@@ -76,15 +83,10 @@ EventsAndTriggers:
             - Name: Error(Pi)
               NormType: L2Norm
               Components: Sum
+  - Trigger: Always
+    Events:
+      - Completion
 # [multiple_events]
-
-# [no_arguments]
-  - - Always
-    - - Completion
-# [no_arguments]
-# [no_arguments_single_line]
-  - [Always, [Completion]]
-# [no_arguments_single_line]
 
 Observers:
   VolumeFileName: "ScalarWavePlaneWave1DEventsAndTriggersExampleVolume"

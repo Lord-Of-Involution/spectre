@@ -199,10 +199,9 @@ tuples::TaggedTuple<gr::Tags::Lapse<DataType>> RiemannProblem::variables(
 }
 
 template <typename DataType>
-tuples::TaggedTuple<gr::Tags::Shift<3, Frame::Inertial, DataType>>
-RiemannProblem::variables(
+tuples::TaggedTuple<gr::Tags::Shift<DataType, 3>> RiemannProblem::variables(
     const tnsr::I<DataType, 3>& x,
-    tmpl::list<gr::Tags::Shift<3, Frame::Inertial, DataType>> /*meta*/) const {
+    tmpl::list<gr::Tags::Shift<DataType, 3>> /*meta*/) const {
   auto shift = make_with_value<tnsr::I<DataType, 3, Frame::Inertial>>(x, 0.0);
   get<0>(shift) = shift_;
   return {std::move(shift)};
@@ -236,13 +235,12 @@ bool operator!=(const RiemannProblem& lhs, const RiemannProblem& rhs) {
                                 tmpl::list<TAG(data) < DTYPE(data)>> /*meta*/) \
           const;
 
-GENERATE_INSTANTIATIONS(INSTANTIATE_SCALARS, (double, DataVector),
-                        (hydro::Tags::RestMassDensity,
-                         hydro::Tags::SpecificInternalEnergy,
-                         hydro::Tags::Pressure,
-                         hydro::Tags::DivergenceCleaningField,
-                         hydro::Tags::LorentzFactor,
-                         hydro::Tags::SpecificEnthalpy, gr::Tags::Lapse))
+GENERATE_INSTANTIATIONS(
+    INSTANTIATE_SCALARS, (double, DataVector),
+    (hydro::Tags::RestMassDensity, hydro::Tags::SpecificInternalEnergy,
+     hydro::Tags::Pressure, hydro::Tags::DivergenceCleaningField,
+     hydro::Tags::LorentzFactor, hydro::Tags::SpecificEnthalpy,
+     hydro::Tags::ElectronFraction, gr::Tags::Lapse))
 
 #define INSTANTIATE_VECTORS(_, data)                        \
   template tuples::TaggedTuple<TAG(data) < DTYPE(data), 3>> \
@@ -261,12 +259,12 @@ GENERATE_INSTANTIATIONS(INSTANTIATE_VECTORS, (double, DataVector),
 
 // The GR tags have a different template parameter ordering than the rest of the
 // code, so need to instantiate separately.
-template tuples::TaggedTuple<gr::Tags::Shift<3, Frame::Inertial, double>>
+template tuples::TaggedTuple<gr::Tags::Shift<double, 3>>
 RiemannProblem::variables(
     const tnsr::I<double, 3>& x,
-    tmpl::list<gr::Tags::Shift<3, Frame::Inertial, double>> /*meta*/) const;
-template tuples::TaggedTuple<gr::Tags::Shift<3, Frame::Inertial, DataVector>>
+    tmpl::list<gr::Tags::Shift<double, 3>> /*meta*/) const;
+template tuples::TaggedTuple<gr::Tags::Shift<DataVector, 3>>
 RiemannProblem::variables(
     const tnsr::I<DataVector, 3>& x,
-    tmpl::list<gr::Tags::Shift<3, Frame::Inertial, DataVector>> /*meta*/) const;
+    tmpl::list<gr::Tags::Shift<DataVector, 3>> /*meta*/) const;
 }  // namespace grmhd::AnalyticData

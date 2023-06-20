@@ -27,8 +27,7 @@
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
 #include "Helpers/Evolution/DiscontinuousGalerkin/BoundaryConditions.hpp"
 #include "Helpers/PointwiseFunctions/GeneralRelativity/TestHelpers.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
+#include "Options/Protocols/FactoryCreation.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/WrappedGr.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GrMhd/BondiMichel.hpp"
@@ -38,6 +37,7 @@
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -60,7 +60,7 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
 
   std::uniform_real_distribution<> dist(0.1, 1.0);
 
-  const GeneralizedHarmonic::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>
+  const gh::Solutions::WrappedGr<grmhd::Solutions::BondiMichel>
       analytic_solution{1.0, 4.0, 0.1, 2.0, 0.01};
 
   const auto interior_gamma1 = make_with_random_values<Scalar<DataVector>>(
@@ -77,10 +77,10 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
       db::wrap_tags_in<::Tags::Flux,
                        grmhd::GhValenciaDivClean::System::flux_variables,
                        tmpl::size_t<3_st>, Frame::Inertial>,
-      tmpl::list<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-                 GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-                 gr::Tags::Lapse<>, gr::Tags::Shift<3>,
-                 gr::Tags::InverseSpatialMetric<3>>>>;
+      tmpl::list<gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 gh::ConstraintDamping::Tags::ConstraintGamma2,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                 gr::Tags::InverseSpatialMetric<DataVector, 3>>>>;
   using PrimVars =
       Variables<tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
                            hydro::Tags::ElectronFraction<DataVector>,
@@ -108,38 +108,36 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
 
     PrimVars local_prim_vars{num_points};
 
-    using tags = tmpl::list<
-        hydro::Tags::RestMassDensity<DataVector>,
-        hydro::Tags::ElectronFraction<DataVector>,
-        hydro::Tags::SpecificInternalEnergy<DataVector>,
-        hydro::Tags::SpecificEnthalpy<DataVector>,
-        hydro::Tags::Pressure<DataVector>,
-        hydro::Tags::SpatialVelocity<DataVector, 3>,
-        hydro::Tags::LorentzFactor<DataVector>,
-        hydro::Tags::MagneticField<DataVector, 3>,
-        hydro::Tags::DivergenceCleaningField<DataVector>,
-        gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-        gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-        gr::Tags::SqrtDetSpatialMetric<DataVector>, gr::Tags::Lapse<DataVector>,
-        gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-        gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-        ::GeneralizedHarmonic::Tags::Pi<3>,
-        ::GeneralizedHarmonic::Tags::Phi<3>>;
+    using tags =
+        tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                   hydro::Tags::ElectronFraction<DataVector>,
+                   hydro::Tags::SpecificInternalEnergy<DataVector>,
+                   hydro::Tags::SpecificEnthalpy<DataVector>,
+                   hydro::Tags::Pressure<DataVector>,
+                   hydro::Tags::SpatialVelocity<DataVector, 3>,
+                   hydro::Tags::LorentzFactor<DataVector>,
+                   hydro::Tags::MagneticField<DataVector, 3>,
+                   hydro::Tags::DivergenceCleaningField<DataVector>,
+                   gr::Tags::SpatialMetric<DataVector, 3>,
+                   gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                   gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                   gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                   gr::Tags::SpacetimeMetric<DataVector, 3>,
+                   ::gh::Tags::Pi<DataVector, 3>,
+                   ::gh::Tags::Phi<DataVector, 3>>;
 
     tuples::tagged_tuple_from_typelist<tags> analytic_vars{};
 
     analytic_vars = analytic_solution.variables(coords, time, tags{});
     local_prim_vars.assign_subset(analytic_vars);
     spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            analytic_vars);
-    pi = get<::GeneralizedHarmonic::Tags::Pi<3>>(analytic_vars);
-    phi = get<::GeneralizedHarmonic::Tags::Phi<3>>(analytic_vars);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(analytic_vars);
+    pi = get<::gh::Tags::Pi<DataVector, 3>>(analytic_vars);
+    phi = get<::gh::Tags::Phi<DataVector, 3>>(analytic_vars);
     lapse = get<gr::Tags::Lapse<DataVector>>(analytic_vars);
-    shift = get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(analytic_vars);
+    shift = get<gr::Tags::Shift<DataVector, 3>>(analytic_vars);
     inverse_spatial_metric =
-        get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-            analytic_vars);
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(analytic_vars);
 
     grmhd::ValenciaDivClean::ConservativeFromPrimitive::apply(
         make_not_null(&tilde_d), make_not_null(&tilde_ye),
@@ -148,14 +146,12 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
         get<hydro::Tags::RestMassDensity<DataVector>>(analytic_vars),
         get<hydro::Tags::ElectronFraction<DataVector>>(analytic_vars),
         get<hydro::Tags::SpecificInternalEnergy<DataVector>>(analytic_vars),
-        get<hydro::Tags::SpecificEnthalpy<DataVector>>(analytic_vars),
         get<hydro::Tags::Pressure<DataVector>>(analytic_vars),
         get<hydro::Tags::SpatialVelocity<DataVector, 3>>(analytic_vars),
         get<hydro::Tags::LorentzFactor<DataVector>>(analytic_vars),
         get<hydro::Tags::MagneticField<DataVector, 3>>(analytic_vars),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(analytic_vars),
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(
-            analytic_vars),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(analytic_vars),
         get<hydro::Tags::DivergenceCleaningField<DataVector>>(analytic_vars));
 
     grmhd::ValenciaDivClean::ComputeFluxes::apply(
@@ -164,10 +160,8 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
         make_not_null(&tilde_b_flux), make_not_null(&tilde_phi_flux), tilde_d,
         tilde_ye, tilde_tau, tilde_s, tilde_b, tilde_phi, lapse, shift,
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(analytic_vars),
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(
-            analytic_vars),
-        get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-            analytic_vars),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(analytic_vars),
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(analytic_vars),
         get<hydro::Tags::Pressure<DataVector>>(analytic_vars),
         get<hydro::Tags::SpatialVelocity<DataVector, 3>>(analytic_vars),
         get<hydro::Tags::LorentzFactor<DataVector>>(analytic_vars),
@@ -184,15 +178,14 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
   get<2>(normal_covector) = 0.5;
   const auto magnitude_normal = magnitude(
       normal_covector,
-      get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-          expected_vars));
+      get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(expected_vars));
   for (size_t i = 0; i < 3; ++i) {
     normal_covector.get(i) /= get(magnitude_normal);
   }
-  const auto normal_vector = tenex::evaluate<ti::I>(
-      normal_covector(ti::j) *
-      get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-          expected_vars)(ti::I, ti::J));
+  const auto normal_vector =
+      tenex::evaluate<ti::I>(normal_covector(ti::j) *
+                             get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                                 expected_vars)(ti::I, ti::J));
 
   auto& [spacetime_metric, pi, phi, tilde_d, tilde_ye, tilde_tau, tilde_s,
          tilde_b, tilde_phi, tilde_d_flux, tilde_ye_flux, tilde_tau_flux,
@@ -214,9 +207,9 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
                   make_not_null(&shift), make_not_null(&inverse_spatial_metric),
                   {}, normal_covector, normal_vector,
 
-                  get<gr::Tags::SpacetimeMetric<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Pi<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Phi<3>>(expected_vars),
+                  get<gr::Tags::SpacetimeMetric<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Pi<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Phi<DataVector, 3>>(expected_vars),
 
                   get<hydro::Tags::RestMassDensity<DataVector>>(prim_vars),
                   get<hydro::Tags::ElectronFraction<DataVector>>(prim_vars),
@@ -226,13 +219,12 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
                   get<hydro::Tags::MagneticField<DataVector, 3>>(prim_vars),
                   get<hydro::Tags::LorentzFactor<DataVector>>(prim_vars),
                   get<hydro::Tags::Pressure<DataVector>>(prim_vars),
-                  get<hydro::Tags::SpecificEnthalpy<DataVector>>(prim_vars),
 
                   coords, interior_gamma1, interior_gamma2,
                   get<gr::Tags::Lapse<DataVector>>(expected_vars),
-                  get<gr::Tags::Shift<3>>(expected_vars),
-                  get<gr::Tags::InverseSpatialMetric<
-                      3, Frame::Inertial, DataVector>>(expected_vars),
+                  get<gr::Tags::Shift<DataVector, 3>>(expected_vars),
+                  get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                      expected_vars),
                   {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
               .has_value());
 
@@ -240,9 +232,9 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
       determinant_and_inverse(spacetime_metric).second;
   const auto spacetime_normal_vector = gr::spacetime_normal_vector(
       get<gr::Tags::Lapse<DataVector>>(expected_vars),
-      get<gr::Tags::Shift<3>>(expected_vars));
+      get<gr::Tags::Shift<DataVector, 3>>(expected_vars));
   const auto spacetime_normal_one_form =
-      gr::spacetime_normal_one_form<3, Frame::Inertial>(
+      gr::spacetime_normal_one_form<DataVector, 3, Frame::Inertial>(
           get<gr::Tags::Lapse<DataVector>>(expected_vars));
   const auto gauge_source = make_with_random_values<tnsr::a<DataVector, 3>>(
       generator, make_not_null(&dist), num_points);
@@ -275,13 +267,13 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
       not boundary_condition
               .dg_time_derivative(
                   make_not_null(
-                      &get<::Tags::dt<gr::Tags::SpacetimeMetric<3>>>(dt_vars)),
-                  make_not_null(
-                      &get<::Tags::dt<GeneralizedHarmonic::Tags::Pi<3>>>(
+                      &get<
+                          ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>>(
                           dt_vars)),
                   make_not_null(
-                      &get<::Tags::dt<GeneralizedHarmonic::Tags::Phi<3>>>(
-                          dt_vars)),
+                      &get<::Tags::dt<gh::Tags::Pi<DataVector, 3>>>(dt_vars)),
+                  make_not_null(
+                      &get<::Tags::dt<gh::Tags::Phi<DataVector, 3>>>(dt_vars)),
                   make_not_null(
                       &get<::Tags::dt<grmhd::ValenciaDivClean::Tags::TildeD>>(
                           dt_vars)),
@@ -303,9 +295,9 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
 
                   {}, normal_covector, normal_vector,
 
-                  get<gr::Tags::SpacetimeMetric<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Pi<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Phi<3>>(expected_vars),
+                  get<gr::Tags::SpacetimeMetric<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Pi<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Phi<DataVector, 3>>(expected_vars),
 
                   get<hydro::Tags::RestMassDensity<DataVector>>(prim_vars),
                   get<hydro::Tags::ElectronFraction<DataVector>>(prim_vars),
@@ -315,13 +307,12 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
                   get<hydro::Tags::MagneticField<DataVector, 3>>(prim_vars),
                   get<hydro::Tags::LorentzFactor<DataVector>>(prim_vars),
                   get<hydro::Tags::Pressure<DataVector>>(prim_vars),
-                  get<hydro::Tags::SpecificEnthalpy<DataVector>>(prim_vars),
 
                   coords, interior_gamma1, interior_gamma2,
                   get<gr::Tags::Lapse<DataVector>>(expected_vars),
-                  get<gr::Tags::Shift<3>>(expected_vars),
-                  get<gr::Tags::InverseSpatialMetric<
-                      3, Frame::Inertial, DataVector>>(expected_vars),
+                  get<gr::Tags::Shift<DataVector, 3>>(expected_vars),
+                  get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                      expected_vars),
                   inverse_spacetime_metric, spacetime_normal_vector,
                   spacetime_normal_one_form, three_index_constraint,
                   gauge_source, spacetime_deriv_gauge_source,
@@ -367,7 +358,6 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
                     get<hydro::Tags::MagneticField<DataVector, 3>>(prim_vars),
                     get<hydro::Tags::LorentzFactor<DataVector>>(prim_vars),
                     get<hydro::Tags::Pressure<DataVector>>(prim_vars),
-                    get<hydro::Tags::SpecificEnthalpy<DataVector>>(prim_vars),
 
                     shift, lapse, inverse_spatial_metric)
                 .has_value());
@@ -380,30 +370,30 @@ void test_dg(const gsl::not_null<std::mt19937*> generator,
 
   // Test constraint-preserving BC
   DtVars expected_dt_vars{num_points, 0.0};
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<3> gh_cp{
-      GeneralizedHarmonic::BoundaryConditions::detail::
-          ConstraintPreservingBjorhusType::ConstraintPreservingPhysical};
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<3> gh_cp{
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+          ConstraintPreservingPhysical};
   CHECK(
       not gh_cp
               .dg_time_derivative(
-                  make_not_null(&get<::Tags::dt<gr::Tags::SpacetimeMetric<3>>>(
+                  make_not_null(
+                      &get<
+                          ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>>(
+                          expected_dt_vars)),
+                  make_not_null(&get<::Tags::dt<gh::Tags::Pi<DataVector, 3>>>(
                       expected_dt_vars)),
-                  make_not_null(
-                      &get<::Tags::dt<GeneralizedHarmonic::Tags::Pi<3>>>(
-                          expected_dt_vars)),
-                  make_not_null(
-                      &get<::Tags::dt<GeneralizedHarmonic::Tags::Phi<3>>>(
-                          expected_dt_vars)),
+                  make_not_null(&get<::Tags::dt<gh::Tags::Phi<DataVector, 3>>>(
+                      expected_dt_vars)),
 
                   {}, normal_covector, normal_vector,
 
-                  get<gr::Tags::SpacetimeMetric<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Pi<3>>(expected_vars),
-                  get<GeneralizedHarmonic::Tags::Phi<3>>(expected_vars),
+                  get<gr::Tags::SpacetimeMetric<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Pi<DataVector, 3>>(expected_vars),
+                  get<gh::Tags::Phi<DataVector, 3>>(expected_vars),
 
                   coords, interior_gamma1, interior_gamma2,
                   get<gr::Tags::Lapse<DataVector>>(expected_vars),
-                  get<gr::Tags::Shift<3>>(expected_vars),
+                  get<gr::Tags::Shift<DataVector, 3>>(expected_vars),
                   inverse_spacetime_metric, spacetime_normal_vector,
                   spacetime_normal_one_form, three_index_constraint,
                   gauge_source, spacetime_deriv_gauge_source,
@@ -450,7 +440,7 @@ SPECTRE_TEST_CASE(
   "[Unit][Evolution]") {
   // clang-format on
   MAKE_GENERATOR(gen);
-  Parallel::register_factory_classes_with_charm<Metavariables>();
+  register_factory_classes_with_charm<Metavariables>();
 
   const auto product_boundary_condition =
       TestHelpers::test_creation<

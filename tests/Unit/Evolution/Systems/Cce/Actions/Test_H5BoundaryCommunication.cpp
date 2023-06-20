@@ -41,8 +41,6 @@
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
@@ -183,14 +181,16 @@ struct test_metavariables {
                  Cce::Tags::ScriPlus<Cce::Tags::Psi3>,
                  Cce::Tags::TimeIntegral<Cce::Tags::ScriPlus<Cce::Tags::Psi4>>,
                  Cce::Tags::ScriPlusFactor<Cce::Tags::Psi4>>;
+  using ccm_psi0 = tmpl::list<
+        Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+        Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 
   using component_list =
       tmpl::list<mock_h5_worldtube_boundary<test_metavariables>,
                  mock_characteristic_evolution<test_metavariables>,
                  mock_observer_writer<test_metavariables>>;
 
-  static constexpr bool uses_partially_flat_cartesian_coordinates = false;
-
+  static constexpr bool evolve_ccm = false;
 };
 }  // namespace
 
@@ -247,8 +247,6 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.Actions.H5BoundaryCommunication",
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size);
   ActionTesting::emplace_component<worldtube_component>(
       &runner, 0,

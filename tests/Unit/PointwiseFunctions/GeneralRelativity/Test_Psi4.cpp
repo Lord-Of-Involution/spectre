@@ -54,13 +54,12 @@ void test_compute_item_in_databox(const RealDataType& used_for_size_real) {
 
   const auto box = db::create<
       db::AddSimpleTags<
-          gr::Tags::SpatialRicci<3, Frame::Inertial, RealDataType>,
-          gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, RealDataType>,
-          ::Tags::deriv<
-              gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, RealDataType>,
-              tmpl::size_t<3>, Frame::Inertial>,
-          gr::Tags::SpatialMetric<3, Frame::Inertial, RealDataType>,
-          gr::Tags::InverseSpatialMetric<3, Frame::Inertial, RealDataType>,
+          gr::Tags::SpatialRicci<RealDataType, 3>,
+          gr::Tags::ExtrinsicCurvature<RealDataType, 3>,
+          ::Tags::deriv<gr::Tags::ExtrinsicCurvature<RealDataType, 3>,
+                        tmpl::size_t<3>, Frame::Inertial>,
+          gr::Tags::SpatialMetric<RealDataType, 3>,
+          gr::Tags::InverseSpatialMetric<RealDataType, 3>,
           domain::Tags::Coordinates<3, Frame::Inertial>>,
       db::AddComputeTags<gr::Tags::Psi4RealCompute<Frame::Inertial>>>(
       spatial_ricci, extrinsic_curvature, cov_deriv_extrinsic_curvature,
@@ -96,9 +95,6 @@ void test_psi_4(const RealDataType& used_for_size_real,
   auto inertial_coords =
       make_with_random_values<tnsr::I<RealDataType, 3, Frame::Inertial>>(
           nn_generator, nn_distribution, used_for_size_real);
-  for (size_t i = 0; i < 3; ++i) {
-    inertial_coords.get(i)[0] = 0.0;
-  }
 
   const auto python_psi_4 = pypp::call<Scalar<ComplexDataType>>(
       "GeneralRelativity.Psi4", "psi_4", spatial_ricci, extrinsic_curvature,

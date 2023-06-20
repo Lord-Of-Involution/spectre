@@ -11,11 +11,11 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"  // for tags
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -28,15 +28,15 @@ class er;
 }  // namespace PUP
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 namespace Solutions {
 
 /*!
  * \brief A wrapper for general-relativity analytic solutions that loads
  * the analytic solution and then adds a function that returns
  * any combination of the generalized-harmonic evolution variables,
- * specifically `gr::Tags::SpacetimeMetric`, `GeneralizedHarmonic::Tags::Pi`,
- * and `GeneralizedHarmonic::Tags::Phi`
+ * specifically `gr::Tags::SpacetimeMetric`, `gh::Tags::Pi`,
+ * and `gh::Tags::Phi`
  */
 template <typename SolutionType>
 class WrappedGr : public virtual evolution::initial_data::InitialData,
@@ -70,27 +70,24 @@ class WrappedGr : public virtual evolution::initial_data::InitialData,
 
   using DerivLapse = ::Tags::deriv<gr::Tags::Lapse<DataVector>,
                                    tmpl::size_t<volume_dim>, Frame::Inertial>;
-  using DerivShift =
-      ::Tags::deriv<gr::Tags::Shift<volume_dim, Frame::Inertial, DataVector>,
+  using DerivShift = ::Tags::deriv<gr::Tags::Shift<DataVector, volume_dim>,
+                                   tmpl::size_t<volume_dim>, Frame::Inertial>;
+  using DerivSpatialMetric =
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, volume_dim>,
                     tmpl::size_t<volume_dim>, Frame::Inertial>;
-  using DerivSpatialMetric = ::Tags::deriv<
-      gr::Tags::SpatialMetric<volume_dim, Frame::Inertial, DataVector>,
-      tmpl::size_t<volume_dim>, Frame::Inertial>;
   using TimeDerivLapse = ::Tags::dt<gr::Tags::Lapse<DataVector>>;
-  using TimeDerivShift =
-      ::Tags::dt<gr::Tags::Shift<volume_dim, Frame::Inertial, DataVector>>;
-  using TimeDerivSpatialMetric = ::Tags::dt<
-      gr::Tags::SpatialMetric<volume_dim, Frame::Inertial, DataVector>>;
+  using TimeDerivShift = ::Tags::dt<gr::Tags::Shift<DataVector, volume_dim>>;
+  using TimeDerivSpatialMetric =
+      ::Tags::dt<gr::Tags::SpatialMetric<DataVector, volume_dim>>;
 
   using IntermediateVars = tuples::tagged_tuple_from_typelist<
       typename SolutionType::template tags<DataVector>>;
 
   template <typename DataType>
-  using tags = tmpl::push_back<
-      typename SolutionType::template tags<DataType>,
-      gr::Tags::SpacetimeMetric<volume_dim, Frame::Inertial, DataType>,
-      GeneralizedHarmonic::Tags::Pi<volume_dim, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::Phi<volume_dim, Frame::Inertial>>;
+  using tags = tmpl::push_back<typename SolutionType::template tags<DataType>,
+                               gr::Tags::SpacetimeMetric<DataType, volume_dim>,
+                               gh::Tags::Pi<DataVector, volume_dim>,
+                               gh::Tags::Phi<DataVector, volume_dim>>;
 
   template <typename... Tags>
   tuples::TaggedTuple<Tags...> variables(
@@ -141,15 +138,13 @@ class WrappedGr : public virtual evolution::initial_data::InitialData,
  private:
   // Preprocessor logic to avoid declaring variables() functions for
   // tags other than the three the wrapper adds (i.e., other than
-  // gr::Tags::SpacetimeMetric, GeneralizedHarmonic::Tags::Pi, and
+  // gr::Tags::SpacetimeMetric, gh::Tags::Pi, and
   // GeneralizedHarmonic:Tags::Phi)
-  using TagShift = gr::Tags::Shift<volume_dim, Frame::Inertial, DataVector>;
-  using TagSpatialMetric =
-      gr::Tags::SpatialMetric<volume_dim, Frame::Inertial, DataVector>;
+  using TagShift = gr::Tags::Shift<DataVector, volume_dim>;
+  using TagSpatialMetric = gr::Tags::SpatialMetric<DataVector, volume_dim>;
   using TagInverseSpatialMetric =
-      gr::Tags::InverseSpatialMetric<volume_dim, Frame::Inertial, DataVector>;
-  using TagExCurvature =
-      gr::Tags::ExtrinsicCurvature<volume_dim, Frame::Inertial, DataVector>;
+      gr::Tags::InverseSpatialMetric<DataVector, volume_dim>;
+  using TagExCurvature = gr::Tags::ExtrinsicCurvature<DataVector, volume_dim>;
 
   template <
       typename Tag,
@@ -183,24 +178,18 @@ class WrappedGr : public virtual evolution::initial_data::InitialData,
     return variables(x, tag_list, intermediate_vars);
   }
 
-  tuples::TaggedTuple<
-      gr::Tags::SpacetimeMetric<volume_dim, Frame::Inertial, DataVector>>
-  variables(const tnsr::I<DataVector, volume_dim>& /*x*/,
-            tmpl::list<gr::Tags::SpacetimeMetric<volume_dim, Frame::Inertial,
-                                                 DataVector>> /*meta*/,
-            const IntermediateVars& intermediate_vars) const;
-  tuples::TaggedTuple<
-      GeneralizedHarmonic::Tags::Pi<volume_dim, Frame::Inertial>>
-  variables(const tnsr::I<DataVector, volume_dim>& /*x*/,
-            tmpl::list<GeneralizedHarmonic::Tags::Pi<volume_dim,
-                                                     Frame::Inertial>> /*meta*/,
-            const IntermediateVars& intermediate_vars) const;
-  tuples::TaggedTuple<
-      GeneralizedHarmonic::Tags::Phi<volume_dim, Frame::Inertial>>
+  tuples::TaggedTuple<gr::Tags::SpacetimeMetric<DataVector, volume_dim>>
   variables(
       const tnsr::I<DataVector, volume_dim>& /*x*/,
-      tmpl::list<
-          GeneralizedHarmonic::Tags::Phi<volume_dim, Frame::Inertial>> /*meta*/,
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, volume_dim>> /*meta*/,
+      const IntermediateVars& intermediate_vars) const;
+  tuples::TaggedTuple<gh::Tags::Pi<DataVector, volume_dim>> variables(
+      const tnsr::I<DataVector, volume_dim>& /*x*/,
+      tmpl::list<gh::Tags::Pi<DataVector, volume_dim>> /*meta*/,
+      const IntermediateVars& intermediate_vars) const;
+  tuples::TaggedTuple<gh::Tags::Phi<DataVector, volume_dim>> variables(
+      const tnsr::I<DataVector, volume_dim>& /*x*/,
+      tmpl::list<gh::Tags::Phi<DataVector, volume_dim>> /*meta*/,
       const IntermediateVars& intermediate_vars) const;
 };
 
@@ -215,4 +204,4 @@ bool operator!=(const WrappedGr<SolutionType>& lhs,
 template <typename SolutionType>
 WrappedGr(SolutionType solution) -> WrappedGr<SolutionType>;
 }  // namespace Solutions
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

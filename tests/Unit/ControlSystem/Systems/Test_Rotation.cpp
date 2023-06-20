@@ -9,8 +9,8 @@
 #include <tuple>
 
 #include "ControlSystem/Systems/Rotation.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
@@ -24,16 +24,20 @@
 #include "Utilities/TMPL.hpp"
 
 namespace Frame {
-struct Grid;
+struct Distorted;
 struct Inertial;
 }  // namespace Frame
+
+namespace control_system::measurements {
+struct BothHorizons;
+}  // namespace control_system::measurements
 
 namespace control_system {
 namespace {
 using RotationMap = domain::CoordinateMaps::TimeDependent::Rotation<3>;
 
 using CoordMap =
-    domain::CoordinateMap<Frame::Grid, Frame::Inertial, RotationMap>;
+    domain::CoordinateMap<Frame::Distorted, Frame::Inertial, RotationMap>;
 
 template <size_t DerivOrder>
 void test_rotation_control_system(const bool newtonian) {
@@ -99,11 +103,16 @@ void test_rotation_control_system(const bool newtonian) {
   const auto& init_rot_tuple =
       system_helper.template init_tuple<rotation_system>();
 
+  auto grid_center_A = domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B = domain.excision_spheres().at("ExcisionSphereB").center();
+
   // Setup runner and all components
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
-  MockRuntimeSystem runner{{"DummyFileName", std::move(domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  MockRuntimeSystem runner{
+      {"DummyFileName", std::move(domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_singleton_component_and_initialize<rotation_component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, init_rot_tuple);
@@ -142,7 +151,7 @@ void test_rotation_control_system(const bool newtonian) {
 
   // Run the actual control system test.
   system_helper.run_control_system_test(runner, final_time, make_not_null(&gen),
-                                        horizon_function, 2);
+                                        horizon_function);
 
   // Grab results
   std::array<double, 3> grid_position_of_a;
@@ -185,7 +194,8 @@ void test_rotation_control_system(const bool newtonian) {
 }
 
 void test_names() {
-  using rotation = control_system::Systems::Rotation<2>;
+  using rotation = control_system::Systems::Rotation<
+      2, control_system::measurements::BothHorizons>;
 
   CHECK(pretty_type::name<rotation>() == "Rotation");
   CHECK(*rotation::component_name(0, 3) == "x");
@@ -204,6 +214,7 @@ void test_names() {
 }
 }  // namespace
 
+// [[TimeOut, 10]]
 SPECTRE_TEST_CASE("Unit.ControlSystem.Systems.Rotation",
                   "[ControlSystem][Unit]") {
   test_names();

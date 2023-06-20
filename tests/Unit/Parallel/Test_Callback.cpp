@@ -12,7 +12,7 @@
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/Parallel/RoundRobinArrayElements.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Algorithms/AlgorithmArray.hpp"
 #include "Parallel/Algorithms/AlgorithmSingleton.hpp"
@@ -21,10 +21,11 @@
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/MemoryHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -59,9 +60,8 @@ struct IncrementValue {
   static void apply(db::DataBox<DbTagList>& box,
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/) {
-    db::mutate<Value>(
-        make_not_null(&box),
-        [](const gsl::not_null<double*> value) { *value += 1.0; });
+    db::mutate<Value>([](const gsl::not_null<double*> value) { *value += 1.0; },
+                      make_not_null(&box));
   }
 };
 
@@ -72,8 +72,8 @@ struct MultiplyValueByFactor {
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/, const double factor) {
     db::mutate<Value>(
-        make_not_null(&box),
-        [&factor](const gsl::not_null<double*> value) { *value *= factor; });
+        [&factor](const gsl::not_null<double*> value) { *value *= factor; },
+        make_not_null(&box));
   }
 };
 
@@ -88,12 +88,12 @@ struct DoubleValueOfElement0 {
       const ArrayIndex& array_index, const ActionList /*meta*/,
       const ParallelComponent* const /*meta*/) {
     db::mutate<TimesIterableActionCalled>(
-        make_not_null(&box),
-        [](const gsl::not_null<int*> counter) { ++(*counter); });
+        [](const gsl::not_null<int*> counter) { ++(*counter); },
+        make_not_null(&box));
     if (array_index == 0) {
       db::mutate<Value>(
-          make_not_null(&box),
-          [](const gsl::not_null<double*> value) { *value *= 2.0; });
+          [](const gsl::not_null<double*> value) { *value *= 2.0; },
+          make_not_null(&box));
       if (db::get<TimesIterableActionCalled>(box) < 5) {
         return {Parallel::AlgorithmExecution::Retry, std::nullopt};
       }
@@ -246,7 +246,7 @@ struct TestMetavariables {
 };
 
 void register_callbacks() {
-  Parallel::register_classes_with_charm(
+  register_classes_with_charm(
       tmpl::list<
           Parallel::PerformAlgorithmCallback<
               CProxyElement_AlgorithmArray<TestArray<TestMetavariables>, int>>,
@@ -264,7 +264,7 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting,
     &register_callbacks};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Parallel::Main<TestMetavariables>;
 

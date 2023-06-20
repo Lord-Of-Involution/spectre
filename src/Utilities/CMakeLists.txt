@@ -27,10 +27,12 @@ spectre_target_headers(
   Blas.hpp
   CachedFunction.hpp
   CallWithDynamicType.hpp
+  CartesianProduct.hpp
   CleanupRoutine.hpp
   CloneUniquePtrs.hpp
   ConstantExpressions.hpp
   ContainerHelpers.hpp
+  ContainsAllocations.hpp
   DereferenceWrapper.hpp
   EqualWithinRoundoff.hpp
   FileSystem.hpp
@@ -64,6 +66,7 @@ spectre_target_headers(
   StaticCache.hpp
   StdArrayHelpers.hpp
   StdHelpers.hpp
+  StlBoilerplate.hpp
   StlStreamDeclarations.hpp
   TMPL.hpp
   TaggedTuple.hpp
@@ -89,6 +92,7 @@ target_link_libraries(
 
 add_subdirectory(ErrorHandling)
 add_subdirectory(System)
+add_subdirectory(Serialization)
 add_subdirectory(TypeTraits)
 
 if (NOT USE_FORMALINE)

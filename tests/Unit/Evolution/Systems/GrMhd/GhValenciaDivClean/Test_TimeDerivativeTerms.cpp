@@ -91,8 +91,7 @@ struct ComputeVolumeTimeDerivativeTermsHelper<
 SPECTRE_TEST_CASE(
     "Unit.Evolution.Systems.GhValenciaDivClean.TimeDerivativeTerms",
     "[Unit][Evolution]") {
-  using gh_variables_tags =
-      typename GeneralizedHarmonic::System<3_st>::variables_tag::tags_list;
+  using gh_variables_tags = typename gh::System<3_st>::variables_tag::tags_list;
   using valencia_variables_tags =
       typename grmhd::ValenciaDivClean::System::variables_tag::tags_list;
 
@@ -183,13 +182,14 @@ SPECTRE_TEST_CASE(
                   DataVector{element_size});
         }
       });
-  get<GeneralizedHarmonic::gauges::Tags::GaugeCondition>(arg_variables) =
-      std::make_unique<GeneralizedHarmonic::gauges::DampedHarmonic>(
+  get<gh::gauges::Tags::GaugeCondition>(arg_variables) =
+      std::make_unique<gh::gauges::DampedHarmonic>(
           100., std::array{1.2, 1.5, 1.7}, std::array{2, 4, 6});
 
   // ensure that the signature of the metric is correct
   {
-    auto& metric = tuples::get<gr::Tags::SpacetimeMetric<3_st>>(arg_variables);
+    auto& metric =
+        tuples::get<gr::Tags::SpacetimeMetric<DataVector, 3_st>>(arg_variables);
     get<0, 0>(metric) += -2.0;
     for (size_t i = 0; i < 3; ++i) {
       metric.get(i + 1, i + 1) += 4.0;
@@ -198,8 +198,8 @@ SPECTRE_TEST_CASE(
   }
 
   ComputeVolumeTimeDerivativeTermsHelper<
-      GeneralizedHarmonic::TimeDerivative<3_st>, 3_st, gh_variables_tags,
-      gh_flux_tags, gh_temp_tags, gh_gradient_tags,
+      gh::TimeDerivative<3_st>, 3_st, gh_variables_tags, gh_flux_tags,
+      gh_temp_tags, gh_gradient_tags,
       gh_arg_tags>::apply(make_not_null(&expected_dt_variables),
                           make_not_null(&expected_flux_variables),
                           make_not_null(&expected_temp_variables),
@@ -219,42 +219,49 @@ SPECTRE_TEST_CASE(
     if constexpr (tmpl::list_contains_v<gh_temp_tags, tag>) {
       tuples::get<tag>(all_valencia_argument_variables) =
           get<tag>(expected_temp_variables);
-    } else if constexpr (std::is_same_v<tag, ::Tags::deriv<gr::Tags::Lapse<>,
-                                                           tmpl::size_t<3>,
-                                                           Frame::Inertial>>) {
+    } else if constexpr (std::is_same_v<
+                             tag,
+                             ::Tags::deriv<gr::Tags::Lapse<DataVector>,
+                                           tmpl::size_t<3>, Frame::Inertial>>) {
       tuples::get<tag>(all_valencia_argument_variables) =
-          GeneralizedHarmonic::spatial_deriv_of_lapse(
-              get<gr::Tags::Lapse<>>(expected_temp_variables),
-              get<gr::Tags::SpacetimeNormalVector<3>>(expected_temp_variables),
-              get<GeneralizedHarmonic::Tags::Phi<3>>(arg_variables));
-      get<tag>(expected_temp_variables) =
-          tuples::get<tag>(all_valencia_argument_variables);
-    } else if constexpr (std::is_same_v<tag, ::Tags::deriv<gr::Tags::Shift<3>,
-                                                           tmpl::size_t<3>,
-                                                           Frame::Inertial>>) {
-      tuples::get<tag>(all_valencia_argument_variables) =
-          GeneralizedHarmonic::spatial_deriv_of_shift(
-              get<gr::Tags::Lapse<>>(expected_temp_variables),
-              get<gr::Tags::InverseSpacetimeMetric<3>>(expected_temp_variables),
-              get<gr::Tags::SpacetimeNormalVector<3>>(expected_temp_variables),
-              get<GeneralizedHarmonic::Tags::Phi<3>>(arg_variables));
+          gh::spatial_deriv_of_lapse(
+              get<gr::Tags::Lapse<DataVector>>(expected_temp_variables),
+              get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(
+                  expected_temp_variables),
+              get<gh::Tags::Phi<DataVector, 3>>(arg_variables));
       get<tag>(expected_temp_variables) =
           tuples::get<tag>(all_valencia_argument_variables);
     } else if constexpr (std::is_same_v<
                              tag,
-                             ::Tags::deriv<gr::Tags::SpatialMetric<3>,
+                             ::Tags::deriv<gr::Tags::Shift<DataVector, 3>,
                                            tmpl::size_t<3>, Frame::Inertial>>) {
       tuples::get<tag>(all_valencia_argument_variables) =
-          GeneralizedHarmonic::deriv_spatial_metric(
-              get<GeneralizedHarmonic::Tags::Phi<3>>(arg_variables));
+          gh::spatial_deriv_of_shift(
+              get<gr::Tags::Lapse<DataVector>>(expected_temp_variables),
+              get<gr::Tags::InverseSpacetimeMetric<DataVector, 3>>(
+                  expected_temp_variables),
+              get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(
+                  expected_temp_variables),
+              get<gh::Tags::Phi<DataVector, 3>>(arg_variables));
       get<tag>(expected_temp_variables) =
           tuples::get<tag>(all_valencia_argument_variables);
-    } else if constexpr (std::is_same_v<tag, gr::Tags::ExtrinsicCurvature<3>>) {
+    } else if constexpr (std::is_same_v<
+                             tag, ::Tags::deriv<
+                                      gr::Tags::SpatialMetric<DataVector, 3>,
+                                      tmpl::size_t<3>, Frame::Inertial>>) {
       tuples::get<tag>(all_valencia_argument_variables) =
-          GeneralizedHarmonic::extrinsic_curvature(
-              get<gr::Tags::SpacetimeNormalVector<3>>(expected_temp_variables),
-              get<GeneralizedHarmonic::Tags::Pi<3>>(arg_variables),
-              get<GeneralizedHarmonic::Tags::Phi<3>>(arg_variables));
+          gh::deriv_spatial_metric(
+              get<gh::Tags::Phi<DataVector, 3>>(arg_variables));
+      get<tag>(expected_temp_variables) =
+          tuples::get<tag>(all_valencia_argument_variables);
+    } else if constexpr (std::is_same_v<tag, gr::Tags::ExtrinsicCurvature<
+                                                 DataVector, 3>>) {
+      tuples::get<tag>(all_valencia_argument_variables) =
+          gh::extrinsic_curvature(
+              get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(
+                  expected_temp_variables),
+              get<gh::Tags::Pi<DataVector, 3>>(arg_variables),
+              get<gh::Tags::Phi<DataVector, 3>>(arg_variables));
       get<tag>(expected_temp_variables) =
           tuples::get<tag>(all_valencia_argument_variables);
     } else {
@@ -297,16 +304,16 @@ SPECTRE_TEST_CASE(
       get<typename grmhd::ValenciaDivClean::TimeDerivativeTerms::
               OneOverLorentzFactorSquared>(expected_temp_variables),
       tuples::get<hydro::Tags::Pressure<DataVector>>(arg_variables),
-      tuples::get<gr::Tags::SpacetimeMetric<3_st>>(arg_variables),
-      get<gr::Tags::Shift<3_st>>(expected_temp_variables),
-      get<gr::Tags::Lapse<>>(expected_temp_variables));
+      tuples::get<gr::Tags::SpacetimeMetric<DataVector, 3_st>>(arg_variables),
+      get<gr::Tags::Shift<DataVector, 3_st>>(expected_temp_variables),
+      get<gr::Tags::Lapse<DataVector>>(expected_temp_variables));
   // apply the correction to dt pi for the expected variables
   grmhd::GhValenciaDivClean::add_stress_energy_term_to_dt_pi(
-      make_not_null(&get<::Tags::dt<GeneralizedHarmonic::Tags::Pi<3_st>>>(
+      make_not_null(&get<::Tags::dt<gh::Tags::Pi<DataVector, 3_st>>>(
           expected_dt_variables)),
       get<grmhd::GhValenciaDivClean::Tags::TraceReversedStressEnergy>(
           expected_temp_variables),
-      get<gr::Tags::Lapse<>>(expected_temp_variables));
+      get<gr::Tags::Lapse<DataVector>>(expected_temp_variables));
 
   ComputeVolumeTimeDerivativeTermsHelper<
       grmhd::GhValenciaDivClean::TimeDerivativeTerms, 3_st,

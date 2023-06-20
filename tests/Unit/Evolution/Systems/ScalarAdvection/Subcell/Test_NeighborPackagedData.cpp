@@ -17,9 +17,9 @@
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
 #include "Domain/CoordinateMaps/Identity.hpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
-#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/InterfaceLogicalCoordinates.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
@@ -35,9 +35,9 @@
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Inactive.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
@@ -125,9 +125,8 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
     fill_with_random_values(make_not_null(&vars), gen, make_not_null(&dist));
     return vars;
   };
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<
-      Dim>::type neighbor_data =
-      TestHelpers::ScalarAdvection::fd::compute_neighbor_data(
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>::type
+      ghost_data = TestHelpers::ScalarAdvection::fd::compute_ghost_data(
           subcell_mesh, logical_coords_subcell, element.neighbors(),
           reconstructor.ghost_zone_size(), compute_random_variable);
 
@@ -172,10 +171,9 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
       domain::Tags::Element<Dim>, domain::Tags::Mesh<Dim>,
       evolution::dg::subcell::Tags::Mesh<Dim>,
       typename System<Dim>::variables_tag,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
       fd::Tags::Reconstructor<Dim>,
-      evolution::Tags::BoundaryCorrection<System<Dim>>,
-      ::Tags::Time,
+      evolution::Tags::BoundaryCorrection<System<Dim>>, ::Tags::Time,
       domain::Tags::FunctionsOfTimeInitialize,
       domain::Tags::ElementMap<Dim, Frame::Grid>,
       domain::CoordinateMaps::Tags::CoordinateMap<Dim, Frame::Grid,
@@ -184,8 +182,8 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
       subcell_velocity_field, subcell_faces_velocity_field,
       domain::Tags::MeshVelocity<Dim>,
       evolution::dg::Tags::NormalCovectorAndMagnitude<Dim>,
-      evolution::dg::subcell::Tags::SubcellOptions>>(
-      element, dg_mesh, subcell_mesh, volume_vars_dg, neighbor_data,
+      evolution::dg::subcell::Tags::SubcellOptions<Dim>>>(
+      element, dg_mesh, subcell_mesh, volume_vars_dg, ghost_data,
       std::unique_ptr<fd::Reconstructor<Dim>>{
           std::make_unique<ReconstructionForTest>()},
       std::unique_ptr<BoundaryCorrections::BoundaryCorrection<Dim>>{
@@ -204,7 +202,8 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
       normal_vectors,
       evolution::dg::subcell::SubcellOptions{
           1.0e-3, 1.0e-4, 1.0e-3, 1.0e-4, 4.0, 4.0, false,
-          evolution::dg::subcell::fd::ReconstructionMethod::DimByDim});
+          evolution::dg::subcell::fd::ReconstructionMethod::DimByDim, false,
+          std::nullopt, ::fd::DerivativeOrder::Two});
 
   // Compute face-centered velocity field and add it to the box. This action
   // needs to be called in prior since NeighborPackagedData::apply() internally
@@ -253,7 +252,7 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
     // reconstruct U on the mortar
     dynamic_cast<const ReconstructionForTest&>(reconstructor)
         .reconstruct_fd_neighbor(make_not_null(&vars_on_mortar_face),
-                                 volume_vars_subcell, element, neighbor_data,
+                                 volume_vars_subcell, element, ghost_data,
                                  subcell_mesh, direction);
 
     // retrieve face-centered velocity field and slice it on the mortar, then
@@ -298,10 +297,9 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
 
     if constexpr (Dim == 1) {
       // no need to reconstruct back to DG grid for 1D
-      std::vector<double> vector_to_check{
+      const DataVector vector_to_check{
           expected_fd_packaged_data_on_mortar.data(),
-          expected_fd_packaged_data_on_mortar.data() +
-              expected_fd_packaged_data_on_mortar.size()};
+          expected_fd_packaged_data_on_mortar.size()};
 
       CHECK_ITERABLE_APPROX(vector_to_check, packaged_data.at(mortar_id));
     } else {
@@ -313,9 +311,9 @@ void test_neighbor_packaged_data(const size_t num_dg_pts_per_dimension,
               subcell_mesh.extents().slice_away(mortar_id.first.dimension()),
               evolution::dg::subcell::fd::ReconstructionMethod::AllDimsAtOnce);
 
-      std::vector<double> vector_to_check{
-          expected_dg_packaged_data.data(),
-          expected_dg_packaged_data.data() + expected_dg_packaged_data.size()};
+      const DataVector vector_to_check{
+          const_cast<double*>(expected_dg_packaged_data.data()),
+          expected_dg_packaged_data.size()};
 
       CHECK_ITERABLE_APPROX(vector_to_check, packaged_data.at(mortar_id));
     }

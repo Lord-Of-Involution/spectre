@@ -10,10 +10,10 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Time/TimeStepId.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 
 namespace Cce {
 namespace InterfaceManagers {
@@ -53,9 +53,8 @@ class GhLockstep;
 class GhInterfaceManager : public PUP::able {
  public:
   using gh_variables = Variables<
-   tmpl::list<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>,
-              GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>,
-              GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>>;
 
   WRAPPED_PUPable_abstract(GhInterfaceManager);  // NOLINT
 

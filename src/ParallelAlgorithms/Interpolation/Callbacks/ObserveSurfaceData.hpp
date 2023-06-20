@@ -15,9 +15,9 @@
 #include "IO/Observer/ObserverComponent.hpp"
 #include "IO/Observer/Tags.hpp"
 #include "IO/Observer/VolumeActions.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Tags.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/Local.hpp"
@@ -61,20 +61,26 @@ struct ObserveSurfaceData
                     const TemporalId& temporal_id) {
     const Strahlkorper<HorizonFrame>& strahlkorper =
         get<StrahlkorperTags::Strahlkorper<HorizonFrame>>(box);
-    const YlmSpherepack& ylm = strahlkorper.ylm_spherepack();
-    const auto& inertial_strahlkorper_coords =
-        get<StrahlkorperTags::CartesianCoords<::Frame::Inertial>>(box);
+    const ylm::Spherepack& ylm = strahlkorper.ylm_spherepack();
 
     // Output the inertial-frame coordinates of the Stralhlkorper.
     // Note that these coordinates are not
     // Spherepack-evenly-distributed over the inertial-frame sphere
     // (they are Spherepack-evenly-distributed over the HorizonFrame
     // sphere).
-    std::vector<TensorComponent> tensor_components{
-        {"InertialCoordinates_x"s, get<0>(inertial_strahlkorper_coords)},
-        {"InertialCoordinates_y"s, get<1>(inertial_strahlkorper_coords)},
-        {"InertialCoordinates_z"s, get<2>(inertial_strahlkorper_coords)}};
-
+    std::vector<TensorComponent> tensor_components;
+    if constexpr (db::tag_is_retrievable_v<
+                      StrahlkorperTags::CartesianCoords<::Frame::Inertial>,
+                      db::DataBox<DbTags>>) {
+      const auto& inertial_strahlkorper_coords =
+          get<StrahlkorperTags::CartesianCoords<::Frame::Inertial>>(box);
+      tensor_components.push_back(
+          {"InertialCoordinates_x"s, get<0>(inertial_strahlkorper_coords)});
+      tensor_components.push_back(
+          {"InertialCoordinates_y"s, get<1>(inertial_strahlkorper_coords)});
+      tensor_components.push_back(
+          {"InertialCoordinates_z"s, get<2>(inertial_strahlkorper_coords)});
+    }
     // Output each tag if it is a scalar. Otherwise, throw a compile-time
     // error. This could be generalized to handle tensors of nonzero rank by
     // looping over the components, so each component could be visualized
@@ -84,11 +90,12 @@ struct ObserveSurfaceData
     // points on the surface).
     tmpl::for_each<TagsToObserve>([&box, &tensor_components](auto tag_v) {
       using Tag = tmpl::type_from<decltype(tag_v)>;
-      static_assert(std::is_same_v<typename Tag::type, Scalar<DataVector>>,
-                    "Each tag in TagsToObserve must be a Scalar<DataVector>. "
-                    "This could be generalized if needed; see the code comment "
-                    "above the static_assert.");
-      tensor_components.push_back({db::tag_name<Tag>(), get(get<Tag>(box))});
+      const auto tag_name = db::tag_name<Tag>();
+      const auto& tensor = get<Tag>(box);
+      for (size_t i = 0; i < tensor.size(); ++i) {
+        tensor_components.emplace_back(tag_name + tensor.component_suffix(i),
+                                       tensor[i]);
+      }
     });
 
     const std::string& surface_name =

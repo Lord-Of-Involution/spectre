@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/Prefixes.hpp"
 #include "DataStructures/FixedHashMap.hpp"
@@ -17,14 +16,15 @@
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/Burgers/FiniteDifference/Reconstructor.hpp"
 #include "Evolution/Systems/Burgers/Tags.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
+class DataVector;
 template <size_t Dim>
 class Direction;
 template <size_t Dim>
@@ -42,6 +42,9 @@ class not_null;
 namespace PUP {
 class er;
 }  // namespace PUP
+namespace evolution::dg::subcell {
+class GhostData;
+}  // namespace evolution::dg::subcell
 /// \endcond
 
 namespace Burgers::fd {
@@ -81,7 +84,7 @@ class MonotonisedCentral : public Reconstructor {
 
   using reconstruction_argument_tags =
       tmpl::list<::Tags::Variables<volume_vars_tags>, domain::Tags::Element<1>,
-                 evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<1>,
                  evolution::dg::subcell::Tags::Mesh<1>>;
 
   void reconstruct(
@@ -93,8 +96,8 @@ class MonotonisedCentral : public Reconstructor {
       const Element<1>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(1), std::pair<Direction<1>, ElementId<1>>,
-          std::vector<double>,
-          boost::hash<std::pair<Direction<1>, ElementId<1>>>>& neighbor_data,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<1>, ElementId<1>>>>& ghost_data,
       const Mesh<1>& subcell_mesh) const;
 
   void reconstruct_fd_neighbor(
@@ -102,8 +105,8 @@ class MonotonisedCentral : public Reconstructor {
       const Variables<volume_vars_tags>& volume_vars, const Element<1>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(1), std::pair<Direction<1>, ElementId<1>>,
-          std::vector<double>,
-          boost::hash<std::pair<Direction<1>, ElementId<1>>>>& neighbor_data,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<1>, ElementId<1>>>>& ghost_data,
       const Mesh<1>& subcell_mesh,
       const Direction<1> direction_to_reconstruct) const;
 };

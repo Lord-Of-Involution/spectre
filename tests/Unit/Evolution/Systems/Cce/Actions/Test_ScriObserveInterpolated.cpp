@@ -37,12 +37,9 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
@@ -52,6 +49,7 @@
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/Numeric.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace Cce {
 namespace {
@@ -66,12 +64,12 @@ struct SetBoundaryValues {
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/,
                     ComplexDataVector set_values) {
-    db::mutate<Tag>(make_not_null(&box),
-                    [&set_values](const gsl::not_null<typename Tag::type*>
-                                      spin_weighted_scalar_quantity) {
-                      get(*spin_weighted_scalar_quantity).data() =
-                          std::move(set_values);
-                    });
+    db::mutate<Tag>(
+        [&set_values](const gsl::not_null<typename Tag::type*>
+                          spin_weighted_scalar_quantity) {
+          get(*spin_weighted_scalar_quantity).data() = std::move(set_values);
+        },
+        make_not_null(&box));
   }
 
   template <
@@ -82,11 +80,11 @@ struct SetBoundaryValues {
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/, DataVector set_values) {
     db::mutate<Tag>(
-        make_not_null(&box),
         [&set_values](
             const gsl::not_null<typename Tag::type*> scalar_quantity) {
           get(*scalar_quantity) = std::move(set_values);
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -208,6 +206,9 @@ struct test_metavariables {
   using observed_reduction_data_tags = tmpl::list<>;
   using cce_boundary_component =
       Cce::AnalyticWorldtubeBoundary<test_metavariables>;
+  using ccm_psi0 = tmpl::list<
+          Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+          Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 
   using component_list =
       tmpl::list<mock_characteristic_evolution<test_metavariables>,
@@ -239,9 +240,8 @@ ComplexDataVector compute_expected_field_from_pypp(
 
 SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.Actions.ScriObserveInterpolated",
                   "[Unit][Cce]") {
-  Parallel::register_classes_with_charm<
-      Cce::Solutions::RotatingSchwarzschild>();
-  Parallel::register_classes_with_charm<Cce::Solutions::TeukolskyWave>();
+  register_classes_with_charm<Cce::Solutions::RotatingSchwarzschild>();
+  register_classes_with_charm<Cce::Solutions::TeukolskyWave>();
   using evolution_component = mock_characteristic_evolution<test_metavariables>;
   using observation_component = mock_observer<test_metavariables>;
   pypp::SetupLocalPythonEnvironment local_python_env{
@@ -279,8 +279,6 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.Actions.ScriObserveInterpolated",
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size, scri_interpolation_size,
       serialize_and_deserialize(analytic_manager));
   if (file_system::check_if_file_exists(filename + ".h5")) {

@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # Writing Unit Tests {#writing_unit_tests}
 
+\tableofcontents
+
 Unit tests are placed in the appropriate subdirectory of `tests/Unit`, which
 mirrors the directory hierarchy of `src`. The tests are all compiled into
 individual libraries to keep link time of testing executables low. Typically
@@ -160,8 +162,6 @@ guidelines:
   PointwiseFunction.GeneralRelativity.Christoffel as christoffel`) or use
   relative imports like `from . import Christoffel as christoffel`. Don't assume
   the Python environment is set up in a subdirectory of `tests/Unit/`.
-- The python code is formatted according to the `.style.yapf` file in the root
-  of the repository.
 
 It is possible to test C++ functions that return by value and ones that return
 by `gsl::not_null`. In the latter case, since it is possible to return multiple
@@ -234,7 +234,7 @@ of order unity in order to decrease the chance of occasionally generating large
 numbers through multiplications which can cause an error above a reasonable
 tolerance.
 
-#### Testing Failure Cases
+#### Testing Failure Cases {#testing_failure_cases}
 
 Adding the "attribute" `// [[OutputRegex, Regular expression to
 match]]` before the `SPECTRE_TEST_CASE` macro will force ctest to only
@@ -291,3 +291,27 @@ run it use `BUILD_DIR/bin/RunSingleTest Unit.Test.Name`.
 `Parallel::abort` does not work correctly in the `RunSingleTest` executable
 because a segfault occurs inside Charm++ code after the abort message is
 printed.
+
+## Input file tests
+
+We have a suite of input file tests in addition to unit tests. Every input file
+in the `tests/InputFiles/` directory is added to the test suite automatically.
+The input file must specify the `Executable` it should run with in the input
+file metadata (above the `---` marker in the input file). Properties of the test
+are controlled by the `Testing` section in the input file metadata. The
+following properties are available:
+
+- `Check`: Semicolon-separated list of checks, e.g. `parse;execute`. The
+  following checks are available:
+    - `parse`: Just check that the input file passes option parsing.
+    - `execute`: Run the executable. If the input file metadata has an
+      `ExpectedOutput` field, check that these files have been written. See
+      `spectre.tools.CleanOutput` for details.
+    - `execute_check_output`: In additional to `execute`, check the contents of
+      some output files. The checks are defined by the `OutputFileChecks` in the
+      input file metadata. See `spectre.tools.CheckOutputFiles` for details.
+- `CommandLineArgs` (optional): Additional command-line arguments passed to the
+  executable.
+- `ExpectedExitCode` (optional): The expected exit code of the executable.
+  Default: `0`. See `Parallel::ExitCode` for possible exit codes.
+- `Timeout` (optional): Timeout for the test. Default: 2 seconds.

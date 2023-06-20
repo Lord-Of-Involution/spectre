@@ -9,13 +9,13 @@
 #include <pup_stl.h>
 #include <utility>
 
-#include "Options/Options.hpp"
 #include "Options/ParseOptions.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Trigger.hpp"
 #include "Time/TimeSequence.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/Utilities.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -50,10 +50,10 @@ class Times : public Trigger {
   using argument_tags = tmpl::list<Tags::Time, Tags::TimeStepId>;
 
   bool operator()(const double now, const TimeStepId& time_id) const {
-    const auto& substep_time = time_id.substep_time();
+    const auto& step_time = time_id.step_time();
     // Trying to step to a given time might not get us exactly there
     // because of rounding errors.
-    const double sloppiness = slab_rounding_error(substep_time);
+    const double sloppiness = slab_rounding_error(step_time);
 
     const auto nearby_time = times_->times_near(now)[1];
     return nearby_time and std::abs(*nearby_time - now) < sloppiness;

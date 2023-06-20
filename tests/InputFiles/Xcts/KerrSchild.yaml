@@ -1,18 +1,21 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: SolveXcts
-# Check: parse;execute_check_output
-# Timeout: 40
-# ExpectedOutput:
-#   KerrSchildReductions.h5
-#   KerrSchildVolume0.h5
-# OutputFileChecks:
-#   - Label: Discretization error
-#     Subfile: /ErrorNorms.dat
-#     FileGlob: KerrSchildReductions.h5
-#     SkipColumns: [0, 1, 2]
-#     AbsoluteTolerance: 0.08
+Executable: SolveXcts
+Testing:
+  Check: parse;execute_check_output
+  Timeout: 40
+ExpectedOutput:
+  - KerrSchildReductions.h5
+  - KerrSchildVolume0.h5
+OutputFileChecks:
+  - Label: Discretization error
+    Subfile: /ErrorNorms.dat
+    FileGlob: KerrSchildReductions.h5
+    SkipColumns: [0, 1, 2]
+    AbsoluteTolerance: 0.08
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -27,28 +30,28 @@ Background:
 InitialGuess: Flatness
 
 DomainCreator:
-  Shell:
+  Sphere:
     InnerRadius: 1.9
     OuterRadius: 10.
+    Interior:
+      ExciseWithBoundaryCondition:
+        AnalyticSolution:
+          ConformalFactor: Dirichlet
+          LapseTimesConformalFactor: Dirichlet
+          ShiftExcess: Dirichlet
     InitialRefinement: 0
-    InitialGridPoints: [4, 4]
+    InitialGridPoints: 4
     UseEquiangularMap: True
     EquatorialCompression: None
     WhichWedges: All
     RadialPartitioning: []
     RadialDistribution: [Logarithmic]
-    TimeDependence: None
-    BoundaryConditions:
-      InnerBoundary:
-        AnalyticSolution:
-          ConformalFactor: Dirichlet
-          LapseTimesConformalFactor: Dirichlet
-          ShiftExcess: Dirichlet
-      OuterBoundary:
-        AnalyticSolution:
-          ConformalFactor: Dirichlet
-          LapseTimesConformalFactor: Dirichlet
-          ShiftExcess: Dirichlet
+    TimeDependentMaps: None
+    OuterBoundaryCondition:
+      AnalyticSolution:
+        ConformalFactor: Dirichlet
+        LapseTimesConformalFactor: Dirichlet
+        ShiftExcess: Dirichlet
 
 Discretization:
   DiscontinuousGalerkin:
@@ -108,9 +111,12 @@ LinearSolver:
     SkipResets: True
     ObservePerCoreReductions: False
 
+RadiallyCompressedCoordinates: None
+
 EventsAndTriggers:
-  - - HasConverged
-    - - ObserveNorms:
+  - Trigger: HasConverged
+    Events:
+      - ObserveNorms:
           SubfileName: ErrorNorms
           TensorsToObserve:
             - Name: Error(ConformalFactor)
@@ -153,3 +159,4 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None

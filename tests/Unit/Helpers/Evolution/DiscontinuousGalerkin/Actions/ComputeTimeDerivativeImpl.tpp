@@ -24,6 +24,9 @@
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
 #include "Domain/CoordinateMaps/Identity.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FaceNormal.hpp"
 #include "Domain/InterfaceLogicalCoordinates.hpp"
@@ -59,14 +62,14 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
+#include "Time/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/History.hpp"
 #include "Time/Slab.hpp"
 #include "Time/StepChoosers/Constant.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/SplitRemaining.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
+#include "Time/Tags/AdaptiveSteppingDiagnostics.hpp"
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
@@ -462,7 +465,6 @@ struct TimeDerivativeTermsWithVariables
   }
   /// [dt_mp_variables]
 };
-
 
 template <size_t Dim>
 struct NonconservativeNormalDotFlux {
@@ -888,8 +890,8 @@ struct component {
   using simple_tags = tmpl::flatten<tmpl::list<
       ::Tags::TimeStepId, ::Tags::Next<::Tags::TimeStepId>, ::Tags::TimeStep,
       ::Tags::Next<::Tags::TimeStep>, ::Tags::Time,
-      ::evolution::dg::Tags::Quadrature, variables_tag,
-      db::add_tag_prefix<::Tags::dt, variables_tag>,
+      ::Tags::AdaptiveSteppingDiagnostics, ::evolution::dg::Tags::Quadrature,
+      variables_tag, db::add_tag_prefix<::Tags::dt, variables_tag>,
       ::Tags::HistoryEvolvedVariables<variables_tag>, Var3,
       domain::Tags::Mesh<Metavariables::volume_dim>,
       ::domain::Tags::FunctionsOfTimeInitialize,
@@ -905,9 +907,7 @@ struct component {
       ::Tags::IsUsingTimeSteppingErrorControl,
       tmpl::conditional_t<
           Metavariables::local_time_stepping,
-          tmpl::list<::Tags::StepController, ::Tags::StepChoosers,
-                     ::Tags::TimeStepper<LtsTimeStepper>,
-                     ::Tags::RollbackValue<variables_tag>>,
+          tmpl::list<::Tags::StepChoosers, ::Tags::TimeStepper<LtsTimeStepper>>,
           tmpl::list<::Tags::TimeStepper<TimeStepper>>>>>;
   using common_compute_tags = tmpl::list<
       domain::Tags::JacobianCompute<Metavariables::volume_dim,
@@ -1015,13 +1015,14 @@ void test_impl(const Spectral::Quadrature quadrature,
   CAPTURE(UseMovingMesh);
   CAPTURE(Dim);
   CAPTURE(system_type);
+  CAPTURE(HasPrims);
+  CAPTURE(PassVariables);
   CAPTURE(quadrature);
   CAPTURE(dg_formulation);
   using metavars = Metavariables<Dim, system_type, LocalTimeStepping,
                                  UseMovingMesh, HasPrims, PassVariables>;
-  Parallel::register_classes_with_charm<TimeSteppers::AdamsBashforth>();
-  Parallel::register_classes_with_charm<StepControllers::SplitRemaining>();
-  Parallel::register_factory_classes_with_charm<metavars>();
+  register_classes_with_charm<TimeSteppers::AdamsBashforth>();
+  register_factory_classes_with_charm<metavars>();
 
   using system = typename metavars::system;
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
@@ -1198,7 +1199,7 @@ void test_impl(const Spectral::Quadrature quadrature,
   }
   using dt_variables_tags = tmpl::list<::Tags::dt<Var1>, ::Tags::dt<Var2<Dim>>>;
   Variables<dt_variables_tags> dt_evolved_vars{mesh.number_of_grid_points()};
-  const ::TimeSteppers::History<Variables<dt_variables_tags>> history{1};
+  const ::TimeSteppers::History<decltype(evolved_vars)> history{1};
 
   // Compute expected volume fluxes
   [[maybe_unused]] const auto expected_fluxes = [&evolved_vars, &inv_jac, &mesh,
@@ -1274,11 +1275,9 @@ void test_impl(const Spectral::Quadrature quadrature,
   }();
 
   const Slab time_slab{0.2, 3.4};
-  const TimeDelta time_step{time_slab, {4, 100}};
-  const TimeStepId time_step_id{true, 3, Time{time_slab, {3, 100}}};
-  const TimeStepId next_time_step_id{time_step_id.time_runs_forward(),
-                                     time_step_id.slab_number(),
-                                     time_step_id.step_time() + time_step};
+  const TimeDelta time_step{time_slab, {4, 128}};
+  const TimeStepId time_step_id{true, 3, Time{time_slab, {3, 128}}};
+  const TimeStepId next_time_step_id = time_step_id.next_step(time_step);
   // Our moving mesh map doesn't actually move (we set a mesh velocity, etc.
   // separately), but we need the FunctionsOfTime tag for boundary conditions.
   // When checking boundary conditions we just test that the boundary condition
@@ -1302,6 +1301,7 @@ void test_impl(const Spectral::Quadrature quadrature,
          time_step,
          time_step,
          time_step_id.step_time().value(),
+         AdaptiveSteppingDiagnostics{},
          quadrature,
          evolved_vars,
          dt_evolved_vars,
@@ -1320,12 +1320,9 @@ void test_impl(const Spectral::Quadrature quadrature,
              domain::make_coordinate_map_base<Frame::BlockLogical, Frame::Grid>(
                  domain::CoordinateMaps::Identity<Dim>{})},
          false,
-         static_cast<std::unique_ptr<StepController>>(
-             std::make_unique<StepControllers::SplitRemaining>()),
          std::move(step_choosers),
          static_cast<std::unique_ptr<LtsTimeStepper>>(
-             std::make_unique<TimeSteppers::AdamsBashforth>(5)),
-         typename ::Tags::RollbackValue<variables_tag>::type{}});
+             std::make_unique<TimeSteppers::AdamsBashforth>(5))});
     for (const auto& [direction, neighbor_ids] : neighbors) {
       (void)direction;
       for (const auto& neighbor_id : neighbor_ids) {
@@ -1336,6 +1333,7 @@ void test_impl(const Spectral::Quadrature quadrature,
              time_step,
              time_step,
              time_step_id.step_time().value(),
+             AdaptiveSteppingDiagnostics{},
              quadrature,
              evolved_vars,
              dt_evolved_vars,
@@ -1355,12 +1353,9 @@ void test_impl(const Spectral::Quadrature quadrature,
                                                   Frame::Grid>(
                      domain::CoordinateMaps::Identity<Dim>{})},
              false,
-             static_cast<std::unique_ptr<StepController>>(
-                 std::make_unique<StepControllers::SplitRemaining>()),
              std::move(step_choosers),
              static_cast<std::unique_ptr<LtsTimeStepper>>(
-                 std::make_unique<TimeSteppers::AdamsBashforth>(5)),
-             typename ::Tags::RollbackValue<variables_tag>::type{}});
+                 std::make_unique<TimeSteppers::AdamsBashforth>(5))});
       }
     }
   } else {
@@ -1371,6 +1366,7 @@ void test_impl(const Spectral::Quadrature quadrature,
          time_step,
          time_step,
          time_step_id.step_time().value(),
+         AdaptiveSteppingDiagnostics{},
          quadrature,
          evolved_vars,
          dt_evolved_vars,
@@ -1401,6 +1397,7 @@ void test_impl(const Spectral::Quadrature quadrature,
              time_step,
              time_step,
              time_step_id.step_time().value(),
+             AdaptiveSteppingDiagnostics{},
              quadrature,
              evolved_vars,
              dt_evolved_vars,
@@ -1727,8 +1724,11 @@ void test_impl(const Spectral::Quadrature quadrature,
         }
 
         // Compute the normal dot mesh velocity and then the packaged data
-        Variables<mortar_tags_list> packaged_data{
-            face_mesh.number_of_grid_points()};
+        DataVector packaged_data_buffer{
+            face_mesh.number_of_grid_points() *
+            Variables<mortar_tags_list>::number_of_independent_components};
+        Variables<mortar_tags_list> packaged_data{packaged_data_buffer.data(),
+                                                  packaged_data_buffer.size()};
         std::optional<Scalar<DataVector>> normal_dot_mesh_velocity{};
 
         if (face_mesh_velocity.has_value()) {
@@ -1750,17 +1750,31 @@ void test_impl(const Spectral::Quadrature quadrature,
             std::make_pair(local_direction, local_neighbor_id);
         const auto& mortar_mesh = mortar_meshes.at(mortar_id);
         const auto& mortar_size = mortar_sizes.at(mortar_id);
-        auto boundary_data_on_mortar =
-            Spectral::needs_projection(face_mesh, mortar_mesh, mortar_size)
-                ? ::dg::project_to_mortar(packaged_data, face_mesh, mortar_mesh,
-                                          mortar_size)
-                : std::move(packaged_data);
 
-        std::vector<double> expected_data{
-            boundary_data_on_mortar.data(),
-            boundary_data_on_mortar.data() + boundary_data_on_mortar.size()};
+        DataVector expected_data{};
+        if (Spectral::needs_projection(face_mesh, mortar_mesh, mortar_size)) {
+          expected_data = DataVector{
+              mortar_mesh.number_of_grid_points() *
+              Variables<mortar_tags_list>::number_of_independent_components};
+          Variables<mortar_tags_list> projected_packaged_data{
+              expected_data.data(), expected_data.size()};
+          // Since projected_packaged_data is non-owning, if we tried to
+          // move-assign it with the result of ::dg::project_to_mortar, it would
+          // then become owning and the buffer it previously pointed to wouldn't
+          // be filled (and we want it to be filled). So instead force a
+          // copy-assign by having an intermediary, data_to_copy.
+          const auto data_to_copy = ::dg::project_to_mortar(
+              packaged_data, face_mesh, mortar_mesh, mortar_size);
+          projected_packaged_data = data_to_copy;
+        } else {
+          expected_data = packaged_data_buffer;
+        }
+
         const auto& orientation =
             element.neighbors().at(local_direction).orientation();
+        DataVector oriented_variables =
+            orient_variables_on_slice(expected_data, mortar_mesh.extents(),
+                                      local_direction.dimension(), orientation);
         if (local_data or orientation.is_aligned()) {
           return expected_data;
         } else {
@@ -1977,9 +1991,9 @@ void test() {
   //   though the mesh velocity and boundary contributions are not the correct
   //   DG values
 
-  Parallel::register_derived_classes_with_charm<
+  register_derived_classes_with_charm<
       BoundaryCorrection<Dim, true>>();
-  Parallel::register_derived_classes_with_charm<
+  register_derived_classes_with_charm<
       BoundaryCorrection<Dim, false>>();
 
   const auto invoke_tests_with_quadrature_and_formulation =
@@ -1992,8 +2006,8 @@ void test() {
             // Clang doesn't want moving mesh to be captured, but GCC requires
             // it. Silence the Clang warning by "using" it.
             (void)moving_mesh;
-            if constexpr (not(decltype(use_prims)::value and
-                              system_type == SystemType::Nonconservative)) {
+            if constexpr (not(decltype(use_prims)::value and system_type ==
+                              SystemType::Nonconservative)) {
               // PassVariables == false
               test_impl<false, std::decay_t<decltype(moving_mesh)>::value, Dim,
                         system_type, std::decay_t<decltype(use_prims)>::value,

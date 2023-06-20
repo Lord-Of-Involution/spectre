@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveValenciaSmoothFlow1D
-# Check: parse;execute
+Executable: EvolveValenciaSmoothFlow1D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -19,6 +22,8 @@ DomainCreator:
   Interval:
     LowerBound: [0.0]
     UpperBound: [0.1]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [1]
     InitialGridPoints: [4]
     TimeDependence: None
@@ -61,16 +66,20 @@ VariableFixing:
     MaxVelocityMagnitude: 1.0e-4
 
 EventsAndTriggers:
-  # - - Slabs:
+  # - Trigger:
+  #     Slabs:
   #       EvenlySpaced:
   #         Interval: 10
   #         Offset: 0
-  #   - - ObserveFields:
+  #   Events:
+  #     - ObserveFields:
   #         VariablesToObserve: [RestMassDensity]
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

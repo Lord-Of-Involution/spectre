@@ -20,6 +20,7 @@
 #include "Domain/DomainHelpers.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
+#include "Options/ParseError.hpp"
 #include "Utilities/GetOutput.hpp"
 #include "Utilities/MakeArray.hpp"
 
@@ -300,7 +301,10 @@ Domain<3> Cylinder::create_domain() const {
           radial_distribution_, distribution_in_z_),
       corners_for_cylindrical_layered_domains(number_of_shells,
                                               number_of_layers),
-      pairs_of_faces};
+      pairs_of_faces,
+      {},
+      block_names_,
+      block_groups_};
 }
 
 std::vector<DirectionMap<

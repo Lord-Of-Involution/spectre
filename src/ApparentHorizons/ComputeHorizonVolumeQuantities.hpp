@@ -6,6 +6,7 @@
 #include <cstddef>
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
+#include "Evolution/Systems/GeneralizedHarmonic/ConstraintDamping/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "ParallelAlgorithms/Interpolation/Protocols/ComputeVarsToInterpolate.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
@@ -64,28 +65,36 @@ struct ComputeHorizonVolumeQuantities
   static void apply(
       const gsl::not_null<Variables<DestTagList>*> target_vars,
       const Variables<SrcTagList>& src_vars, const Mesh<3>& mesh,
-      const Jacobian<DataVector, 3, TargetFrame, Frame::Inertial>& jacobian,
+      const Jacobian<DataVector, 3, TargetFrame, Frame::Inertial>&
+          jac_target_to_inertial,
+      const InverseJacobian<DataVector, 3, TargetFrame, Frame::Inertial>&
+          invjac_target_to_inertial,
+      const Jacobian<DataVector, 3, Frame::ElementLogical, TargetFrame>&
+          jac_logical_to_target,
       const InverseJacobian<DataVector, 3, Frame::ElementLogical, TargetFrame>&
-          inverse_jacobian);
+          invjac_logical_to_target,
+      const tnsr::I<DataVector, 3, Frame::Inertial>& inertial_mesh_velocity,
+      const tnsr::I<DataVector, 3, TargetFrame>&
+          grid_to_target_frame_mesh_velocity);
 
-  using allowed_src_tags = tmpl::list<
-      gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-      ::Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                    tmpl::size_t<3>, Frame::Inertial>>;
+  using allowed_src_tags =
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>,
+                 ::Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 gh::ConstraintDamping::Tags::ConstraintGamma1>;
+
   using required_src_tags =
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>;
 
   template <typename TargetFrame>
-  using allowed_dest_tags_target_frame =
-      tmpl::list<gr::Tags::SpatialMetric<3, TargetFrame>,
-                 gr::Tags::InverseSpatialMetric<3, TargetFrame>,
-                 gr::Tags::ExtrinsicCurvature<3, TargetFrame>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>,
-                 gr::Tags::SpatialRicci<3, TargetFrame>>;
+  using allowed_dest_tags_target_frame = tmpl::list<
+      gr::Tags::SpatialMetric<DataVector, 3, TargetFrame>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3, TargetFrame>,
+      gr::Tags::ExtrinsicCurvature<DataVector, 3, TargetFrame>,
+      gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>,
+      gr::Tags::SpatialRicci<DataVector, 3, TargetFrame>>;
 
   template <typename TargetFrame>
   using allowed_dest_tags = tmpl::remove_duplicates<
@@ -93,9 +102,9 @@ struct ComputeHorizonVolumeQuantities
                    allowed_dest_tags_target_frame<Frame::Inertial>>>;
 
   template <typename TargetFrame>
-  using required_dest_tags =
-      tmpl::list<gr::Tags::ExtrinsicCurvature<3, TargetFrame>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>;
+  using required_dest_tags = tmpl::list<
+      gr::Tags::ExtrinsicCurvature<DataVector, 3, TargetFrame>,
+      gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>;
 };
 
 }  // namespace ah

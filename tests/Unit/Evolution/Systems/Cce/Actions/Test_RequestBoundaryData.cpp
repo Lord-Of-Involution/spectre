@@ -29,8 +29,6 @@
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
@@ -58,7 +56,7 @@ struct MockBoundaryComputeAndSendToEvolution {
   static void apply(const db::DataBox<tmpl::list<DbTags...>>& /*box*/,
                     const Parallel::GlobalCache<Metavariables>& /*cache*/,
                     const ArrayIndex& /*array_index*/, const TimeStepId& time) {
-    times_requested.push_back(time.substep_time().value());
+    times_requested.push_back(time.substep_time());
   }
 };
 }  // namespace
@@ -150,12 +148,15 @@ struct test_metavariables {
                  Cce::Tags::TimeIntegral<Cce::Tags::ScriPlus<Cce::Tags::Psi4>>,
                  Cce::Tags::ScriPlusFactor<Cce::Tags::Psi4>>;
 
+  using ccm_psi0 = tmpl::list<
+          Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+          Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
+
   using component_list =
       tmpl::list<mock_h5_worldtube_boundary<test_metavariables>,
                  mock_characteristic_evolution<test_metavariables>>;
 
-  static constexpr bool uses_partially_flat_cartesian_coordinates = false;
-
+  static constexpr bool evolve_ccm = false;
 };
 }  // namespace
 
@@ -204,16 +205,14 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Cce.Actions.RequestBoundaryData",
 
   ActionTesting::set_phase(make_not_null(&runner),
                            Parallel::Phase::Initialization);
-  // requested step size and slab size chosen to be sure that the step
-  // controller gives a predictable value (not subject to roundoff fluctuations
-  // in the generated value)
+  // requested step size and slab size chosen to be sure that the
+  // chosen step is a predictable value (not subject to roundoff
+  // fluctuations in the generated value)
   ActionTesting::emplace_component<evolution_component>(
       &runner, 0, target_step_size * 0.75,
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size);
   ActionTesting::emplace_component<worldtube_component>(
       &runner, 0,

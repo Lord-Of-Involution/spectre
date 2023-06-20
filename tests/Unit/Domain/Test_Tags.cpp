@@ -14,21 +14,23 @@
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
 #include "Domain/CoordinateMaps/Rotation.hpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
+#include "Domain/Creators/DomainCreator.hpp"
+#include "Domain/Creators/OptionTags.hpp"
 #include "Domain/ElementMap.hpp"
+#include "Domain/Protocols/Metavariables.hpp"
 #include "Domain/Structure/ElementId.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Domain/Structure/SegmentId.hpp"
 #include "Domain/Tags.hpp"
+#include "Framework/TestCreation.hpp"
 #include "Helpers/DataStructures/DataBox/TestHelpers.hpp"
+#include "Helpers/Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Utilities/MakeArray.hpp"
 
 namespace domain {
 namespace {
 template <size_t Dim>
 void test_simple_tags() {
-  TestHelpers::db::test_simple_tag<Tags::Domain<Dim>>("Domain");
-  TestHelpers::db::test_simple_tag<Tags::InitialExtents<Dim>>("InitialExtents");
-  TestHelpers::db::test_simple_tag<Tags::InitialRefinementLevels<Dim>>(
-      "InitialRefinementLevels");
   TestHelpers::db::test_simple_tag<Tags::Element<Dim>>("Element");
   TestHelpers::db::test_simple_tag<Tags::Mesh<Dim>>("Mesh");
   TestHelpers::db::test_simple_tag<Tags::ElementMap<Dim>>(

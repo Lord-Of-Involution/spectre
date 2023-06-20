@@ -35,20 +35,18 @@
 #include "NumericalAlgorithms/Spectral/SwshTags.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/MutateApply.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 class TimeStepId;
@@ -175,6 +173,9 @@ struct metavariables {
                  Cce::Tags::ScriPlus<Cce::Tags::Psi3>,
                  Cce::Tags::TimeIntegral<Cce::Tags::ScriPlus<Cce::Tags::Psi4>>,
                  Cce::Tags::ScriPlusFactor<Cce::Tags::Psi4>>;
+  using ccm_psi0 = tmpl::list<
+      Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+      Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 
   using component_list =
       tmpl::list<mock_characteristic_evolution<metavariables>,
@@ -202,8 +203,7 @@ struct TestSendToEvolution {
 SPECTRE_TEST_CASE(
     "Unit.Evolution.Systems.Cce.Actions.CharacteristicBondiCalculations",
     "[Unit][Cce]") {
-  Parallel::register_derived_classes_with_charm<
-      InitializeJ::InitializeJ<false>>();
+  register_derived_classes_with_charm<InitializeJ::InitializeJ<false>>();
   using component = mock_characteristic_evolution<metavariables>;
   const size_t number_of_radial_points = 10;
   const size_t l_max = 8;
@@ -244,8 +244,6 @@ SPECTRE_TEST_CASE(
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size);
 
   // this should run the initialization
@@ -304,7 +302,6 @@ SPECTRE_TEST_CASE(
           number_of_angular_points * number_of_radial_points},
       Spectral::Swsh::SwshInterpolator{}, l_max, number_of_radial_points);
   db::mutate<boundary_variables_tag>(
-      make_not_null(&boundary_box),
       [&spatial_metric_coefficients, &dt_spatial_metric_coefficients,
        &dr_spatial_metric_coefficients, &shift_coefficients,
        &dt_shift_coefficients, &dr_shift_coefficients, &lapse_coefficients,
@@ -319,7 +316,8 @@ SPECTRE_TEST_CASE(
             shift_coefficients, dt_shift_coefficients, dr_shift_coefficients,
             lapse_coefficients, dt_lapse_coefficients, dr_lapse_coefficients,
             extraction_radius, l_max);
-      });
+      },
+      make_not_null(&boundary_box));
 
   for (size_t i = 0; i < 2; ++i) {
     ActionTesting::next_action<component>(make_not_null(&runner), 0);

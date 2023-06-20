@@ -54,16 +54,16 @@ class GlobalCache;
 }  // namespace Parallel
 /// \endcond
 
-namespace GeneralizedHarmonic::Actions {
+namespace gh::Actions {
 template <size_t Dim>
 struct InitializeGhAnd3Plus1Variables {
   using frame = Frame::Inertial;
   using compute_tags = db::AddComputeTags<
       // Needed to compute the characteristic speeds for the AH finder
-      gr::Tags::SpatialMetricCompute<Dim, frame, DataVector>,
-      gr::Tags::DetAndInverseSpatialMetricCompute<Dim, frame, DataVector>,
-      gr::Tags::ShiftCompute<Dim, frame, DataVector>,
-      gr::Tags::LapseCompute<Dim, frame, DataVector>,
+      gr::Tags::SpatialMetricCompute<DataVector, Dim, frame>,
+      gr::Tags::DetAndInverseSpatialMetricCompute<DataVector, Dim, frame>,
+      gr::Tags::ShiftCompute<DataVector, Dim, frame>,
+      gr::Tags::LapseCompute<DataVector, Dim, frame>,
 
       // Compute constraint damping parameters.
       ConstraintDamping::Tags::ConstraintGamma0Compute<Dim, Frame::Grid>,
@@ -71,12 +71,9 @@ struct InitializeGhAnd3Plus1Variables {
       ConstraintDamping::Tags::ConstraintGamma2Compute<Dim, Frame::Grid>>;
 
   using const_global_cache_tags = tmpl::list<
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma0<
-          Dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma1<
-          Dim, Frame::Grid>,
-      GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma2<
-          Dim, Frame::Grid>>;
+      gh::ConstraintDamping::Tags::DampingFunctionGamma0<Dim, Frame::Grid>,
+      gh::ConstraintDamping::Tags::DampingFunctionGamma1<Dim, Frame::Grid>,
+      gh::ConstraintDamping::Tags::DampingFunctionGamma2<Dim, Frame::Grid>>;
 
   template <typename DbTagsList, typename... InboxTags, typename Metavariables,
             typename ArrayIndex, typename ActionList,
@@ -90,4 +87,4 @@ struct InitializeGhAnd3Plus1Variables {
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
-}  // namespace GeneralizedHarmonic::Actions
+}  // namespace gh::Actions

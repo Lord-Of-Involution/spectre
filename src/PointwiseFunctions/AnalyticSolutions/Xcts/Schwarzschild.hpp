@@ -13,15 +13,15 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Elliptic/Systems/Xcts/Tags.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
-#include "Options/Options.hpp"
-#include "Options/ParseOptions.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Xcts/CommonVariables.hpp"
+#include "PointwiseFunctions/AnalyticSolutions/Xcts/Flatness.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags/Conformal.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/AnalyticSolution.hpp"
 #include "Utilities/ContainerHelpers.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -240,10 +240,11 @@ using SchwarzschildVariablesCache =
     cached_temp_buffer_from_typelist<tmpl::push_front<
         common_tags<DataType>, detail::Tags::Radius<DataType>,
         detail::Tags::ArealRadius<DataType>,
+        ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<3>,
+                      Frame::Inertial>,
         gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>, 0>,
         gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0>,
-        gr::Tags::Conformal<
-            gr::Tags::MomentumDensity<3, Frame::Inertial, DataType>, 0>>>;
+        gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, 3>, 0>>>;
 
 template <typename DataType>
 struct SchwarzschildVariables
@@ -317,6 +318,10 @@ struct SchwarzschildVariables
   void operator()(gsl::not_null<Scalar<DataType>*> lapse,
                   gsl::not_null<Cache*> cache,
                   gr::Tags::Lapse<DataType> /*meta*/) const override;
+  void operator()(gsl::not_null<tnsr::i<DataType, 3>*> deriv_lapse,
+                  gsl::not_null<Cache*> cache,
+                  ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<3>,
+                                Frame::Inertial> /*meta*/) const;
   void operator()(
       gsl::not_null<Scalar<DataType>*> lapse_times_conformal_factor,
       gsl::not_null<Cache*> cache,
@@ -350,8 +355,7 @@ struct SchwarzschildVariables
   void operator()(
       gsl::not_null<tnsr::ii<DataType, 3>*> extrinsic_curvature,
       gsl::not_null<Cache*> cache,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataType> /*meta*/)
-      const override;
+      gr::Tags::ExtrinsicCurvature<DataType, 3> /*meta*/) const override;
   void operator()(gsl::not_null<Scalar<DataType>*> energy_density,
                   gsl::not_null<Cache*> cache,
                   gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>,
@@ -362,9 +366,8 @@ struct SchwarzschildVariables
                                       ConformalMatterScale> /*meta*/) const;
   void operator()(gsl::not_null<tnsr::I<DataType, 3>*> momentum_density,
                   gsl::not_null<Cache*> cache,
-                  gr::Tags::Conformal<
-                      gr::Tags::MomentumDensity<3, Frame::Inertial, DataType>,
-                      ConformalMatterScale> /*meta*/) const;
+                  gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, 3>,
+                                      ConformalMatterScale> /*meta*/) const;
 };
 
 }  // namespace detail
@@ -404,11 +407,8 @@ class Schwarzschild : public elliptic::analytic_data::AnalyticSolution,
   tuples::TaggedTuple<RequestedTags...> variables(
       const tnsr::I<DataType, 3, Frame::Inertial>& x,
       tmpl::list<RequestedTags...> /*meta*/) const {
-    using VarsComputer = detail::SchwarzschildVariables<DataType>;
-    typename VarsComputer::Cache cache{get_size(*x.begin())};
-    const VarsComputer computer{std::nullopt, std::nullopt, x, mass_,
-                                coordinate_system_};
-    return {cache.get_var(computer, RequestedTags{})...};
+    return variables_impl<DataType>(x, std::nullopt, std::nullopt,
+                                    tmpl::list<RequestedTags...>{});
   }
 
   template <typename... RequestedTags>
@@ -417,16 +417,40 @@ class Schwarzschild : public elliptic::analytic_data::AnalyticSolution,
       const InverseJacobian<DataVector, 3, Frame::ElementLogical,
                             Frame::Inertial>& inv_jacobian,
       tmpl::list<RequestedTags...> /*meta*/) const {
-    using VarsComputer = detail::SchwarzschildVariables<DataVector>;
-    typename VarsComputer::Cache cache{get_size(*x.begin())};
-    const VarsComputer computer{mesh, inv_jacobian, x, mass_,
-                                coordinate_system_};
-    return {cache.get_var(computer, RequestedTags{})...};
+    return variables_impl<DataVector>(x, mesh, inv_jacobian,
+                                      tmpl::list<RequestedTags...>{});
   }
 
   void pup(PUP::er& p) override {
     elliptic::analytic_data::AnalyticSolution::pup(p);
     detail::SchwarzschildImpl::pup(p);
+  }
+
+ private:
+  template <typename DataType, typename... RequestedTags>
+  tuples::TaggedTuple<RequestedTags...> variables_impl(
+      const tnsr::I<DataType, 3, Frame::Inertial>& x,
+      std::optional<std::reference_wrapper<const Mesh<3>>> mesh,
+      std::optional<std::reference_wrapper<const InverseJacobian<
+          DataType, 3, Frame::ElementLogical, Frame::Inertial>>>
+          inv_jacobian,
+      tmpl::list<RequestedTags...> /*meta*/) const {
+    using VarsComputer = detail::SchwarzschildVariables<DataType>;
+    typename VarsComputer::Cache cache{get_size(*x.begin())};
+    const VarsComputer computer{std::move(mesh), std::move(inv_jacobian), x,
+                                mass_, coordinate_system_};
+    const auto get_var = [&cache, &computer, &x](auto tag_v) {
+      using tag = std::decay_t<decltype(tag_v)>;
+      if constexpr (tmpl::list_contains_v<hydro_tags<DataType>, tag>) {
+        (void)cache;
+        (void)computer;
+        return get<tag>(Flatness{}.variables(x, tmpl::list<tag>{}));
+      } else {
+        (void)x;
+        return cache.get_var(computer, tag{});
+      }
+    };
+    return {get_var(RequestedTags{})...};
   }
 };
 

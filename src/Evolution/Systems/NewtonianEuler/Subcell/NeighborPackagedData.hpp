@@ -30,8 +30,8 @@
 #include "Evolution/DgSubcell/Reconstruction.hpp"
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/PackageDataImpl.hpp"
@@ -68,15 +68,13 @@ namespace NewtonianEuler::subcell {
 struct NeighborPackagedData {
   template <size_t Dim, typename DbTagsList>
   static FixedHashMap<maximum_number_of_neighbors(Dim),
-                      std::pair<Direction<Dim>, ElementId<Dim>>,
-                      std::vector<double>,
+                      std::pair<Direction<Dim>, ElementId<Dim>>, DataVector,
                       boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>
   apply(const db::DataBox<DbTagsList>& box,
         const std::vector<std::pair<Direction<Dim>, ElementId<Dim>>>&
             mortars_to_reconstruct_to) {
-    using system =
-        typename std::decay_t<decltype(db::get<Parallel::Tags::Metavariables>(
-            box))>::system;
+    using system = typename std::decay_t<decltype(
+        db::get<Parallel::Tags::Metavariables>(box))>::system;
     using evolved_vars_tag = typename system::variables_tag;
     using evolved_vars_tags = typename evolved_vars_tag::tags_list;
     using prim_tags = typename system::primitive_variables_tag::tags_list;
@@ -90,20 +88,21 @@ struct NeighborPackagedData {
            "re-slicing/projecting.");
 
     FixedHashMap<maximum_number_of_neighbors(Dim),
-                 std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
+                 std::pair<Direction<Dim>, ElementId<Dim>>, DataVector,
                  boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>
         neighbor_package_data{};
     if (mortars_to_reconstruct_to.empty()) {
       return neighbor_package_data;
     }
 
-    const auto& neighbor_subcell_data = db::get<
-        evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>>(box);
+    const auto& ghost_subcell_data =
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>>(
+            box);
     const Mesh<Dim>& subcell_mesh =
         db::get<evolution::dg::subcell::Tags::Mesh<Dim>>(box);
     const Mesh<Dim>& dg_mesh = db::get<domain::Tags::Mesh<Dim>>(box);
     const auto& subcell_options =
-        db::get<evolution::dg::subcell::Tags::SubcellOptions>(box);
+        db::get<evolution::dg::subcell::Tags::SubcellOptions<Dim>>(box);
 
     // Note: we need to compare if projecting the entire mesh or only ghost
     // zones needed is faster. This probably depends on the number of neighbors
@@ -122,7 +121,7 @@ struct NeighborPackagedData {
         derived_boundary_corrections>([&box, &boundary_correction, &dg_mesh,
                                        &mortars_to_reconstruct_to,
                                        &neighbor_package_data,
-                                       &neighbor_subcell_data, &recons,
+                                       &ghost_subcell_data, &recons,
                                        &subcell_mesh, &subcell_options,
                                        &volume_prims](
                                           auto derived_correction_v) {
@@ -158,12 +157,12 @@ struct NeighborPackagedData {
           call_with_dynamic_type<void,
                                  typename NewtonianEuler::fd::Reconstructor<
                                      Dim>::creatable_classes>(
-              &recons, [&element, &eos, &mortar_id, &neighbor_subcell_data,
-                        &subcell_mesh, &vars_on_face,
-                        &volume_prims](const auto& reconstructor) {
+              &recons,
+              [&element, &eos, &mortar_id, &ghost_subcell_data, &subcell_mesh,
+               &vars_on_face, &volume_prims](const auto& reconstructor) {
                 reconstructor->reconstruct_fd_neighbor(
                     make_not_null(&vars_on_face), volume_prims, eos, element,
-                    neighbor_subcell_data, subcell_mesh, mortar_id.first);
+                    ghost_subcell_data, subcell_mesh, mortar_id.first);
               });
 
           NewtonianEuler::subcell::compute_fluxes<Dim>(
@@ -203,9 +202,12 @@ struct NeighborPackagedData {
           if constexpr (Dim == 1) {
             (void)dg_mesh;
             (void)subcell_options;
-            neighbor_package_data[mortar_id] = std::vector<double>{
-                packaged_data.data(),
-                packaged_data.data() + packaged_data.size()};
+            // Make a view so we can use iterators with std::copy
+            DataVector packaged_data_view{packaged_data.data(),
+                                          packaged_data.size()};
+            neighbor_package_data[mortar_id] = DataVector{packaged_data.size()};
+            std::copy(packaged_data_view.begin(), packaged_data_view.end(),
+                      neighbor_package_data[mortar_id].begin());
           } else {
             // Reconstruct the DG solution.
             // Really we should be solving the boundary correction and
@@ -215,9 +217,14 @@ struct NeighborPackagedData {
                 packaged_data, dg_mesh.slice_away(mortar_id.first.dimension()),
                 subcell_mesh.extents().slice_away(mortar_id.first.dimension()),
                 subcell_options.reconstruction_method());
-            neighbor_package_data[mortar_id] = std::vector<double>{
-                dg_packaged_data.data(),
-                dg_packaged_data.data() + dg_packaged_data.size()};
+            // Make a view so we can use iterators with std::copy
+            DataVector dg_packaged_data_view{dg_packaged_data.data(),
+                                             dg_packaged_data.size()};
+            neighbor_package_data[mortar_id] =
+                DataVector{dg_packaged_data.size()};
+            std::copy(dg_packaged_data_view.begin(),
+                      dg_packaged_data_view.end(),
+                      neighbor_package_data[mortar_id].begin());
           }
         }
       }

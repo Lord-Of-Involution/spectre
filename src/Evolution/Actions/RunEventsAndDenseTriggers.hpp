@@ -131,16 +131,25 @@ struct RunEventsAndDenseTriggers {
         tmpl::for_each<tensor_tags>([this](auto tag_v) {
           using tag = tmpl::type_from<decltype(tag_v)>;
           db::mutate<tag>(
-              box_, [this](const gsl::not_null<typename tag::type*> value) {
+              [this](const gsl::not_null<typename tag::type*> value) {
                 *value = get<tag>(tensors_);
-              });
+              },
+              box_);
         });
         tmpl::for_each<non_tensor_tags>([this](auto tag_v) {
           using tag = tmpl::type_from<decltype(tag_v)>;
           db::mutate<tag>(
-              box_, [this](const gsl::not_null<typename tag::type*> value) {
+              [this](const gsl::not_null<typename tag::type*> value) {
+#if defined(__GNUC__) and not defined(__clang__) and __GNUC__ < 13
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
                 *value = std::move(tuples::get<tag>(*non_tensors_));
-              });
+#if defined(__GNUC__) and not defined(__clang__) and __GNUC__ < 13
+#pragma GCC diagnostic pop
+#endif
+              },
+              box_);
         });
       }
     }
@@ -207,19 +216,14 @@ struct RunEventsAndDenseTriggers {
         return {Parallel::AlgorithmExecution::Continue, std::nullopt};
       }
 
-      // This can only be true the first time through the loop,
-      // because triggers are not allowed to reschedule for the time
-      // they just triggered at.  This check is primarily to avoid
-      // special-case bookkeeping for the initial simulation time.
-      const bool already_at_correct_time =
-          db::get<::Tags::Time>(box) == next_trigger;
-      if (not already_at_correct_time) {
+      // Avoid invalidating compute items unless necessary.
+      if (db::get<::Tags::Time>(box) != next_trigger) {
         time_restorer.save();
         db::mutate<::Tags::Time>(
-            make_not_null(&box),
             [&next_trigger](const gsl::not_null<double*> time) {
               *time = next_trigger;
-            });
+            },
+            make_not_null(&box));
       }
 
       const auto triggered = events_and_dense_triggers.is_ready(
@@ -228,53 +232,46 @@ struct RunEventsAndDenseTriggers {
       switch (triggered) {
         case TriggeringState::NotReady:
           return {Parallel::AlgorithmExecution::Retry, std::nullopt};
-        case TriggeringState::NeedsEvolvedVariables:
-          if (not already_at_correct_time) {
-            bool ready = true;
-            tmpl::for_each<Postprocessors>([&](auto postprocessor_v) {
-              using postprocessor = tmpl::type_from<decltype(postprocessor_v)>;
-              if (ready) {
-                if (not postprocessor::is_ready(make_not_null(&box),
-                                                make_not_null(&inboxes), cache,
-                                                array_index, component)) {
-                  ready = false;
-                }
+        case TriggeringState::NeedsEvolvedVariables: {
+          bool ready = true;
+          tmpl::for_each<Postprocessors>([&](auto postprocessor_v) {
+            using postprocessor = tmpl::type_from<decltype(postprocessor_v)>;
+            if (ready) {
+              if (not postprocessor::is_ready(make_not_null(&box),
+                                              make_not_null(&inboxes), cache,
+                                              array_index, component)) {
+                ready = false;
               }
-            });
-            if (not ready) {
-              return {Parallel::AlgorithmExecution::Retry, std::nullopt};
             }
-
-            using history_tag = ::Tags::HistoryEvolvedVariables<variables_tag>;
-            bool dense_output_succeeded = false;
-            // Restore the evolved variables if they have been
-            // previously altered so the time stepper starts in the
-            // correct state, then save them if they have not been
-            // previously altered.  (So one of these two lines is a
-            // no-op.)
-            variables_restorer.restore();
-            variables_restorer.save();
-            db::mutate<variables_tag>(
-                make_not_null(&box),
-                [&dense_output_succeeded, &next_trigger](
-                    gsl::not_null<typename variables_tag::type*> vars,
-                    const TimeStepper& stepper,
-                    const typename history_tag::type& history) {
-                  dense_output_succeeded =
-                      stepper.dense_update_u(vars, history, next_trigger);
-                },
-                db::get<::Tags::TimeStepper<>>(box), db::get<history_tag>(box));
-            if (not dense_output_succeeded) {
-              // Need to take another time step
-              return {Parallel::AlgorithmExecution::Continue, std::nullopt};
-            }
-
-            postprocessor_restorer.save();
-            tmpl::for_each<Postprocessors>([&box](auto postprocessor_v) {
-              using postprocessor = tmpl::type_from<decltype(postprocessor_v)>;
-              db::mutate_apply<postprocessor>(make_not_null(&box));
-            });
+          });
+          if (not ready) {
+            return {Parallel::AlgorithmExecution::Retry, std::nullopt};
           }
+
+          using history_tag = ::Tags::HistoryEvolvedVariables<variables_tag>;
+          bool dense_output_succeeded = false;
+          variables_restorer.save();
+          db::mutate<variables_tag>(
+              [&dense_output_succeeded, &next_trigger](
+                  gsl::not_null<typename variables_tag::type*> vars,
+                  const TimeStepper& stepper,
+                  const typename history_tag::type& history) {
+                dense_output_succeeded =
+                    stepper.dense_update_u(vars, history, next_trigger);
+              },
+              make_not_null(&box), db::get<::Tags::TimeStepper<>>(box),
+              db::get<history_tag>(box));
+          if (not dense_output_succeeded) {
+            // Need to take another time step
+            return {Parallel::AlgorithmExecution::Continue, std::nullopt};
+          }
+
+          postprocessor_restorer.save();
+          tmpl::for_each<Postprocessors>([&box](auto postprocessor_v) {
+            using postprocessor = tmpl::type_from<decltype(postprocessor_v)>;
+            db::mutate_apply<postprocessor>(make_not_null(&box));
+          });
+        }
           [[fallthrough]];
         default:
           break;

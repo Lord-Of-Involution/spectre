@@ -9,16 +9,21 @@
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataBox/DataBoxTag.hpp"
+#include "DataStructures/Tensor/EagerMath/DeterminantAndInverse.hpp"
 #include "Domain/Creators/Factory1D.hpp"
 #include "Domain/Creators/Factory2D.hpp"
 #include "Domain/Creators/Factory3D.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
+#include "Domain/FlatLogicalMetric.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
+#include "Domain/JacobianDiagnostic.hpp"
 #include "Domain/MinimumGridSpacing.hpp"
 #include "Domain/Protocols/Metavariables.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Mesh.hpp"
+#include "Evolution/DgSubcell/Tags/ActiveGrid.hpp"
 #include "Evolution/DiscontinuousGalerkin/DgElementArray.hpp"
 #include "Evolution/Initialization/DgDomain.hpp"
 #include "Evolution/Initialization/Evolution.hpp"
@@ -31,8 +36,9 @@
 #include "IO/Observer/ReductionActions.hpp"
 #include "IO/Observer/VolumeActions.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
-#include "Options/Options.hpp"
+#include "NumericalAlgorithms/SpatialDiscretization/OptionTags.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Algorithms/AlgorithmArray.hpp"
 #include "Parallel/GlobalCache.hpp"
@@ -42,7 +48,6 @@
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "Parallel/Reduction.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/AddComputeTags.hpp"
 #include "ParallelAlgorithms/Actions/InitializeItems.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
@@ -59,11 +64,14 @@
 #include "Time/Triggers/TimeCompares.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Functional.hpp"
 #include "Utilities/GetOutput.hpp"
+#include "Utilities/Gsl.hpp"
 #include "Utilities/MakeString.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -142,6 +150,32 @@ struct ExportCoordinates {
         db::tag_name<domain::Tags::DetInvJacobian<Frame::ElementLogical,
                                                   Frame::Inertial>>(),
         get(det_inv_jac));
+
+    // Also output the jacobian diagnostic, which compares the analytic
+    // Jacobian (via the CoordinateMap) to the numerical Jacobian
+    // (computed via logical_partial_derivative)
+    const auto& jacobian = determinant_and_inverse(inv_jacobian).second;
+    tnsr::i<DataVector, Dim, Frame::ElementLogical> jac_diag{
+        mesh.number_of_grid_points(), 0.0};
+    domain::jacobian_diagnostic(make_not_null(&jac_diag), jacobian,
+                                inertial_coordinates, mesh);
+    for (size_t i = 0; i < Dim; ++i) {
+      components.emplace_back(
+          "JacobianDiagnostic_" +
+              jac_diag.component_name(jac_diag.get_tensor_index(i)),
+          jac_diag.get(i));
+    }
+
+    // Also output the computation domain metric
+    const auto& flat_logical_metric =
+        db::get<domain::Tags::FlatLogicalMetric<Dim>>(box);
+    for (size_t i = 0; i < flat_logical_metric.size(); ++i) {
+      components.emplace_back(
+          db::tag_name<domain::Tags::FlatLogicalMetric<Dim>>() +
+              flat_logical_metric.component_suffix(i),
+          flat_logical_metric[i]);
+    }
+
     // Send data to volume observer
     auto& local_observer = *Parallel::local_branch(
         Parallel::get_parallel_component<observers::Observer<Metavariables>>(
@@ -195,6 +229,29 @@ struct FindGlobalMinimumGridSpacing {
 };
 }  // namespace Actions
 
+namespace Initialization {
+template <size_t Dim>
+struct SetMeshType {
+  using const_global_cache_tags =
+      tmpl::list<evolution::dg::subcell::Tags::ActiveGrid>;
+  using mutable_global_cache_tags = tmpl::list<>;
+  using argument_tags = tmpl::list<evolution::dg::subcell::Tags::ActiveGrid>;
+  using simple_tags_from_options = tmpl::list<>;
+  using default_initialized_simple_tags = tmpl::list<>;
+  using return_tags = tmpl::list<domain::Tags::Mesh<Dim>>;
+  using simple_tags = return_tags;
+  using compute_tags = tmpl::list<>;
+
+  static void apply(const gsl::not_null<::Mesh<Dim>*> mesh,
+                    const evolution::dg::subcell::ActiveGrid active_grid) {
+    // Originally the mesh is DG so switch it to FD if we aren't using a DG grid
+    if (active_grid == evolution::dg::subcell::ActiveGrid::Subcell) {
+      *mesh = evolution::dg::subcell::fd::mesh(*mesh);
+    }
+  }
+};
+}  // namespace Initialization
+
 template <size_t Dim, bool EnableTimeDependentMaps>
 struct Metavariables {
   static constexpr size_t volume_dim = Dim;
@@ -233,14 +290,17 @@ struct Metavariables {
           tmpl::list<
               Parallel::PhaseActions<
                   Parallel::Phase::Initialization,
-                  tmpl::list<Initialization::Actions::InitializeItems<
-                                 Initialization::TimeStepping<
-                                     Metavariables, local_time_stepping>,
-                                 evolution::dg::Initialization::Domain<Dim>>,
-                             Initialization::Actions::AddComputeTags<
-                                 ::domain::Tags::MinimumGridSpacingCompute<
-                                     Dim, Frame::Inertial>>,
-                             Parallel::Actions::TerminatePhase>>,
+                  tmpl::list<
+                      Initialization::Actions::InitializeItems<
+                          Initialization::TimeStepping<Metavariables,
+                                                       local_time_stepping>,
+                          evolution::dg::Initialization::Domain<Dim>,
+                          Initialization::SetMeshType<Dim>>,
+                      Initialization::Actions::AddComputeTags<tmpl::list<
+                          ::domain::Tags::MinimumGridSpacingCompute<
+                              Dim, Frame::Inertial>,
+                          ::domain::Tags::FlatLogicalMetricCompute<Dim>>>,
+                      Parallel::Actions::TerminatePhase>>,
               Parallel::PhaseActions<
                   Parallel::Phase::Register,
                   tmpl::list<observers::Actions::RegisterWithObservers<
@@ -269,12 +329,13 @@ struct Metavariables {
 };
 
 static const std::vector<void (*)()> charm_init_node_funcs{
-    &setup_error_handling, &setup_memory_allocation_failure_reporting,
+    &setup_error_handling,
+    &setup_memory_allocation_failure_reporting,
     &disable_openblas_multithreading,
     &domain::creators::register_derived_with_charm,
     &domain::creators::time_dependence::register_derived_with_charm,
     &domain::FunctionsOfTime::register_derived_with_charm,
-    &Parallel::register_factory_classes_with_charm<metavariables>};
+    &register_factory_classes_with_charm<metavariables>};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 /// \endcond

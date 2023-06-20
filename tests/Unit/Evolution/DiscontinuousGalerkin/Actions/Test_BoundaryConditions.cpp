@@ -30,6 +30,9 @@
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
 #include "Domain/CoordinateMaps/Identity.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Domain.hpp"
 #include "Evolution/BoundaryConditions/Type.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/BoundaryConditionsImpl.hpp"
@@ -39,11 +42,11 @@
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Tags/Formulation.hpp"
 #include "NumericalAlgorithms/Interpolation/RegularGridInterpolant.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Utilities/CloneUniquePtrs.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -2344,7 +2347,6 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
     INFO("Ghost");
     CAPTURE(outgoing_direction);
     db::mutate<domain::Tags::ExternalBoundaryConditions<Dim>, dt_variables_tag>(
-        make_not_null(&box),
         [&moving_mesh, &outgoing_direction](const auto all_boundary_conditions,
                                             const auto dt_vars_ptr) {
           DirectionMap<Dim, std::unique_ptr<
@@ -2357,7 +2359,8 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
           (*all_boundary_conditions)[0] = std::move(boundary_conditions);
 
           fill_variables(dt_vars_ptr, offset_dt_evolved_vars);
-        });
+        },
+        make_not_null(&box));
     evolution::dg::Actions::detail::
         apply_boundary_conditions_on_all_external_faces<System, Dim>(
             make_not_null(&box),
@@ -2420,7 +2423,6 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
     INFO("TimeDerivative");
     CAPTURE(outgoing_direction);
     db::mutate<domain::Tags::ExternalBoundaryConditions<Dim>, dt_variables_tag>(
-        make_not_null(&box),
         [&moving_mesh, &outgoing_direction](const auto all_boundary_conditions,
                                             const auto dt_vars_ptr) {
           DirectionMap<Dim, std::unique_ptr<
@@ -2434,7 +2436,8 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
           (*all_boundary_conditions)[0] = std::move(boundary_conditions);
 
           fill_variables(dt_vars_ptr, offset_dt_evolved_vars);
-        });
+        },
+        make_not_null(&box));
     evolution::dg::Actions::detail::
         apply_boundary_conditions_on_all_external_faces<System, Dim>(
             make_not_null(&box),
@@ -2484,7 +2487,6 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
 
         db::mutate<domain::Tags::ExternalBoundaryConditions<Dim>,
                    dt_variables_tag>(
-            make_not_null(&box),
             [&expected_dt_var1 =
                  get<::Tags::dt<Tags::Var1>>(expected_dt_on_boundary),
              &moving_mesh, &ghost_direction](const auto all_boundary_conditions,
@@ -2501,7 +2503,8 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
               (*all_boundary_conditions)[0] = std::move(boundary_conditions);
 
               fill_variables(dt_vars_ptr, offset_dt_evolved_vars);
-            });
+            },
+            make_not_null(&box));
         evolution::dg::Actions::detail::
             apply_boundary_conditions_on_all_external_faces<System, Dim>(
                 make_not_null(&box),
@@ -2539,7 +2542,6 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
         // applied in different directions.
         db::mutate<domain::Tags::ExternalBoundaryConditions<Dim>,
                    dt_variables_tag>(
-            make_not_null(&box),
             [&moving_mesh, &outgoing_direction](
                 const auto all_boundary_conditions, const auto dt_vars_ptr) {
               DirectionMap<Dim,
@@ -2554,7 +2556,8 @@ void test_1d(const bool moving_mesh, const dg::Formulation formulation,
               (*all_boundary_conditions)[0] = std::move(boundary_conditions);
 
               fill_variables(dt_vars_ptr, offset_dt_evolved_vars);
-            });
+            },
+            make_not_null(&box));
         evolution::dg::Actions::detail::
             apply_boundary_conditions_on_all_external_faces<System, Dim>(
                 make_not_null(&box),

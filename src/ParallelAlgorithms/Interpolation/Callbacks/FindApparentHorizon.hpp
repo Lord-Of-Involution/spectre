@@ -12,11 +12,12 @@
 #include "ApparentHorizons/Tags.hpp"
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/VariablesTag.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
 #include "IO/Logging/Tags.hpp"
 #include "IO/Logging/Verbosity.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
@@ -63,13 +64,15 @@ namespace callbacks {
 /// type alias called `post_horizon_find_callbacks`, which is a list of
 /// structs, each of which has a function
 ///
-/// \snippet ApparentHorizons/Test_ApparentHorizonFinder.cpp post_horizon_find_callback_example
+/// \snippet ApparentHorizons/Test_ApparentHorizonFinder.cpp
+/// post_horizon_find_callback_example
 ///
 /// that is called if the FastFlow iteration has converged.
 /// InterpolationTargetTag also is assumed to contain an additional
 /// struct called `horizon_find_failure_callback`, which has a function
 ///
-/// \snippet ApparentHorizons/Test_ApparentHorizonFinder.cpp horizon_find_failure_callback_example
+/// \snippet ApparentHorizons/Test_ApparentHorizonFinder.cpp
+/// horizon_find_failure_callback_example
 ///
 /// that is called if the FastFlow iteration or the interpolation has
 /// failed.
@@ -79,9 +82,9 @@ namespace callbacks {
 ///   - `temporal_id`
 /// - DataBox:
 ///   - `logging::Tags::Verbosity<InterpolationTargetTag>`
-///   - `::gr::Tags::InverseSpatialMetric<3,Frame>`
-///   - `::gr::Tags::ExtrinsicCurvature<3,Frame>`
-///   - `::gr::Tags::SpatialChristoffelSecondKind<3,Frame>`
+///   - `::gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>`
+///   - `::gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame>`
+///   - `::gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, Frame>`
 ///   - `::ah::Tags::FastFlow`
 ///   - `StrahlkorperTags::Strahlkorper<Frame>`
 ///
@@ -159,11 +162,11 @@ struct FindApparentHorizon
       // search.
       db::mutate<StrahlkorperTags::Strahlkorper<Frame>,
                  ::ah::Tags::PreviousStrahlkorpers<Frame>>(
-          box, [&temporal_id](
-                   const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper,
-                   const gsl::not_null<
-                       std::deque<std::pair<double, ::Strahlkorper<Frame>>>*>
-                       previous_strahlkorpers) {
+          [&temporal_id](
+              const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper,
+              const gsl::not_null<
+                  std::deque<std::pair<double, ::Strahlkorper<Frame>>>*>
+                  previous_strahlkorpers) {
             // If we have zero previous_strahlkorpers, then the
             // initial guess is already in strahlkorper, so do
             // nothing.
@@ -199,7 +202,8 @@ struct FindApparentHorizon
                   fac_0 * (*previous_strahlkorpers)[0].second.coefficients() +
                   fac_1 * (*previous_strahlkorpers)[1].second.coefficients();
             }
-          });
+          },
+          box);
     }
 
     // Deal with the possibility that some of the points might be
@@ -218,22 +222,23 @@ struct FindApparentHorizon
       const auto& verbosity =
           db::get<logging::Tags::Verbosity<InterpolationTargetTag>>(*box);
       const auto& inv_g =
-          db::get<::gr::Tags::InverseSpatialMetric<3, Frame>>(*box);
+          db::get<::gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>>(*box);
       const auto& ex_curv =
-          db::get<::gr::Tags::ExtrinsicCurvature<3, Frame>>(*box);
-      const auto& christoffel =
-          db::get<::gr::Tags::SpatialChristoffelSecondKind<3, Frame>>(*box);
+          db::get<::gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame>>(*box);
+      const auto& christoffel = db::get<
+          ::gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, Frame>>(*box);
 
       std::pair<FastFlow::Status, FastFlow::IterInfo> status_and_info;
 
       // Do a FastFlow iteration.
       db::mutate<::ah::Tags::FastFlow, StrahlkorperTags::Strahlkorper<Frame>>(
-          box, [&inv_g, &ex_curv, &christoffel, &status_and_info](
-                   const gsl::not_null<::FastFlow*> fast_flow,
-                   const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper) {
+          [&inv_g, &ex_curv, &christoffel, &status_and_info](
+              const gsl::not_null<::FastFlow*> fast_flow,
+              const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper) {
             status_and_info = fast_flow->template iterate_horizon_finder<Frame>(
                 strahlkorper, inv_g, ex_curv, christoffel);
-          });
+          },
+          box);
 
       // Determine whether we have converged, whether we need another step,
       // or whether we have encountered an error.
@@ -274,7 +279,21 @@ struct FindApparentHorizon
       }
     }
 
-    if (not horizon_finder_failed) {
+    // If it failed, don't update any variables, just reset the Strahlkorper to
+    // it's previous value
+    if (horizon_finder_failed) {
+      db::mutate<StrahlkorperTags::Strahlkorper<Frame>>(
+          [](const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper,
+             const std::deque<std::pair<double, ::Strahlkorper<Frame>>>&
+                 previous_strahlkorpers) {
+            // Don't keep a partially-converged strahlkorper in the
+            // DataBox.  Reset to either the original initial guess or
+            // to the last-found Strahlkorper (whichever one happens
+            // to be in previous_strahlkorpers).
+            *strahlkorper = previous_strahlkorpers.front().second;
+          },
+          box, db::get<::ah::Tags::PreviousStrahlkorpers<Frame>>(*box));
+    } else {
       // The interpolated variables
       // Tags::Variables<InterpolationTargetTag::vars_to_interpolate_to_target>
       // have been interpolated from the volume to the points on the
@@ -342,33 +361,20 @@ struct FindApparentHorizon
             },
             box);
       }
-      tmpl::for_each<
-          typename InterpolationTargetTag::post_horizon_find_callbacks>(
-          [&box, &cache, &temporal_id](auto callback_v) {
-            using callback = tmpl::type_from<decltype(callback_v)>;
-            callback::apply(*box, *cache, temporal_id);
-          });
-    }
 
-    // Prepare for finding horizon at a new time.
-    db::mutate<::ah::Tags::FastFlow, StrahlkorperTags::Strahlkorper<Frame>,
-               ::ah::Tags::PreviousStrahlkorpers<Frame>>(
-        box, [&horizon_finder_failed, &temporal_id](
-                 const gsl::not_null<::FastFlow*> fast_flow,
-                 const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper,
-                 const gsl::not_null<
-                     std::deque<std::pair<double, ::Strahlkorper<Frame>>>*>
-                     previous_strahlkorpers) {
-          if (horizon_finder_failed) {
-            // Don't keep a partially-converged strahlkorper in the
-            // DataBox.  Reset to either the original initial guess or
-            // to the last-found Strahlkorper (whichever one happens
-            // to be in previous_strahlkorpers).
-            *strahlkorper = previous_strahlkorpers->front().second;
-          } else {
+      // Update the previous strahlkorpers. We do this before the callbacks
+      // in case any of the callbacks need the previous strahlkorpers with the
+      // current strahlkorper already in it.
+      db::mutate<StrahlkorperTags::Strahlkorper<Frame>,
+                 ::ah::Tags::PreviousStrahlkorpers<Frame>>(
+          [&temporal_id](
+              const gsl::not_null<::Strahlkorper<Frame>*> strahlkorper,
+              const gsl::not_null<
+                  std::deque<std::pair<double, ::Strahlkorper<Frame>>>*>
+                  previous_strahlkorpers) {
             // This is the number of previous strahlkorpers that we
             // keep around.
-            const size_t num_previous_strahlkorpers = 2;
+            const size_t num_previous_strahlkorpers = 3;
 
             // Save a new previous_strahlkorper.
             previous_strahlkorpers->emplace_front(
@@ -380,9 +386,26 @@ struct FindApparentHorizon
                    num_previous_strahlkorpers) {
               previous_strahlkorpers->pop_back();
             }
-          }
+          },
+          box);
+
+      // Finally call callbacks
+      tmpl::for_each<
+          typename InterpolationTargetTag::post_horizon_find_callbacks>(
+          [&box, &cache, &temporal_id](auto callback_v) {
+            using callback = tmpl::type_from<decltype(callback_v)>;
+            callback::apply(*box, *cache, temporal_id);
+          });
+    }
+
+    // Prepare for finding horizon at a new time. Regardless of if we failed or
+    // not, we reset fast flow.
+    db::mutate<::ah::Tags::FastFlow>(
+        [](const gsl::not_null<::FastFlow*> fast_flow) {
           fast_flow->reset_for_next_find();
-        });
+        },
+        box);
+
     // We return true because we are now done with all the volume data
     // at this temporal_id, so we want it cleaned up.
     return true;

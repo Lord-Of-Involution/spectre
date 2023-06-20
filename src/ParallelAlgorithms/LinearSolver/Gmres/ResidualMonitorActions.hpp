@@ -55,11 +55,11 @@ struct InitializeResidualMagnitude {
     constexpr size_t iteration_id = 0;
 
     db::mutate<initial_residual_magnitude_tag>(
-        make_not_null(&box),
         [residual_magnitude](
             const gsl::not_null<double*> initial_residual_magnitude) {
           *initial_residual_magnitude = residual_magnitude;
-        });
+        },
+        make_not_null(&box));
 
     LinearSolver::observe_detail::contribute_to_reduction_observer<
         OptionsGroup, ParallelComponent>(iteration_id, residual_magnitude,
@@ -113,28 +113,27 @@ struct StoreOrthogonalization {
       // Append a row and a column to the orthogonalization history. Zero the
       // entries that won't be set during the orthogonalization procedure below.
       db::mutate<orthogonalization_history_tag>(
-          make_not_null(&box),
           [iteration_id](const auto orthogonalization_history) {
-            orthogonalization_history->resize(iteration_id + 2,
-                                              iteration_id + 1);
+            orthogonalization_history->resize(iteration_id + 1, iteration_id);
             for (size_t j = 0; j < orthogonalization_history->columns() - 1;
                  ++j) {
               (*orthogonalization_history)(
                   orthogonalization_history->rows() - 1, j) = 0.;
             }
-          });
+          },
+          make_not_null(&box));
     }
 
     // While the orthogonalization procedure is not complete, store the
     // orthogonalization, broadcast it back to all elements and return early
-    if (orthogonalization_iteration_id <= iteration_id) {
+    if (orthogonalization_iteration_id < iteration_id) {
       db::mutate<orthogonalization_history_tag>(
-          make_not_null(&box),
           [orthogonalization, iteration_id, orthogonalization_iteration_id](
               const auto orthogonalization_history) {
             (*orthogonalization_history)(orthogonalization_iteration_id,
-                                         iteration_id) = orthogonalization;
-          });
+                                         iteration_id - 1) = orthogonalization;
+          },
+          make_not_null(&box));
 
       Parallel::receive_data<Tags::Orthogonalization<OptionsGroup>>(
           Parallel::get_parallel_component<BroadcastTarget>(cache),
@@ -144,12 +143,13 @@ struct StoreOrthogonalization {
 
     // At this point, the orthogonalization procedure is complete.
     db::mutate<orthogonalization_history_tag>(
-        make_not_null(&box),
         [orthogonalization, iteration_id,
          orthogonalization_iteration_id](const auto orthogonalization_history) {
           (*orthogonalization_history)(orthogonalization_iteration_id,
-                                       iteration_id) = sqrt(orthogonalization);
-        });
+                                       iteration_id - 1) =
+              sqrt(orthogonalization);
+        },
+        make_not_null(&box));
 
     // Perform a QR decomposition of the Hessenberg matrix that was built during
     // the orthogonalization
@@ -171,28 +171,26 @@ struct StoreOrthogonalization {
     // logging and checking convergence before broadcasting back to the
     // elements.
 
-    const size_t completed_iterations = iteration_id + 1;
     LinearSolver::observe_detail::contribute_to_reduction_observer<
-        OptionsGroup, ParallelComponent>(completed_iterations,
-                                         residual_magnitude, cache);
+        OptionsGroup, ParallelComponent>(iteration_id, residual_magnitude,
+                                         cache);
 
     // Determine whether the linear solver has converged
     Convergence::HasConverged has_converged{
-        get<Convergence::Tags::Criteria<OptionsGroup>>(box),
-        completed_iterations, residual_magnitude,
-        get<initial_residual_magnitude_tag>(box)};
+        get<Convergence::Tags::Criteria<OptionsGroup>>(box), iteration_id,
+        residual_magnitude, get<initial_residual_magnitude_tag>(box)};
 
     // Do some logging
     if (UNLIKELY(get<logging::Tags::Verbosity<OptionsGroup>>(cache) >=
                  ::Verbosity::Quiet)) {
       Parallel::printf("%s(%zu) iteration complete. Remaining residual: %e\n",
-                       pretty_type::name<OptionsGroup>(), completed_iterations,
+                       pretty_type::name<OptionsGroup>(), iteration_id,
                        residual_magnitude);
     }
     if (UNLIKELY(has_converged and get<logging::Tags::Verbosity<OptionsGroup>>(
                                        cache) >= ::Verbosity::Quiet)) {
       Parallel::printf("%s has converged in %zu iterations: %s\n",
-                       pretty_type::name<OptionsGroup>(), completed_iterations,
+                       pretty_type::name<OptionsGroup>(), iteration_id,
                        has_converged);
     }
 

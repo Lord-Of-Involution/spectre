@@ -1,15 +1,19 @@
 // Distributed under the MIT License.
 // See LICENSE.txt for details.
 
+#include "Framework/TestingFramework.hpp"
+
 #include "Helpers/Domain/BoundaryConditions/BoundaryCondition.hpp"
 
 #include <cstddef>
 #include <memory>
 #include <pup.h>
+#include <vector>
 
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
+#include "Domain/Structure/DirectionMap.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace TestHelpers::domain::BoundaryConditions {
 template <size_t Dim>
@@ -90,10 +94,31 @@ bool operator!=(const TestBoundaryCondition<Dim>& lhs,
 template <size_t Dim>
 PUP::able::PUP_ID TestBoundaryCondition<Dim>::my_PUP_ID = 0;  // NOLINT
 
+template <size_t Dim>
+void test_boundary_conditions(
+    const std::vector<DirectionMap<
+        Dim, std::unique_ptr<::domain::BoundaryConditions::BoundaryCondition>>>&
+        all_boundary_conditions) {
+  for (size_t block_id = 0; block_id < all_boundary_conditions.size();
+       ++block_id) {
+    const auto& boundary_conditions = all_boundary_conditions[block_id];
+    for (const auto& [direction, boundary_condition] : boundary_conditions) {
+      CAPTURE(direction);
+      const auto test_bc =
+          dynamic_cast<const TestHelpers::domain::BoundaryConditions::
+                           TestBoundaryCondition<Dim>*>(
+              boundary_condition.get());
+      REQUIRE(test_bc != nullptr);
+      CHECK(test_bc->direction() == direction);
+      CHECK(test_bc->block_id() == block_id);
+    }
+  }
+}
+
 void register_derived_with_charm() {
-  Parallel::register_derived_classes_with_charm<BoundaryConditionBase<1>>();
-  Parallel::register_derived_classes_with_charm<BoundaryConditionBase<2>>();
-  Parallel::register_derived_classes_with_charm<BoundaryConditionBase<3>>();
+  register_derived_classes_with_charm<BoundaryConditionBase<1>>();
+  register_derived_classes_with_charm<BoundaryConditionBase<2>>();
+  register_derived_classes_with_charm<BoundaryConditionBase<3>>();
 }
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
@@ -104,7 +129,11 @@ void register_derived_with_charm() {
   template bool operator==(const TestBoundaryCondition<DIM(data)>& lhs,  \
                            const TestBoundaryCondition<DIM(data)>& rhs); \
   template bool operator!=(const TestBoundaryCondition<DIM(data)>& lhs,  \
-                           const TestBoundaryCondition<DIM(data)>& rhs);
+                           const TestBoundaryCondition<DIM(data)>& rhs); \
+  template void test_boundary_conditions(                                \
+      const std::vector<DirectionMap<                                    \
+          DIM(data), std::unique_ptr<                                    \
+                         ::domain::BoundaryConditions::BoundaryCondition>>>&);
 
 GENERATE_INSTANTIATIONS(INSTANTIATION, (1, 2, 3))
 

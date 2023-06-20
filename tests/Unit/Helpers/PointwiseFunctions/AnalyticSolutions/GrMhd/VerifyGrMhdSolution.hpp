@@ -57,7 +57,7 @@ Variables<valencia_tags> numerical_dt(
                  hydro::Tags::LorentzFactor<DataVector>,
                  hydro::Tags::Pressure<DataVector>,
                  hydro::Tags::SpecificEnthalpy<DataVector>,
-                 gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
+                 gr::Tags::SpatialMetric<DataVector, 3>,
                  gr::Tags::SqrtDetSpatialMetric<DataVector>>;
 
   for (size_t i = 0; i < 6; ++i) {
@@ -79,10 +79,8 @@ Variables<valencia_tags> numerical_dt(
     const auto& lorentz_factor =
         get<hydro::Tags::LorentzFactor<DataVector>>(vars);
     const auto& pressure = get<hydro::Tags::Pressure<DataVector>>(vars);
-    const auto& specific_enthalpy =
-        get<hydro::Tags::SpecificEnthalpy<DataVector>>(vars);
     const auto& spatial_metric =
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(vars);
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(vars);
     const auto& sqrt_det_spatial_metric =
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(vars);
 
@@ -100,9 +98,8 @@ Variables<valencia_tags> numerical_dt(
         make_not_null(&get<grmhd::ValenciaDivClean::Tags::TildePhi>(
             gsl::at(solution_at_six_times, i))),
         rest_mass_density, electron_fraction, specific_internal_energy,
-        specific_enthalpy, pressure, spatial_velocity, lorentz_factor,
-        magnetic_field, sqrt_det_spatial_metric, spatial_metric,
-        divergence_cleaning_field);
+        pressure, spatial_velocity, lorentz_factor, magnetic_field,
+        sqrt_det_spatial_metric, spatial_metric, divergence_cleaning_field);
   }
 
   return (-1.0 / (60.0 * delta_time)) * solution_at_six_times[0] +
@@ -147,17 +144,16 @@ void verify_grmhd_solution(const Solution& solution, const Block<3>& block,
       hydro::Tags::DivergenceCleaningField<DataVector>,
       hydro::Tags::LorentzFactor<DataVector>, hydro::Tags::Pressure<DataVector>,
       hydro::Tags::SpecificEnthalpy<DataVector>, gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
+      gr::Tags::Shift<DataVector, 3>, gr::Tags::SpatialMetric<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>,
       gr::Tags::SqrtDetSpatialMetric<DataVector>,
       ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
                     Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>;
+      ::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                    Frame::Inertial>,
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                    Frame::Inertial>,
+      gr::Tags::ExtrinsicCurvature<DataVector, 3>>;
   const auto vars = solution.variables(x, time, solution_tags{});
 
   const auto& rest_mass_density =
@@ -181,22 +177,21 @@ void verify_grmhd_solution(const Solution& solution, const Block<3>& block,
   const auto& d_lapse =
       get<::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
                         Frame::Inertial>>(vars);
-  const auto& shift =
-      get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(vars);
+  const auto& shift = get<gr::Tags::Shift<DataVector, 3>>(vars);
   const auto& d_shift =
-      get<::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(vars);
+      get<::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(vars);
   const auto& spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(vars);
+      get<gr::Tags::SpatialMetric<DataVector, 3>>(vars);
   const auto& d_spatial_metric =
-      get<::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(vars);
+      get<::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(vars);
   const auto& inv_spatial_metric =
-      get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(vars);
+      get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(vars);
   const auto& sqrt_det_spatial_metric =
       get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(vars);
   const auto& extrinsic_curvature =
-      get<gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>(vars);
+      get<gr::Tags::ExtrinsicCurvature<DataVector, 3>>(vars);
 
   const size_t number_of_points = mesh.number_of_grid_points();
   Scalar<DataVector> tilde_d(number_of_points);
@@ -210,9 +205,9 @@ void verify_grmhd_solution(const Solution& solution, const Block<3>& block,
       make_not_null(&tilde_d), make_not_null(&tilde_ye),
       make_not_null(&tilde_tau), make_not_null(&tilde_s),
       make_not_null(&tilde_b), make_not_null(&tilde_phi), rest_mass_density,
-      electron_fraction, specific_internal_energy, specific_enthalpy, pressure,
-      spatial_velocity, lorentz_factor, magnetic_field, sqrt_det_spatial_metric,
-      spatial_metric, divergence_cleaning_field);
+      electron_fraction, specific_internal_energy, pressure, spatial_velocity,
+      lorentz_factor, magnetic_field, sqrt_det_spatial_metric, spatial_metric,
+      divergence_cleaning_field);
 
   using flux_tags =
       tmpl::list<Tags::Flux<grmhd::ValenciaDivClean::Tags::TildeD,

@@ -18,11 +18,13 @@
 #include "DataStructures/Variables.hpp"  // IWYU pragma: keep
 #include "Domain/Creators/Brick.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
-#include "Domain/Tags.hpp"
+#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
@@ -97,13 +99,13 @@ struct MockSendPointsToInterpolator {
     // whether this function was called.  This isn't the usual usage
     // of IndicesOfFilledInterpPoints; this is done only for the test.
     db::mutate<intrp::Tags::IndicesOfFilledInterpPoints<temporal_id_type>>(
-        make_not_null(&box),
         [&temporal_id](
             const gsl::not_null<std::unordered_map<temporal_id_type,
                                                    std::unordered_set<size_t>>*>
                 indices) {
           (*indices)[temporal_id].insert((*indices)[temporal_id].size() + 1);
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -151,10 +153,10 @@ struct MockCleanUpInterpolator {
     // this function was called.  This isn't the usual usage of
     // NumberOfElements.
     db::mutate<intrp::Tags::NumberOfElements>(
-        make_not_null(&box),
         [](const gsl::not_null<size_t*> number_of_elements) {
           ++(*number_of_elements);
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -341,8 +343,8 @@ void test_interpolation_target_receive_vars() {
   } else {
     current_temporal_ids.insert(current_temporal_ids.end(),
                                 {first_time, second_time});
-    const auto domain_creator =
-        domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+    const auto domain_creator = domain::creators::Sphere(
+        0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
     runner_ptr = std::make_unique<ActionTesting::MockRuntimeSystem<metavars>>(
         domain_creator.create_domain());
   }

@@ -8,13 +8,13 @@
 #include <pup.h>
 #include <string>
 
-#include "ApparentHorizons/ObjectLabel.hpp"
-#include "ControlSystem/ApparentHorizons/Measurements.hpp"
 #include "ControlSystem/Protocols/ControlError.hpp"
-#include "ControlSystem/Tags.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/SpherepackIterator.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -30,21 +30,21 @@ struct Domain;
 struct FunctionsOfTime;
 }  // namespace domain::Tags
 namespace Frame {
-struct Grid;
+struct Distorted;
 }  // namespace Frame
 /// \endcond
 
 namespace control_system {
 namespace ControlErrors {
 namespace detail {
-template <::ah::ObjectLabel Horizon>
+template <::domain::ObjectLabel Horizon>
 std::string excision_sphere_name() {
-  return "Object"s + ::ah::name(Horizon) + "ExcisionSphere"s;
+  return "ExcisionSphere"s + ::domain::name(Horizon);
 }
 
-template <::ah::ObjectLabel Horizon>
+template <::domain::ObjectLabel Horizon>
 std::string size_name() {
-  return "Size"s + ::ah::name(Horizon);
+  return "Size"s + ::domain::name(Horizon);
 }
 }  // namespace detail
 
@@ -62,23 +62,27 @@ std::string size_name() {
  * which is
  *
  * \f{align}
- * Q_{lm} &= -\frac{\sqrt{\frac{\pi}{2}} r_\mathrm{EB} -
- * Y_{00}\lambda_{00}(t)}{Y_{00}S_{00}} S_{lm} - \lambda_{lm}(t), \quad l>1
- * \label{eq:shape_control_error}
+ * Q_{lm} &= -\frac{r_\mathrm{EB} -
+ * Y_{00}\lambda_{00}(t)}{\sqrt{\frac{\pi}{2}} Y_{00}S_{00}} S_{lm} -
+ * \lambda_{lm}(t), \quad l>=2 \label{eq:shape_control_error}
  * \f}
  *
  * where \f$ r_\mathrm{EB} \f$ is the radius of the excision boundary in the
  * grid frame, \f$ \lambda_{00}(t) \f$ is the size map parameter, \f$
- * \lambda_{lm}(t) \f$ for \f$ l>1 \f$ are the shape map parameters, and \f$
+ * \lambda_{lm}(t) \f$ for \f$ l>=2 \f$ are the shape map parameters, and \f$
  * S_{lm}\f$ are the coefficients of the harmonic expansion of the apparent
- * horizon. The coefficients \f$ \lambda_{lm}(t) \f$ (including \f$ l=0 \f$) and
- * \f$ S_{lm}\f$ are stored as the real-valued coefficients \f$ a_{lm} \f$ and
- * \f$ b_{lm} \f$ of the SPHEREPACK spherical-harmonic expansion (in
- * YlmSpherepack) as opposed to complex coefficients \f$ A_{lm} \f$ of the
- * standard \f$ Y_{lm} \f$ decomposition. The representation does not matter
- * here except for the term involving \f$ r_\mathrm{EB} \f$. Because \f$ a_{00}
- * = \sqrt{\frac{2}{\pi}}A_{00} \f$, there is an extra factor of \f$
- * \sqrt{\frac{2}{\pi}} \f$ in the above formula.
+ * horizon. The coefficients \f$ \lambda_{lm}(t) \f$ (*not* including \f$ l=0
+ * \f$) and \f$ S_{lm}\f$ (including \f$ l=0 \f$) are stored as the real-valued
+ * coefficients \f$ a_{lm} \f$ and \f$ b_{lm} \f$ of the SPHEREPACK
+ * spherical-harmonic expansion (in ylm::Spherepack). The $\lambda_{00}(t)$
+ * coefficient, on the other hand, is stored as the complex coefficient \f$
+ * A_{00} \f$ of the standard \f$ Y_{lm} \f$ decomposition. Because \f$ a_{00} =
+ * \sqrt{\frac{2}{\pi}}A_{00} \f$, there is an extra factor of \f$
+ * \sqrt{\frac{\pi}{2}} \f$ in the above formula in the denominator of the
+ * fraction multiplying the \f$ S_{00}\f$ component so it is represented in the
+ * \f$ Y_{lm} \f$ decomposition just like \f$ r_{EB} \f$ and \f$ \lambda_{00}
+ * \f$ are). That way, we ensure the numerator and denominator are represented
+ * in the same way before we take their ratio.
  *
  * Requirements:
  * - This control error requires that there be at least one excision surface in
@@ -86,9 +90,12 @@ std::string size_name() {
  * - Currently this control error can only be used with the \link
  *   control_system::Systems::Shape Shape \endlink control system
  */
-template <::ah::ObjectLabel Horizon>
+template <::domain::ObjectLabel Horizon>
 struct Shape : tt::ConformsTo<protocols::ControlError> {
   static constexpr size_t expected_number_of_excisions = 1;
+
+  // Shape needs an excision sphere
+  using object_centers = domain::object_list<Horizon>;
 
   using options = tmpl::list<>;
   static constexpr Options::String help{
@@ -110,7 +117,7 @@ struct Shape : tt::ConformsTo<protocols::ControlError> {
         functions_of_time.at(detail::size_name<Horizon>())->func(time)[0][0];
 
     const auto& ah =
-        get<control_system::QueueTags::Strahlkorper<Frame::Grid>>(measurements);
+        get<control_system::QueueTags::Horizon<Frame::Distorted>>(measurements);
     const auto& ah_coefs = ah.coefficients();
 
     ASSERT(lambda_lm_coefs.size() == ah_coefs.size(),
@@ -128,16 +135,15 @@ struct Shape : tt::ConformsTo<protocols::ControlError> {
                               << " not in the domain but is needed to "
                                  "compute Shape control error.");
 
-    // See above docs for why we have the sqrt(pi/2)
     const double radius_excision_sphere_grid_frame =
-        sqrt(0.5 * M_PI) *
         excision_spheres.at(detail::excision_sphere_name<Horizon>()).radius();
 
     const double Y00 = sqrt(0.25 / M_PI);
     SpherepackIterator iter{ah.l_max(), ah.m_max()};
+    // See above docs for why we have the sqrt(pi/2) in the denominator
     const double relative_size_factor =
         (radius_excision_sphere_grid_frame / Y00 - lambda_00_coef) /
-        ah_coefs[iter.set(0, 0)()];
+        (sqrt(0.5 * M_PI) * ah_coefs[iter.set(0, 0)()]);
 
     // The map parameters are in terms of SPHEREPACK coefficients (just like
     // strahlkorper coefficients), *not* spherical harmonic coefficients, thus

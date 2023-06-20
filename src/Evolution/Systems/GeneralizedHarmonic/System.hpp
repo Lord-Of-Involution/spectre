@@ -20,7 +20,7 @@ class DataVector;
  * \ingroup EvolutionSystemsGroup
  * \brief Items related to evolving the first-order generalized harmonic system.
  */
-namespace GeneralizedHarmonic {
+namespace gh {
 template <size_t Dim>
 struct System {
   static constexpr bool is_in_flux_conservative_form = false;
@@ -31,14 +31,13 @@ struct System {
   using boundary_conditions_base = BoundaryConditions::BoundaryCondition<Dim>;
   using boundary_correction_base = BoundaryCorrections::BoundaryCorrection<Dim>;
 
-  using variables_tag = ::Tags::Variables<tmpl::list<
-      gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-      Tags::Pi<Dim, Frame::Inertial>, Tags::Phi<Dim, Frame::Inertial>>>;
+  using variables_tag = ::Tags::Variables<
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+                 Tags::Pi<DataVector, Dim>, Tags::Phi<DataVector, Dim>>>;
   using flux_variables = tmpl::list<>;
   using gradient_variables =
-      tmpl::list<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-                 Tags::Pi<Dim, Frame::Inertial>,
-                 Tags::Phi<Dim, Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+                 Tags::Pi<DataVector, Dim>, Tags::Phi<DataVector, Dim>>;
   using gradients_tags = gradient_variables;
 
   using compute_volume_time_derivative_terms = TimeDerivative<Dim>;
@@ -48,6 +47,6 @@ struct System {
       Tags::ComputeLargestCharacteristicSpeed<Dim, Frame::Inertial>;
 
   using inverse_spatial_metric_tag =
-      gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataVector>;
+      gr::Tags::InverseSpatialMetric<DataVector, Dim>;
 };
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

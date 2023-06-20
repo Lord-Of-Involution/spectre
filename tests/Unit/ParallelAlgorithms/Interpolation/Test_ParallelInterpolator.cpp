@@ -20,12 +20,12 @@
 #include "Domain/Block.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
-#include "Domain/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
@@ -240,7 +240,8 @@ struct MockMetavariables {
     using vars_to_interpolate_to_target = tmpl::list<Tags::Square>;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
-        intrp::TargetPoints::LineSegment<InterpolationTargetA, 3>;
+        intrp::TargetPoints::LineSegment<InterpolationTargetA, 3,
+                                         Frame::Inertial>;
     using post_interpolation_callback =
         TestFunction<InterpolationTargetA, Tags::Square>;
   };
@@ -251,7 +252,8 @@ struct MockMetavariables {
     using vars_to_interpolate_to_target = tmpl::list<Tags::Square>;
     using compute_items_on_target = tmpl::list<Tags::NegateCompute>;
     using compute_target_points =
-        intrp::TargetPoints::LineSegment<InterpolationTargetB, 3>;
+        intrp::TargetPoints::LineSegment<InterpolationTargetB, 3,
+                                         Frame::Inertial>;
     using post_interpolation_callback =
         TestFunction<InterpolationTargetB, Tags::Negate>;
   };
@@ -301,8 +303,8 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.Integration",
   intrp::OptionHolders::KerrHorizon kerr_horizon_opts_C(
       10, {{0.0, 0.0, 0.0}}, 1.0, {{0.0, 0.0, 0.0}},
       intrp::AngularOrdering::Strahlkorper);
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
   tuples::TaggedTuple<
       intrp::Tags::LineSegment<metavars::InterpolationTargetA, 3>,
       domain::Tags::Domain<3>,

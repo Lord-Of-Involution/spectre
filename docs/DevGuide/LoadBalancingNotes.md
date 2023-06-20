@@ -5,6 +5,8 @@ See LICENSE.txt for details.
 
 # Notes on SpECTRE load-balancing using Charm++'s built-in load balancers {#load_balancing_notes}
 
+\tableofcontents
+
 The goal of load-balancing (LB) is to ensure that HPC resources are well-used
 while performing large inhomogeneous simulations. In 2020-2021, Jordan Moxon
 and Francois Hebert performed a number of tests using Charm++'s built-in load
@@ -77,10 +79,12 @@ the problem:
   been carefully tested. To do this, use an input file similar to
 ```
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [5, 10, 15]
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 ```
 - Use `LBTurnInstrumentOff` and `LBTurnInstrumentOn` to specifically exclude
   setup procedures from the LB instrumentation. First attempts indicate that
@@ -132,10 +136,12 @@ evolutions, it may be worth experimenting to see whether 1-3 applications of
 performance for the system, for instance by using the input file:
 ```
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [5, 10, 15]
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 ```
 and command-line args `+balancer RecBipartLB` (or `ScotchLB` when its
 bugs are fixed). This may be particularly relevant for cases with numeric
@@ -151,11 +157,13 @@ balancer. It is likely worth attempting the evolution with a
 periodically-applied centralized communication-aware balancer, e.g.:
 ```
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1000
           Offset: 5
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 ```
 paired with command-line args `+balancer RecBipartLB` (or `ScotchLB` when its
 bugs are fixed).

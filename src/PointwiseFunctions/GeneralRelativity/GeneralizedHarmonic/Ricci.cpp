@@ -14,8 +14,8 @@
 
 // IWYU pragma: no_forward_declare Tensor
 
-namespace GeneralizedHarmonic {
-template <size_t VolumeDim, typename Frame, typename DataType>
+namespace gh {
+template <typename DataType, size_t VolumeDim, typename Frame>
 void spatial_ricci_tensor(
     const gsl::not_null<tnsr::ii<DataType, VolumeDim, Frame>*> ricci,
     const tnsr::iaa<DataType, VolumeDim, Frame>& phi,
@@ -125,24 +125,24 @@ void spatial_ricci_tensor(
   }
 }
 
-template <size_t VolumeDim, typename Frame, typename DataType>
+template <typename DataType, size_t VolumeDim, typename Frame>
 tnsr::ii<DataType, VolumeDim, Frame> spatial_ricci_tensor(
     const tnsr::iaa<DataType, VolumeDim, Frame>& phi,
     const tnsr::ijaa<DataType, VolumeDim, Frame>& deriv_phi,
     const tnsr::II<DataType, VolumeDim, Frame>& inverse_spatial_metric) {
   tnsr::ii<DataType, VolumeDim, Frame> ricci{};
-  GeneralizedHarmonic::spatial_ricci_tensor<VolumeDim, Frame, DataType>(
-      make_not_null(&ricci), phi, deriv_phi, inverse_spatial_metric);
+  gh::spatial_ricci_tensor(make_not_null(&ricci), phi, deriv_phi,
+                           inverse_spatial_metric);
   return ricci;
 }
-}  // namespace GeneralizedHarmonic
+}  // namespace gh
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
 #define DTYPE(data) BOOST_PP_TUPLE_ELEM(1, data)
 #define FRAME(data) BOOST_PP_TUPLE_ELEM(2, data)
 
 #define INSTANTIATE(_, data)                                              \
-  template void GeneralizedHarmonic::spatial_ricci_tensor(                \
+  template void gh::spatial_ricci_tensor(                                 \
       const gsl::not_null<tnsr::ii<DTYPE(data), DIM(data), FRAME(data)>*> \
           ricci,                                                          \
       const tnsr::iaa<DTYPE(data), DIM(data), FRAME(data)>& phi,          \
@@ -150,7 +150,7 @@ tnsr::ii<DataType, VolumeDim, Frame> spatial_ricci_tensor(
       const tnsr::II<DTYPE(data), DIM(data), FRAME(data)>&                \
           inverse_spatial_metric);                                        \
   template tnsr::ii<DTYPE(data), DIM(data), FRAME(data)>                  \
-  GeneralizedHarmonic::spatial_ricci_tensor(                              \
+  gh::spatial_ricci_tensor(                                               \
       const tnsr::iaa<DTYPE(data), DIM(data), FRAME(data)>& phi,          \
       const tnsr::ijaa<DTYPE(data), DIM(data), FRAME(data)>& deriv_phi,   \
       const tnsr::II<DTYPE(data), DIM(data), FRAME(data)>&                \

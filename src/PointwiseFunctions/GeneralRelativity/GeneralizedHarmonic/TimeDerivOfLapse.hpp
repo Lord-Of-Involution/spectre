@@ -30,7 +30,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \ingroup GeneralRelativityGroup
@@ -72,7 +72,7 @@ namespace GeneralizedHarmonic {
  * \f]
  *
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void time_deriv_of_lapse(
     gsl::not_null<Scalar<DataType>*> dt_lapse, const Scalar<DataType>& lapse,
     const tnsr::I<DataType, SpatialDim, Frame>& shift,
@@ -80,7 +80,7 @@ void time_deriv_of_lapse(
     const tnsr::iaa<DataType, SpatialDim, Frame>& phi,
     const tnsr::aa<DataType, SpatialDim, Frame>& pi);
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 Scalar<DataType> time_deriv_of_lapse(
     const Scalar<DataType>& lapse,
     const tnsr::I<DataType, SpatialDim, Frame>& shift,
@@ -103,9 +103,10 @@ struct TimeDerivLapseCompute : ::Tags::dt<gr::Tags::Lapse<DataVector>>,
                                db::ComputeTag {
   using argument_tags =
       tmpl::list<gr::Tags::Lapse<DataVector>,
-                 gr::Tags::Shift<SpatialDim, Frame, DataVector>,
-                 gr::Tags::SpacetimeNormalVector<SpatialDim, Frame, DataVector>,
-                 Phi<SpatialDim, Frame>, Pi<SpatialDim, Frame>>;
+                 gr::Tags::Shift<DataVector, SpatialDim, Frame>,
+                 gr::Tags::SpacetimeNormalVector<DataVector, SpatialDim, Frame>,
+                 Phi<DataVector, SpatialDim, Frame>,
+                 Pi<DataVector, SpatialDim, Frame>>;
 
   using return_type = Scalar<DataVector>;
 
@@ -115,9 +116,9 @@ struct TimeDerivLapseCompute : ::Tags::dt<gr::Tags::Lapse<DataVector>>,
       const tnsr::A<DataVector, SpatialDim, Frame>&,
       const tnsr::iaa<DataVector, SpatialDim, Frame>&,
       const tnsr::aa<DataVector, SpatialDim, Frame>&)>(
-      &time_deriv_of_lapse<SpatialDim, Frame>);
+      &time_deriv_of_lapse<DataVector, SpatialDim, Frame>);
 
   using base = ::Tags::dt<gr::Tags::Lapse<DataVector>>;
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

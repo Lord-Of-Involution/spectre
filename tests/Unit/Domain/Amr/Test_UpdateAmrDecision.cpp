@@ -28,45 +28,41 @@ namespace {
 
 template <size_t VolumeDim>
 void check_amr_decision_is_unchanged(
-    std::array<amr::domain::Flag, VolumeDim> my_initial_amr_flags,
+    std::array<amr::Flag, VolumeDim> my_initial_amr_flags,
     const Element<VolumeDim>& element, const ElementId<VolumeDim>& neighbor_id,
-    const std::array<amr::domain::Flag, VolumeDim>&
-        neighbor_amr_flags) {
+    const std::array<amr::Flag, VolumeDim>& neighbor_amr_flags) {
   const auto expected_updated_flags = my_initial_amr_flags;
   std::stringstream os;
   os << neighbor_amr_flags;
   INFO(os.str());
-  CHECK_FALSE(amr::domain::update_amr_decision(
-      make_not_null(&my_initial_amr_flags), element, neighbor_id,
-      neighbor_amr_flags));
+  CHECK_FALSE(amr::update_amr_decision(make_not_null(&my_initial_amr_flags),
+                                       element, neighbor_id,
+                                       neighbor_amr_flags));
   CHECK(expected_updated_flags == my_initial_amr_flags);
 }
 
 template <size_t VolumeDim>
 void check_amr_decision_is_changed(
-    std::array<amr::domain::Flag, VolumeDim> my_initial_amr_flags,
+    std::array<amr::Flag, VolumeDim> my_initial_amr_flags,
     const Element<VolumeDim>& element, const ElementId<VolumeDim>& neighbor_id,
-    const std::array<amr::domain::Flag, VolumeDim>& neighbor_amr_flags,
-    const std::array<amr::domain::Flag, VolumeDim>&
-        expected_updated_flags) {
+    const std::array<amr::Flag, VolumeDim>& neighbor_amr_flags,
+    const std::array<amr::Flag, VolumeDim>& expected_updated_flags) {
   std::stringstream os;
   os << my_initial_amr_flags << " " << neighbor_amr_flags;
   INFO(os.str());
-  CHECK(amr::domain::update_amr_decision(make_not_null(&my_initial_amr_flags),
-                                         element, neighbor_id,
-                                         neighbor_amr_flags));
+  CHECK(amr::update_amr_decision(make_not_null(&my_initial_amr_flags), element,
+                                 neighbor_id, neighbor_amr_flags));
   CHECK(expected_updated_flags == my_initial_amr_flags);
 }
 
 template <size_t VolumeDim>
-using changed_flags_t =
-    std::map<std::pair<std::array<amr::domain::Flag, VolumeDim>,
-                       std::array<amr::domain::Flag, VolumeDim>>,
-             std::array<amr::domain::Flag, VolumeDim>>;
+using changed_flags_t = std::map<std::pair<std::array<amr::Flag, VolumeDim>,
+                                           std::array<amr::Flag, VolumeDim>>,
+                                 std::array<amr::Flag, VolumeDim>>;
 template <size_t VolumeDim>
 void check_update_amr_decision(
     const Element<VolumeDim>& element, const ElementId<VolumeDim>& neighbor_id,
-    const std::vector<std::array<amr::domain::Flag, VolumeDim>>& all_flags,
+    const std::vector<std::array<amr::Flag, VolumeDim>>& all_flags,
     const changed_flags_t<VolumeDim>& changed_flags) {
   for (const auto& my_flags : all_flags) {
     for (const auto& neighbor_flags : all_flags) {
@@ -126,11 +122,10 @@ Element<2> make_element(
 }
 
 void test_update_amr_decision_1d() {
-  const std::array<amr::domain::Flag, 1> split{{amr::domain::Flag::Split}};
-  const std::array<amr::domain::Flag, 1> join{{amr::domain::Flag::Join}};
-  const std::array<amr::domain::Flag, 1> stay{{amr::domain::Flag::DoNothing}};
-  const std::vector<std::array<amr::domain::Flag, 1>> all_flags{split, join,
-                                                                stay};
+  const std::array<amr::Flag, 1> split{{amr::Flag::Split}};
+  const std::array<amr::Flag, 1> join{{amr::Flag::Join}};
+  const std::array<amr::Flag, 1> stay{{amr::Flag::DoNothing}};
+  const std::vector<std::array<amr::Flag, 1>> all_flags{split, join, stay};
 
   const SegmentId x_segment{3, 5};
   const SegmentId x_cousin{3, 6};
@@ -169,28 +164,23 @@ void test_update_amr_decision_1d() {
 }
 
 void test_update_amr_decision_2d() {
-  const std::array<amr::domain::Flag, 2> split_split{
-      {amr::domain::Flag::Split, amr::domain::Flag::Split}};
-  const std::array<amr::domain::Flag, 2> join_split{
-      {amr::domain::Flag::Join, amr::domain::Flag::Split}};
-  const std::array<amr::domain::Flag, 2> stay_split{
-      {amr::domain::Flag::DoNothing, amr::domain::Flag::Split}};
-  const std::array<amr::domain::Flag, 2> split_stay{
-      {amr::domain::Flag::Split, amr::domain::Flag::DoNothing}};
-  const std::array<amr::domain::Flag, 2> join_stay{
-      {amr::domain::Flag::Join, amr::domain::Flag::DoNothing}};
-  const std::array<amr::domain::Flag, 2> stay_stay{
-      {amr::domain::Flag::DoNothing, amr::domain::Flag::DoNothing}};
-  const std::array<amr::domain::Flag, 2> split_join{
-      {amr::domain::Flag::Split, amr::domain::Flag::Join}};
-  const std::array<amr::domain::Flag, 2> join_join{
-      {amr::domain::Flag::Join, amr::domain::Flag::Join}};
-  const std::array<amr::domain::Flag, 2> stay_join{
-      {amr::domain::Flag::DoNothing, amr::domain::Flag::Join}};
+  const std::array<amr::Flag, 2> split_split{
+      {amr::Flag::Split, amr::Flag::Split}};
+  const std::array<amr::Flag, 2> stay_split{
+      {amr::Flag::DoNothing, amr::Flag::Split}};
+  const std::array<amr::Flag, 2> split_stay{
+      {amr::Flag::Split, amr::Flag::DoNothing}};
+  const std::array<amr::Flag, 2> join_stay{
+      {amr::Flag::Join, amr::Flag::DoNothing}};
+  const std::array<amr::Flag, 2> stay_stay{
+      {amr::Flag::DoNothing, amr::Flag::DoNothing}};
+  const std::array<amr::Flag, 2> join_join{{amr::Flag::Join, amr::Flag::Join}};
+  const std::array<amr::Flag, 2> stay_join{
+      {amr::Flag::DoNothing, amr::Flag::Join}};
 
-  const std::vector<std::array<amr::domain::Flag, 2>> all_flags{
-      split_split, join_split, stay_split, split_stay, join_stay,
-      stay_stay,   split_join, join_join,  stay_join};
+  const std::vector<std::array<amr::Flag, 2>> all_flags{
+      split_split, stay_split, split_stay, join_stay,
+      stay_stay,   join_join,  stay_join};
 
   const SegmentId x_segment{3, 5};
   const SegmentId x_cousin{3, 6};
@@ -214,112 +204,61 @@ void test_update_amr_decision_2d() {
   // neighbor same refinement in x and y, sibling side in x
   check_update_amr_decision<2>(
       element, id_lx_s_s, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, join_stay}, stay_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_split, join_join}, stay_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{join_stay, split_split}, stay_stay},
+      changed_flags_t<2>{{{join_stay, split_split}, stay_stay},
                          {{join_stay, stay_split}, stay_stay},
-                         {{join_stay, join_split}, stay_stay},
                          {{join_stay, split_stay}, stay_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{join_stay, join_join}, stay_stay},
                          {{join_stay, stay_join}, stay_stay},
-                         {{split_join, split_split}, split_stay},
-                         {{split_join, join_split}, split_stay},
-                         {{split_join, stay_split}, split_stay},
                          {{join_join, split_split}, stay_stay},
-                         {{join_join, join_split}, stay_stay},
                          {{join_join, stay_split}, stay_stay},
                          {{join_join, split_stay}, stay_join},
                          {{join_join, join_stay}, stay_join},
                          {{join_join, stay_stay}, stay_join},
-                         {{join_join, split_join}, stay_join},
                          {{join_join, stay_join}, stay_join},
                          {{stay_join, split_split}, stay_stay},
-                         {{stay_join, join_split}, stay_stay},
                          {{stay_join, stay_split}, stay_stay}});
   // neighbor same refinement in x and y, non-sibling side in x
   check_update_amr_decision<2>(
       element, id_ux_c_s, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_stay, split_split}, stay_stay},
+      changed_flags_t<2>{{{join_stay, split_split}, stay_stay},
                          {{join_stay, split_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
-                         {{split_join, split_split}, split_stay},
-                         {{split_join, join_split}, split_stay},
-                         {{split_join, stay_split}, split_stay},
                          {{join_join, split_split}, stay_stay},
-                         {{join_join, join_split}, join_stay},
                          {{join_join, stay_split}, join_stay},
                          {{join_join, split_stay}, stay_join},
-                         {{join_join, split_join}, stay_join},
                          {{stay_join, split_split}, stay_stay},
-                         {{stay_join, join_split}, stay_stay},
                          {{stay_join, stay_split}, stay_stay}});
   // neighbor same in x, coarser in y, sibling side of y
   check_update_amr_decision<2>(
       element, id_ly_s_n, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
+      changed_flags_t<2>{{{split_stay, split_split}, split_split},
                          {{split_stay, stay_split}, split_split},
                          {{join_stay, split_split}, stay_split},
-                         {{join_stay, stay_split}, join_split},
-                         {{join_stay, join_split}, join_split},
+                         {{join_stay, stay_split}, stay_split},
                          {{join_stay, split_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{stay_stay, split_split}, stay_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
-                         {{split_join, split_join}, split_stay},
-                         {{split_join, join_join}, split_stay},
-                         {{split_join, stay_join}, split_stay},
                          {{join_join, split_split}, stay_split},
-                         {{join_join, join_split}, join_split},
-                         {{join_join, stay_split}, join_split},
+                         {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, stay_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, join_stay},
-                         {{join_join, split_join}, stay_stay},
                          {{join_join, join_join}, join_stay},
                          {{join_join, stay_join}, join_stay},
                          {{stay_join, split_split}, stay_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, stay_stay},
                          {{stay_join, join_stay}, stay_stay},
                          {{stay_join, stay_stay}, stay_stay},
-                         {{stay_join, split_join}, stay_stay},
                          {{stay_join, join_join}, stay_stay},
                          {{stay_join, stay_join}, stay_stay}});
   // neighbor same in x, coarser in y, non-sibling side of y
   check_update_amr_decision<2>(
       element, id_uy_s_cp, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_stay, split_split}, stay_stay},
+      changed_flags_t<2>{{{join_stay, split_split}, stay_stay},
                          {{join_stay, split_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{join_join, split_split}, stay_join},
-                         {{join_join, split_stay}, stay_join},
-                         {{join_join, split_join}, stay_join}});
+                         {{join_join, split_stay}, stay_join}});
 
   const ElementId<2> id_lx_s_p{
       0, {{x_segment.id_of_sibling(), y_segment.id_of_parent()}}};
@@ -333,80 +272,47 @@ void test_update_amr_decision_2d() {
   // neighbor same in x, coarser in y, sibling side of x
   check_update_amr_decision<2>(
       element, id_lx_s_p, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, join_split}, stay_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, join_stay}, stay_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_split, join_join}, stay_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{join_stay, split_split}, stay_stay},
+      changed_flags_t<2>{{{join_stay, split_split}, stay_stay},
                          {{join_stay, stay_split}, stay_stay},
                          {{join_stay, split_stay}, stay_stay},
                          {{join_stay, stay_stay}, stay_stay},
                          {{join_stay, join_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{join_stay, join_join}, stay_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{join_join, split_split}, stay_join},
-                         {{join_join, join_split}, stay_join},
                          {{join_join, stay_split}, stay_join},
                          {{join_join, split_stay}, stay_join},
                          {{join_join, stay_stay}, stay_join},
-                         {{join_join, split_join}, stay_join},
                          {{join_join, join_join}, stay_join},
                          {{join_join, stay_join}, stay_join}});
   // neighbor same in x, coarser in y, non-sibling side of x
   check_update_amr_decision<2>(
       element, id_ux_c_p, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_stay, split_split}, stay_stay},
+      changed_flags_t<2>{{{join_stay, split_split}, stay_stay},
                          {{join_stay, split_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{join_join, split_split}, stay_join},
-                         {{join_join, split_stay}, stay_join},
-                         {{join_join, split_join}, stay_join}});
+                         {{join_join, split_stay}, stay_join}});
   // neighbor coarser in x, finer in y, sibling side of y
   check_update_amr_decision<2>(
       element, id_ly_p_n, all_flags,
       changed_flags_t<2>{{{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
                          {{split_stay, stay_split}, split_split},
-                         {{join_stay, split_split}, join_split},
-                         {{join_stay, stay_split}, join_split},
-                         {{join_stay, join_split}, join_split},
+                         {{join_stay, split_split}, stay_split},
+                         {{join_stay, stay_split}, stay_split},
                          {{stay_stay, split_split}, stay_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
-                         {{split_join, split_join}, split_stay},
-                         {{split_join, join_join}, split_stay},
-                         {{split_join, stay_join}, split_stay},
-                         {{join_join, split_split}, join_split},
-                         {{join_join, join_split}, join_split},
-                         {{join_join, stay_split}, join_split},
+                         {{join_join, split_split}, stay_split},
+                         {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, join_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, join_stay},
-                         {{join_join, split_join}, join_stay},
                          {{join_join, join_join}, join_stay},
                          {{join_join, stay_join}, join_stay},
                          {{stay_join, split_split}, stay_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, stay_stay},
                          {{stay_join, join_stay}, stay_stay},
                          {{stay_join, stay_stay}, stay_stay},
-                         {{stay_join, split_join}, stay_stay},
                          {{stay_join, join_join}, stay_stay},
                          {{stay_join, stay_join}, stay_stay}});
   // neighbor coarser in x and y, non-sibling side -f y
@@ -437,45 +343,24 @@ void test_update_amr_decision_2d() {
   // neighbor same in x, finer in y, sibling side of x
   check_update_amr_decision<2>(
       element, id_lx_s_cl, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, join_split}, stay_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{join_split, join_join}, stay_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
+      changed_flags_t<2>{{{split_stay, split_split}, split_split},
                          {{split_stay, stay_split}, split_split},
                          {{join_stay, split_split}, stay_split},
-                         {{join_stay, join_split}, stay_split},
                          {{join_stay, stay_split}, stay_split},
                          {{join_stay, split_stay}, stay_stay},
                          {{join_stay, join_stay}, stay_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{stay_stay, split_split}, stay_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
                          {{join_join, split_split}, stay_split},
-                         {{join_join, join_split}, stay_split},
                          {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, stay_stay},
                          {{join_join, join_stay}, stay_stay},
                          {{join_join, stay_stay}, stay_stay},
-                         {{join_join, split_join}, stay_join},
                          {{join_join, join_join}, stay_join},
                          {{join_join, stay_join}, stay_join},
                          {{stay_join, split_split}, stay_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, stay_stay},
                          {{stay_join, join_stay}, stay_stay},
@@ -483,35 +368,19 @@ void test_update_amr_decision_2d() {
   // neighbor same in x, finer in y, non-sibling side of x
   check_update_amr_decision<2>(
       element, id_ux_c_cu, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, stay_split},
-                         {{join_split, split_stay}, stay_split},
-                         {{join_split, split_join}, stay_split},
-                         {{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
+      changed_flags_t<2>{{{split_stay, split_split}, split_split},
                          {{split_stay, stay_split}, split_split},
                          {{join_stay, split_split}, stay_split},
-                         {{join_stay, join_split}, join_split},
-                         {{join_stay, stay_split}, join_split},
+                         {{join_stay, stay_split}, stay_split},
                          {{join_stay, split_stay}, stay_stay},
-                         {{join_stay, split_join}, stay_stay},
                          {{stay_stay, split_split}, stay_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
                          {{join_join, split_split}, stay_split},
-                         {{join_join, join_split}, join_split},
-                         {{join_join, stay_split}, join_split},
+                         {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, stay_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, join_stay},
-                         {{join_join, split_join}, stay_join},
                          {{stay_join, split_split}, stay_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, stay_stay},
                          {{stay_join, join_stay}, stay_stay},
@@ -519,87 +388,51 @@ void test_update_amr_decision_2d() {
   // neighbor finer in x and y, sibling side of y
   check_update_amr_decision<2>(
       element, id_ly_cl_n, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, split_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, split_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, split_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{stay_split, split_split}, split_split},
+      changed_flags_t<2>{{{stay_split, split_split}, split_split},
                          {{stay_split, split_stay}, split_split},
-                         {{stay_split, split_join}, split_split},
                          {{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
                          {{split_stay, stay_split}, split_split},
                          {{join_stay, split_split}, split_split},
-                         {{join_stay, join_split}, join_split},
                          {{join_stay, stay_split}, stay_split},
                          {{join_stay, split_stay}, split_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, split_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{stay_stay, split_split}, split_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
                          {{stay_stay, split_stay}, split_stay},
-                         {{stay_stay, split_join}, split_stay},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
-                         {{split_join, split_join}, split_stay},
-                         {{split_join, join_join}, split_stay},
-                         {{split_join, stay_join}, split_stay},
                          {{join_join, split_split}, split_split},
-                         {{join_join, join_split}, join_split},
                          {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, split_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, stay_stay},
-                         {{join_join, split_join}, split_stay},
                          {{join_join, join_join}, join_stay},
                          {{join_join, stay_join}, stay_stay},
                          {{stay_join, split_split}, split_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, split_stay},
                          {{stay_join, join_stay}, stay_stay},
                          {{stay_join, stay_stay}, stay_stay},
-                         {{stay_join, split_join}, split_stay},
                          {{stay_join, join_join}, stay_stay},
                          {{stay_join, stay_join}, stay_stay}});
   // neighbor finer in x, coarser in y, non-sibling side of y
   check_update_amr_decision<2>(
       element, id_uy_cu_cp, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, split_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, split_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, split_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{stay_split, split_split}, split_split},
+      changed_flags_t<2>{{{stay_split, split_split}, split_split},
                          {{stay_split, split_stay}, split_split},
-                         {{stay_split, split_join}, split_split},
                          {{join_stay, split_split}, split_stay},
                          {{join_stay, stay_split}, stay_stay},
                          {{join_stay, split_stay}, split_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, split_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{stay_stay, split_split}, split_stay},
                          {{stay_stay, split_stay}, split_stay},
-                         {{stay_stay, split_join}, split_stay},
-                         {{join_join, split_split}, split_join},
+                         {{join_join, split_split}, split_stay},
                          {{join_join, stay_split}, stay_join},
-                         {{join_join, split_stay}, split_join},
+                         {{join_join, split_stay}, split_stay},
                          {{join_join, stay_stay}, stay_join},
-                         {{join_join, split_join}, split_join},
                          {{join_join, stay_join}, stay_join},
-                         {{stay_join, split_split}, split_join},
-                         {{stay_join, split_stay}, split_join},
-                         {{stay_join, split_join}, split_join}});
+                         {{stay_join, split_split}, split_stay},
+                         {{stay_join, split_stay}, split_stay}});
 
   const ElementId<2> id_ux_cc_s{
       0, {{x_cousin.id_of_child(Side::Lower), y_segment}}};
@@ -615,87 +448,49 @@ void test_update_amr_decision_2d() {
   // neighbor finer in x, same in y, non-sibling side of x
   check_update_amr_decision<2>(
       element, id_ux_cc_s, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, split_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, split_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, split_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{stay_split, split_split}, split_split},
+      changed_flags_t<2>{{{stay_split, split_split}, split_split},
                          {{stay_split, split_stay}, split_split},
-                         {{stay_split, split_join}, split_split},
                          {{join_stay, split_split}, split_stay},
                          {{join_stay, stay_split}, stay_stay},
                          {{join_stay, split_stay}, split_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, split_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{stay_stay, split_split}, split_stay},
                          {{stay_stay, split_stay}, split_stay},
-                         {{stay_stay, split_join}, split_stay},
-                         {{split_join, split_split}, split_stay},
-                         {{split_join, join_split}, split_stay},
-                         {{split_join, stay_split}, split_stay},
                          {{join_join, split_split}, split_stay},
-                         {{join_join, join_split}, join_stay},
                          {{join_join, stay_split}, stay_stay},
-                         {{join_join, split_stay}, split_join},
+                         {{join_join, split_stay}, split_stay},
                          {{join_join, stay_stay}, stay_join},
-                         {{join_join, split_join}, split_join},
                          {{join_join, stay_join}, stay_join},
                          {{stay_join, split_split}, split_stay},
-                         {{stay_join, join_split}, stay_stay},
                          {{stay_join, stay_split}, stay_stay},
-                         {{stay_join, split_stay}, split_join},
-                         {{stay_join, split_join}, split_join}});
+                         {{stay_join, split_stay}, split_stay}});
   // neighbor finer in x and y, non-sibling side of y
   check_update_amr_decision<2>(
       element, id_uy_cu_cc, all_flags,
-      changed_flags_t<2>{{{join_split, split_split}, split_split},
-                         {{join_split, stay_split}, stay_split},
-                         {{join_split, split_stay}, split_split},
-                         {{join_split, stay_stay}, stay_split},
-                         {{join_split, split_join}, split_split},
-                         {{join_split, stay_join}, stay_split},
-                         {{stay_split, split_split}, split_split},
+      changed_flags_t<2>{{{stay_split, split_split}, split_split},
                          {{stay_split, split_stay}, split_split},
-                         {{stay_split, split_join}, split_split},
                          {{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
                          {{split_stay, stay_split}, split_split},
                          {{join_stay, split_split}, split_split},
-                         {{join_stay, join_split}, join_split},
                          {{join_stay, stay_split}, stay_split},
                          {{join_stay, split_stay}, split_stay},
                          {{join_stay, stay_stay}, stay_stay},
-                         {{join_stay, split_join}, split_stay},
                          {{join_stay, stay_join}, stay_stay},
                          {{stay_stay, split_split}, split_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
                          {{stay_stay, split_stay}, split_stay},
-                         {{stay_stay, split_join}, split_stay},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
                          {{join_join, split_split}, split_split},
-                         {{join_join, join_split}, join_split},
                          {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, split_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, stay_stay},
-                         {{join_join, split_join}, split_join},
                          {{join_join, stay_join}, stay_join},
                          {{stay_join, split_split}, split_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, split_stay},
                          {{stay_join, join_stay}, stay_stay},
-                         {{stay_join, stay_stay}, stay_stay},
-                         {{stay_join, split_join}, split_join}});
+                         {{stay_join, stay_stay}, stay_stay}});
 
   const ElementId<2> id_uy_p_cc{
       0, {{x_segment.id_of_parent(), y_cousin.id_of_child(Side::Lower)}}};
@@ -704,28 +499,17 @@ void test_update_amr_decision_2d() {
   check_update_amr_decision<2>(
       element, id_uy_p_cc, all_flags,
       changed_flags_t<2>{{{split_stay, split_split}, split_split},
-                         {{split_stay, join_split}, split_split},
                          {{split_stay, stay_split}, split_split},
-                         {{join_stay, split_split}, join_split},
-                         {{join_stay, join_split}, join_split},
-                         {{join_stay, stay_split}, join_split},
+                         {{join_stay, split_split}, stay_split},
+                         {{join_stay, stay_split}, stay_split},
                          {{stay_stay, split_split}, stay_split},
-                         {{stay_stay, join_split}, stay_split},
                          {{stay_stay, stay_split}, stay_split},
-                         {{split_join, split_split}, split_split},
-                         {{split_join, join_split}, split_split},
-                         {{split_join, stay_split}, split_split},
-                         {{split_join, split_stay}, split_stay},
-                         {{split_join, join_stay}, split_stay},
-                         {{split_join, stay_stay}, split_stay},
-                         {{join_join, split_split}, join_split},
-                         {{join_join, join_split}, join_split},
-                         {{join_join, stay_split}, join_split},
+                         {{join_join, split_split}, stay_split},
+                         {{join_join, stay_split}, stay_split},
                          {{join_join, split_stay}, join_stay},
                          {{join_join, join_stay}, join_stay},
                          {{join_join, stay_stay}, join_stay},
                          {{stay_join, split_split}, stay_split},
-                         {{stay_join, join_split}, stay_split},
                          {{stay_join, stay_split}, stay_split},
                          {{stay_join, split_stay}, stay_stay},
                          {{stay_join, join_stay}, stay_stay},

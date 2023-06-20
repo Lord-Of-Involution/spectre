@@ -16,7 +16,6 @@
 #include "Framework/SetupLocalPythonEnvironment.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticData/GrMhd/MagnetizedFmDisk.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
@@ -27,6 +26,7 @@
 #include "PointwiseFunctions/InitialDataUtilities/Tags/InitialData.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/MakeWithValue.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -70,8 +70,7 @@ struct MagnetizedFmDiskProxy : grmhd::AnalyticData::MagnetizedFmDisk {
 };
 
 void test_create_from_options() {
-  Parallel::register_classes_with_charm<
-      grmhd::AnalyticData::MagnetizedFmDisk>();
+  register_classes_with_charm<grmhd::AnalyticData::MagnetizedFmDisk>();
   const std::unique_ptr<evolution::initial_data::InitialData> option_solution =
       TestHelpers::test_option_tag_factory_creation<
           evolution::initial_data::OptionTags::InitialData,
@@ -154,13 +153,11 @@ void test_variables(const DataType& used_for_size) {
       get<gr::Tags::SqrtDetSpatialMetric<DataType>>(disk.variables(
           coords, tmpl::list<gr::Tags::SqrtDetSpatialMetric<DataType>>{})));
   const auto expected_spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>(
-          ks_soln.variables(coords, 0.0,
-                            gr::Solutions::KerrSchild::tags<DataType>{}));
+      get<gr::Tags::SpatialMetric<DataType, 3>>(ks_soln.variables(
+          coords, 0.0, gr::Solutions::KerrSchild::tags<DataType>{}));
   const auto spatial_metric =
-      get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>(disk.variables(
-          coords,
-          tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>{}));
+      get<gr::Tags::SpatialMetric<DataType, 3>>(disk.variables(
+          coords, tmpl::list<gr::Tags::SpatialMetric<DataType, 3>>{}));
   CHECK_ITERABLE_APPROX(expected_spatial_metric, spatial_metric);
 
   // Check that when InversePlasmaBeta = 0, magnetic field vanishes and

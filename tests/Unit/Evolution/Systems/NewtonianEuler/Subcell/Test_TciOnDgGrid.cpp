@@ -86,14 +86,17 @@ void test(const TestThis test_this) {
       persson_exponent,
       persson_exponent,
       false,
-      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim};
+      evolution::dg::subcell::fd::ReconstructionMethod::DimByDim,
+      false,
+      std::nullopt,
+      fd::DerivativeOrder::Two};
 
   auto box = db::create<db::AddSimpleTags<
       ::Tags::Variables<cons_tags>, ::Tags::Variables<prim_tags>,
       ::domain::Tags::Mesh<Dim>, ::evolution::dg::subcell::Tags::Mesh<Dim>,
       hydro::Tags::EquationOfState<
           std::unique_ptr<EquationsOfState::EquationOfState<false, 2>>>,
-      evolution::dg::subcell::Tags::SubcellOptions,
+      evolution::dg::subcell::Tags::SubcellOptions<Dim>,
       evolution::dg::subcell::Tags::DataForRdmpTci>>(
       ConsVars{dg_mesh.number_of_grid_points()}, dg_prims, dg_mesh,
       subcell_mesh, std::move(eos), subcell_options,
@@ -127,7 +130,6 @@ void test(const TestThis test_this) {
 
   // Modify past data if we are expected an RDMP TCI failure.
   db::mutate<evolution::dg::subcell::Tags::DataForRdmpTci>(
-      make_not_null(&box),
       [&past_rdmp_tci_data, &test_this](const auto rdmp_tci_data_ptr) {
         *rdmp_tci_data_ptr = past_rdmp_tci_data;
         if (test_this == TestThis::RdmpMassDensity) {
@@ -137,11 +139,13 @@ void test(const TestThis test_this) {
           // Assumes min is positive, increase it so we fail the TCI
           rdmp_tci_data_ptr->min_variables_values[1] *= 1.01;
         }
-      });
+      },
+      make_not_null(&box));
 
+  const bool element_stays_on_dg = false;
   const std::tuple<bool, evolution::dg::subcell::RdmpTciData> result =
       db::mutate_apply<NewtonianEuler::subcell::TciOnDgGrid<Dim>>(
-          make_not_null(&box), persson_exponent);
+          make_not_null(&box), persson_exponent, element_stays_on_dg);
 
   CHECK_ITERABLE_APPROX(get<1>(result).max_variables_values,
                         expected_rdmp_tci_data.max_variables_values);

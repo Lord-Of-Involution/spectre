@@ -8,9 +8,9 @@
 
 #include <cstddef>
 
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Time/TimeSteppers/RungeKutta.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace TimeSteppers {
@@ -63,7 +63,6 @@ class DormandPrince5 : public RungeKutta {
 
   explicit DormandPrince5(CkMigrateMessage* /*unused*/) {}
 
- private:
   const ButcherTableau& butcher_tableau() const override;
 };
 

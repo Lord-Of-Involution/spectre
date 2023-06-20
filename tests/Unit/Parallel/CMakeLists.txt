@@ -9,7 +9,9 @@ set(ALGORITHM_TEST_LINK_LIBRARIES
   Actions
   Boost::program_options
   Charmxx::main
+  DomainStructure
   ErrorHandling
+  Evolution
   H5
   Informer
   Observer
@@ -17,7 +19,10 @@ set(ALGORITHM_TEST_LINK_LIBRARIES
   Parallel
   ParallelHelpers
   PhaseControl
+  Serialization
+  Spectral
   SystemUtilities
+  Time
   Utilities
   )
 
@@ -31,8 +36,8 @@ if (NOT SHELL_EXECUTABLE)
 endif()
 
 # Run TEST_NAME twice: first with no command-line args, then with the
-# `+restart SpectreCheckpoint0` command-line arg to restart from a Charm++
-# checkpoint named `SpectreCheckpoint0`. The checkpoint file is then deleted
+# `+restart` command-line arg to restart from the written Charm++
+# checkpoint. The checkpoint file is then deleted
 # to avoid it getting in the way of future test invocations (which would try
 # to overwrite the prior checkpoint file and error).
 function(add_algorithm_test_with_restart_from_checkpoint TEST_NAME)
@@ -43,7 +48,8 @@ function(add_algorithm_test_with_restart_from_checkpoint TEST_NAME)
     "${ALGORITHM_TEST_LINK_LIBRARIES}")
   # Executable writes checkpoint file into the dir where it runs:
   set(CHECKPOINT
-    "${CMAKE_BINARY_DIR}/tests/Unit/Parallel/${TEST_NAME}/SpectreCheckpoint000000")
+    "${CMAKE_BINARY_DIR}/tests/Unit/Parallel/${TEST_NAME}/\
+Checkpoints/Checkpoint_0000")
   add_test(
     NAME "Unit.Parallel.${TEST_NAME}"
     COMMAND
@@ -57,6 +63,28 @@ function(add_algorithm_test_with_restart_from_checkpoint TEST_NAME)
        +restart ${CHECKPOINT} 2>&1 \
     && rm -rf ${CHECKPOINT} \
     && cd .."
+    )
+  set_standalone_test_properties("Unit.Parallel.${TEST_NAME}")
+endfunction()
+
+function(add_algorithm_message_test TEST_NAME)
+  add_standalone_test_executable("Test_${TEST_NAME}")
+  target_link_libraries(
+    "Test_${TEST_NAME}"
+    PRIVATE
+    "${ALGORITHM_TEST_LINK_LIBRARIES}")
+  if (CHARM_USE_MPI)
+    set(CHARM_ARGS "+n2 +p2")
+  else()
+    set(CHARM_ARGS "")
+  endif()
+  add_test(
+    NAME "Unit.Parallel.${TEST_NAME}"
+    COMMAND
+    ${SHELL_EXECUTABLE}
+    -c
+    "${CMAKE_BINARY_DIR}/bin/charmrun ${CMAKE_BINARY_DIR}/bin/Test_${TEST_NAME} \
+        ${CHARM_ARGS} 2>&1"
     )
   set_standalone_test_properties("Unit.Parallel.${TEST_NAME}")
 endfunction()
@@ -83,6 +111,7 @@ add_dependencies(
   module_Test_GlobalCache
   )
 
+add_algorithm_message_test("AlgorithmMessages")
 add_algorithm_test("AlgorithmCore")
 add_algorithm_test("AlgorithmLocalSyncAction")
 add_algorithm_test(
@@ -135,10 +164,7 @@ set(LIBRARY_SOURCES
   Test_Parallel.cpp
   Test_ParallelComponentHelpers.cpp
   Test_Phase.cpp
-  Test_PupStlCpp11.cpp
-  Test_PupStlCpp17.cpp
   Test_ResourceInfo.cpp
-  Test_Serialize.cpp
   Test_TypeTraits.cpp
   )
 
@@ -161,6 +187,7 @@ target_link_libraries(
   ObserverHelpers
   Options
   Parallel
+  Serialization
   SystemUtilities
   Utilities
 )

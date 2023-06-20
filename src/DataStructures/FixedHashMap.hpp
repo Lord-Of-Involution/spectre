@@ -12,7 +12,6 @@
 #include <pup_stl.h>
 #include <type_traits>
 
-#include "Parallel/PupStlCpp17.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
@@ -21,6 +20,7 @@
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Numeric.hpp"
 #include "Utilities/PrintHelpers.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TypeTraits.hpp"
 
@@ -184,7 +184,7 @@ class FixedHashMap {
     p | version;
     // Remember to increment the version number when making changes to this
     // function. Retain support for unpacking data written by previous versions
-    // whenever possible.
+    // whenever possible. See `Domain` docs for details.
     if (version >= 0) {
       p | data_;
       p | size_;

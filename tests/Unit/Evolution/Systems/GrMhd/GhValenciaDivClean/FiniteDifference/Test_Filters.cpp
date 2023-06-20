@@ -4,6 +4,7 @@
 #include "Framework/TestingFramework.hpp"
 
 #include <cstddef>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "DataStructures/Variables.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/ElementId.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/FiniteDifference/Filters.hpp"
@@ -44,10 +46,10 @@ void set_solution(
     const gsl::not_null<Variables<
         typename grmhd::GhValenciaDivClean::System::variables_tag::tags_list>*>
         volume_vars,
-    const gsl::not_null<
-        FixedHashMap<maximum_number_of_neighbors(3),
-                     std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
-                     boost::hash<std::pair<Direction<3>, ElementId<3>>>>*>
+    const gsl::not_null<FixedHashMap<
+        maximum_number_of_neighbors(3), std::pair<Direction<3>, ElementId<3>>,
+        evolution::dg::subcell::GhostData,
+        boost::hash<std::pair<Direction<3>, ElementId<3>>>>*>
         neighbor_data,
     const Mesh<3>& mesh,
     const tnsr::I<DataVector, 3, Frame::ElementLogical>& logical_coords,
@@ -57,15 +59,15 @@ void set_solution(
          const auto local_vars) {
         for (size_t i = 0; i < 10; ++i) {
           (*local_dvs)[i].set_data_ref(make_not_null(
-              &get<gr::Tags::SpacetimeMetric<3>>(*local_vars)[i]));
+              &get<gr::Tags::SpacetimeMetric<DataVector, 3>>(*local_vars)[i]));
         }
         for (size_t i = 0; i < 10; ++i) {
-          (*local_dvs)[i + 10].set_data_ref(make_not_null(
-              &get<GeneralizedHarmonic::Tags::Pi<3>>(*local_vars)[i]));
+          (*local_dvs)[i + 10].set_data_ref(
+              make_not_null(&get<gh::Tags::Pi<DataVector, 3>>(*local_vars)[i]));
         }
         for (size_t i = 0; i < 30; ++i) {
           (*local_dvs)[i + 20].set_data_ref(make_not_null(
-              &get<GeneralizedHarmonic::Tags::Phi<3>>(*local_vars)[i]));
+              &get<gh::Tags::Phi<DataVector, 3>>(*local_vars)[i]));
         }
       };
   std::vector<DataVector> vars(50);
@@ -84,15 +86,15 @@ void set_solution(
                      make_not_null(&neighbor_vars));
     set_polynomial(&neighbor_dvs, neighbor_logical_coords, degree);
 
-    DirectionMap<3, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
     const auto sliced_data = evolution::dg::subcell::detail::slice_data_impl(
         gsl::make_span(neighbor_vars), mesh.extents(), deriv_order / 2 + 1,
-        directions_to_slice, 0);
+        std::unordered_set{direction.opposite()}, 0);
     CAPTURE(deriv_order / 2 + 1);
     REQUIRE(sliced_data.size() == 1);
     REQUIRE(sliced_data.contains(direction.opposite()));
-    (*neighbor_data)[std::pair{direction, ElementId<3>{0}}] =
+    const auto key = std::pair{direction, ElementId<3>{0}};
+    (*neighbor_data)[key] = evolution::dg::subcell::GhostData{1};
+    (*neighbor_data)[key].neighbor_ghost_data_for_reconstruction() =
         sliced_data.at(direction.opposite());
   }
 }
@@ -114,7 +116,8 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.GrMhd.GhValenciaDivClean.Fd.Filters",
       volume_evolved_variables{subcell_mesh.number_of_grid_points()};
 
   FixedHashMap<maximum_number_of_neighbors(3),
-               std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+               std::pair<Direction<3>, ElementId<3>>,
+               evolution::dg::subcell::GhostData,
                boost::hash<std::pair<Direction<3>, ElementId<3>>>>
       neighbor_data_for_reconstruction{};
 

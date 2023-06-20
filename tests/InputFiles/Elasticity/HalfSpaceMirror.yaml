@@ -1,18 +1,21 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: SolveElasticity3D
-# Check: parse;execute_check_output
-# Timeout: 30
-# ExpectedOutput:
-#   ElasticHalfSpaceMirrorReductions.h5
-#   ElasticHalfSpaceMirrorVolume0.h5
-# OutputFileChecks:
-#   - Label: Discretization error
-#     Subfile: /ErrorNorms.dat
-#     FileGlob: ElasticHalfSpaceMirrorReductions.h5
-#     SkipColumns: [0, 1, 2]
-#     AbsoluteTolerance: 5.e-4
+Executable: SolveElasticity3D
+Testing:
+  Check: parse;execute_check_output
+  Timeout: 30
+ExpectedOutput:
+  - ElasticHalfSpaceMirrorReductions.h5
+  - ElasticHalfSpaceMirrorVolume0.h5
+OutputFileChecks:
+  - Label: Discretization error
+    Subfile: /ErrorNorms.dat
+    FileGlob: ElasticHalfSpaceMirrorReductions.h5
+    SkipColumns: [0, 1, 2]
+    AbsoluteTolerance: 5.e-4
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -102,8 +105,9 @@ LinearSolver:
     ObservePerCoreReductions: False
 
 EventsAndTriggers:
-  - - HasConverged
-    - - ObserveNorms:
+  - Trigger: HasConverged
+    Events:
+      - ObserveNorms:
           SubfileName: ErrorNorms
           TensorsToObserve:
             - Name: Error(Displacement)
@@ -119,3 +123,4 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None

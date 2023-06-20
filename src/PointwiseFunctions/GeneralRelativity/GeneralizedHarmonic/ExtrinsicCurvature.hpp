@@ -30,7 +30,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /// @{
 /*!
  * \ingroup GeneralRelativityGroup
@@ -45,14 +45,14 @@ namespace GeneralizedHarmonic {
  *     K_{ij} &= \frac{1}{2} \Pi_{ij} + \Phi_{(ij)a} n^a
  * \f}
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void extrinsic_curvature(
     gsl::not_null<tnsr::ii<DataType, SpatialDim, Frame>*> ex_curv,
     const tnsr::A<DataType, SpatialDim, Frame>& spacetime_normal_vector,
     const tnsr::aa<DataType, SpatialDim, Frame>& pi,
     const tnsr::iaa<DataType, SpatialDim, Frame>& phi);
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::ii<DataType, SpatialDim, Frame> extrinsic_curvature(
     const tnsr::A<DataType, SpatialDim, Frame>& spacetime_normal_vector,
     const tnsr::aa<DataType, SpatialDim, Frame>& pi,
@@ -69,11 +69,12 @@ namespace Tags {
  */
 template <size_t SpatialDim, typename Frame>
 struct ExtrinsicCurvatureCompute
-    : gr::Tags::ExtrinsicCurvature<SpatialDim, Frame, DataVector>,
+    : gr::Tags::ExtrinsicCurvature<DataVector, SpatialDim, Frame>,
       db::ComputeTag {
   using argument_tags =
-      tmpl::list<gr::Tags::SpacetimeNormalVector<SpatialDim, Frame, DataVector>,
-                 Pi<SpatialDim, Frame>, Phi<SpatialDim, Frame>>;
+      tmpl::list<gr::Tags::SpacetimeNormalVector<DataVector, SpatialDim, Frame>,
+                 Pi<DataVector, SpatialDim, Frame>,
+                 Phi<DataVector, SpatialDim, Frame>>;
 
   using return_type = tnsr::ii<DataVector, SpatialDim, Frame>;
 
@@ -82,9 +83,9 @@ struct ExtrinsicCurvatureCompute
       const tnsr::A<DataVector, SpatialDim, Frame>&,
       const tnsr::aa<DataVector, SpatialDim, Frame>&,
       const tnsr::iaa<DataVector, SpatialDim, Frame>&)>(
-      &extrinsic_curvature<SpatialDim, Frame, DataVector>);
+      &extrinsic_curvature<DataVector, SpatialDim, Frame>);
 
-  using base = gr::Tags::ExtrinsicCurvature<SpatialDim, Frame, DataVector>;
+  using base = gr::Tags::ExtrinsicCurvature<DataVector, SpatialDim, Frame>;
 };
 
 /*!
@@ -104,8 +105,8 @@ struct TraceExtrinsicCurvatureCompute
     : gr::Tags::TraceExtrinsicCurvature<DataVector>,
       db::ComputeTag {
   using argument_tags =
-      tmpl::list<gr::Tags::ExtrinsicCurvature<SpatialDim, Frame, DataVector>,
-                 gr::Tags::InverseSpatialMetric<SpatialDim, Frame, DataVector>>;
+      tmpl::list<gr::Tags::ExtrinsicCurvature<DataVector, SpatialDim, Frame>,
+                 gr::Tags::InverseSpatialMetric<DataVector, SpatialDim, Frame>>;
 
   using return_type = Scalar<DataVector>;
 
@@ -118,4 +119,4 @@ struct TraceExtrinsicCurvatureCompute
   using base = gr::Tags::TraceExtrinsicCurvature<DataVector>;
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

@@ -17,7 +17,6 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Actions/RunEventsAndTriggers.hpp"  // IWYU pragma: keep
 #include "ParallelAlgorithms/EventsAndTriggers/Completion.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
@@ -31,6 +30,7 @@
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 // IWYU pragma: no_include <pup.h>
@@ -82,9 +82,9 @@ void check_trigger(const bool expected, const std::string& trigger_string) {
           trigger_string);
 
   EventsAndTriggers::Storage events_and_triggers_input;
-  events_and_triggers_input.emplace_back(
-      std::move(trigger), make_vector<std::unique_ptr<Event>>(
-                              std::make_unique<Events::Completion>()));
+  events_and_triggers_input.push_back(
+      {std::move(trigger), make_vector<std::unique_ptr<Event>>(
+                               std::make_unique<Events::Completion>())});
   const EventsAndTriggers events_and_triggers(
       std::move(events_and_triggers_input));
 
@@ -153,25 +153,31 @@ void test_basic_triggers() {
 void test_factory() {
   const auto events_and_triggers =
       TestHelpers::test_creation<EventsAndTriggers, Metavariables<>>(
-          "- - Not: Always\n"
-          "  - - Completion\n"
-          "- - Or:\n"
-          "    - Not: Always\n"
-          "    - Always\n"
-          "  - - Completion\n"
+          "- Trigger:\n"
+          "    Not: Always\n"
+          "  Events:\n"
           "    - Completion\n"
-          "- - Not: Always\n"
-          "  - - Completion\n");
+          "- Trigger:\n"
+          "    Or:\n"
+          "      - Not: Always\n"
+          "      - Always\n"
+          "  Events:\n"
+          "    - Completion\n"
+          "    - Completion\n"
+          "- Trigger:\n"
+          "    Not: Always\n"
+          "  Events:\n"
+          "    - Completion\n");
 
   run_events_and_triggers(events_and_triggers, true);
 }
 
 void test_slab_limits() {
   EventsAndTriggers::Storage events_and_triggers_input;
-  events_and_triggers_input.emplace_back(
-      std::make_unique<Triggers::Always>(),
-      make_vector<std::unique_ptr<Event>>(
-          std::make_unique<Events::Completion>()));
+  events_and_triggers_input.push_back(
+      {std::make_unique<Triggers::Always>(),
+       make_vector<std::unique_ptr<Event>>(
+           std::make_unique<Events::Completion>())});
 
   const Slab slab(0.0, 1.0);
   const auto start = slab.start();
@@ -187,31 +193,34 @@ void test_slab_limits() {
   auto& box =
       ActionTesting::get_databox<my_component>(make_not_null(&runner), 0);
 
-  db::mutate<Tags::TimeStepId>(make_not_null(&box),
-                               [&](const gsl::not_null<TimeStepId*> id) {
-                                 *id = TimeStepId(true, 0, center);
-                               });
+  db::mutate<Tags::TimeStepId>(
+      [&](const gsl::not_null<TimeStepId*> id) {
+        *id = TimeStepId(true, 0, center);
+      },
+      make_not_null(&box));
   ActionTesting::next_action<my_component>(make_not_null(&runner), 0);
   CHECK(not ActionTesting::get_terminate<my_component>(runner, 0));
 
-  db::mutate<Tags::TimeStepId>(make_not_null(&box),
-                               [&](const gsl::not_null<TimeStepId*> id) {
-                                 *id = TimeStepId(true, 0, start, 1, start);
-                               });
+  db::mutate<Tags::TimeStepId>(
+      [&](const gsl::not_null<TimeStepId*> id) {
+        *id = TimeStepId(true, 0, start, 1, slab.duration(), start.value());
+      },
+      make_not_null(&box));
   ActionTesting::next_action<my_component>(make_not_null(&runner), 0);
   CHECK(not ActionTesting::get_terminate<my_component>(runner, 0));
 
-  db::mutate<Tags::TimeStepId>(make_not_null(&box),
-                               [&](const gsl::not_null<TimeStepId*> id) {
-                                 *id = TimeStepId(true, 0, start);
-                               });
+  db::mutate<Tags::TimeStepId>(
+      [&](const gsl::not_null<TimeStepId*> id) {
+        *id = TimeStepId(true, 0, start);
+      },
+      make_not_null(&box));
   ActionTesting::next_action<my_component>(make_not_null(&runner), 0);
   CHECK(ActionTesting::get_terminate<my_component>(runner, 0));
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Evolution.EventsAndTriggers", "[Unit][Evolution]") {
-  Parallel::register_factory_classes_with_charm<Metavariables<>>();
+  register_factory_classes_with_charm<Metavariables<>>();
 
   test_completion();
   test_basic_triggers();

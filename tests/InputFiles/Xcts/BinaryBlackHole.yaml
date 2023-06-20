@@ -1,9 +1,12 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: SolveXcts
-# Check: parse
-# Timeout: 30
+Executable: SolveXcts
+Testing:
+  Check: parse
+  Timeout: 30
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -12,12 +15,12 @@ ResourceInfo:
 Background: &background
   Binary:
     XCoords: [&x_left -8., &x_right 8.]
-    ObjectA: &kerr_right
+    ObjectLeft: &kerr_left
       KerrSchild:
         Mass: 0.4229
         Spin: [0., 0., 0.]
         Center: [0., 0., 0.]
-    ObjectB: &kerr_left
+    ObjectRight: &kerr_right
       KerrSchild:
         Mass: 0.4229
         Spin: [0., 0., 0.]
@@ -54,15 +57,15 @@ DomainCreator:
             Lapse: *kerr_left
             NegativeExpansion: *kerr_left
       UseLogarithmicMap: True
-    EnvelopingCube:
-      Radius: 60.
+    Envelope:
+      Radius: &outer_shell_inner_radius 60.
       UseProjectiveMap: True
-      Sphericity: 1.
     OuterShell:
-      InnerRadius: Auto
-      OuterRadius: 300.
-      RadialDistribution: Inverse
+      Radius: &outer_radius 300.
+      RadialDistribution: &outer_shell_distribution Inverse
+      OpeningAngle: 90.0
       BoundaryCondition: Flatness
+    UseEquiangularMap: True
     # This h-refinement is set up so spherical wedges have equal angular size.
     # Once the domain supports equatorial compression (or similar) this
     # h-refinement will simplify considerably.
@@ -71,16 +74,16 @@ DomainCreator:
       ObjectBShell:               [1, 1, 1]
       ObjectACube:                [1, 1, 1]
       ObjectBCube:                [1, 1, 1]
-      EnvelopingCubeUpperZLeft:   [1, 1, 1]
-      EnvelopingCubeLowerZLeft:   [1, 1, 1]
-      EnvelopingCubeUpperYLeft:   [1, 1, 1]
-      EnvelopingCubeLowerYLeft:   [1, 1, 1]
-      EnvelopingCubeLowerX:       [1, 1, 1]
-      EnvelopingCubeUpperZRight:  [1, 1, 1]
-      EnvelopingCubeLowerZRight:  [1, 1, 1]
-      EnvelopingCubeUpperYRight:  [1, 1, 1]
-      EnvelopingCubeLowerYRight:  [1, 1, 1]
-      EnvelopingCubeUpperX:       [1, 1, 1]
+      EnvelopeUpperZLeft:         [1, 1, 1]
+      EnvelopeLowerZLeft:         [1, 1, 1]
+      EnvelopeUpperYLeft:         [1, 1, 1]
+      EnvelopeLowerYLeft:         [1, 1, 1]
+      EnvelopeLowerX:             [1, 1, 1]
+      EnvelopeUpperZRight:        [1, 1, 1]
+      EnvelopeLowerZRight:        [1, 1, 1]
+      EnvelopeUpperYRight:        [1, 1, 1]
+      EnvelopeLowerYRight:        [1, 1, 1]
+      EnvelopeUpperX:             [1, 1, 1]
       OuterShellUpperZLeft:       [0, 1, 0]
       OuterShellLowerZLeft:       [0, 1, 0]
       OuterShellUpperYLeft:       [0, 1, 0]
@@ -98,7 +101,7 @@ DomainCreator:
       ObjectBShell:   [6, 6, 10]
       ObjectACube:    [6, 6, 7]
       ObjectBCube:    [6, 6, 7]
-      EnvelopingCube: [6, 6, 6]
+      Envelope:       [6, 6, 6]
       OuterShell:     [6, 6, 6]
 
 Discretization:
@@ -156,9 +159,15 @@ LinearSolver:
     SkipResets: True
     ObservePerCoreReductions: False
 
+RadiallyCompressedCoordinates:
+  InnerRadius: *outer_shell_inner_radius
+  OuterRadius: *outer_radius
+  Compression: *outer_shell_distribution
+
 EventsAndTriggers:
-  - - HasConverged
-    - - ObserveNorms:
+  - Trigger: HasConverged
+    Events:
+      - ObserveNorms:
           SubfileName: Norms
           TensorsToObserve:
             - Name: ConformalFactor
@@ -187,6 +196,8 @@ EventsAndTriggers:
             - ExtrinsicCurvature
             - HamiltonianConstraint
             - MomentumConstraint
+            - RadiallyCompressedCoordinates
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None

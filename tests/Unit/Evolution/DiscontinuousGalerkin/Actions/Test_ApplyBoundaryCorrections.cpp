@@ -19,7 +19,9 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
 #include "DataStructures/VariablesTag.hpp"
+#include "Domain/Creators/Tags/InitialExtents.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/TciStatus.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/ApplyBoundaryCorrections.hpp"
 #include "Evolution/DiscontinuousGalerkin/Initialization/Mortars.hpp"
 #include "Evolution/DiscontinuousGalerkin/Initialization/QuadratureTag.hpp"
@@ -33,9 +35,7 @@
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Tags/Formulation.hpp"
 #include "NumericalAlgorithms/Spectral/Projection.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
 #include "Time/Time.hpp"
@@ -43,6 +43,8 @@
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -197,28 +199,27 @@ struct SetLocalMortarData {
               face_mesh.number_of_grid_points());
       db::mutate<evolution::dg::Tags::NormalCovectorAndMagnitude<
           Metavariables::volume_dim>>(
-          make_not_null(&box),
           [&covector_and_mag](const auto covector_and_mag_ptr,
                               const auto& local_direction) {
             (*covector_and_mag_ptr)[local_direction] = covector_and_mag;
           },
-          direction);
+          make_not_null(&box), direction);
 
       for (const auto& neighbor_id : neighbor_ids) {
         std::pair mortar_id{direction, neighbor_id};
         const Mesh<Metavariables::volume_dim - 1>& mortar_mesh =
             mortar_meshes.at(mortar_id);
 
-        std::vector<double> type_erased_boundary_data_on_mortar(
+        DataVector type_erased_boundary_data_on_mortar{
             mortar_mesh.number_of_grid_points() *
-            number_of_dg_package_tags_components);
+                number_of_dg_package_tags_components,
+            0.0};
         alg::iota(type_erased_boundary_data_on_mortar,
                   direction.dimension() +
                       10 * static_cast<unsigned long>(direction.side()) +
                       100 * count + 1000);
 
         db::mutate<evolution::dg::Tags::MortarData<Metavariables::volume_dim>>(
-            make_not_null(&box),
             [&face_mesh, &mortar_id, &time_step_id,
              &type_erased_boundary_data_on_mortar](const auto mortar_data_ptr) {
               // when using local time stepping, we reset the local mortar data
@@ -228,7 +229,8 @@ struct SetLocalMortarData {
               mortar_data_ptr->at(mortar_id).insert_local_mortar_data(
                   time_step_id, face_mesh,
                   std::move(type_erased_boundary_data_on_mortar));
-            });
+            },
+            make_not_null(&box));
         ++count;
         if (LocalTimeStepping) {
           const TimeStepId past_time_step_id{true, 3,
@@ -237,13 +239,14 @@ struct SetLocalMortarData {
           // 1/4 the slab.
           db::mutate<evolution::dg::Tags::MortarNextTemporalId<
               Metavariables::volume_dim>>(
-              make_not_null(&box), [&mortar_id, &past_time_step_id](
-                                       const auto mortar_next_temporal_id_ptr) {
+              [&mortar_id,
+               &past_time_step_id](const auto mortar_next_temporal_id_ptr) {
                 mortar_next_temporal_id_ptr->at(mortar_id) = past_time_step_id;
-              });
+              },
+              make_not_null(&box));
           // We also need to set the local history one step back to get to 2nd
           // order in time.
-          type_erased_boundary_data_on_mortar.resize(
+          type_erased_boundary_data_on_mortar.destructive_resize(
               mortar_mesh.number_of_grid_points() *
               number_of_dg_package_tags_components);
           alg::iota(type_erased_boundary_data_on_mortar,
@@ -289,7 +292,6 @@ struct SetLocalMortarData {
               evolution::dg::Tags::MortarData<Metavariables::volume_dim>,
               evolution::dg::Tags::MortarDataHistory<
                   Metavariables::volume_dim, typename dt_variables_tag::type>>(
-              make_not_null(&box),
               [&det_inv_jacobian, &mortar_id, &past_mortar_data,
                &past_time_step_id, &time_step_id](
                   const auto mortar_data_ptr,
@@ -346,6 +348,7 @@ struct SetLocalMortarData {
                     time_step_id, std::move(local_mortar_data));
                 local_mortar_data = {};
               },
+              make_not_null(&box),
               db::get<domain::Tags::Mesh<Metavariables::volume_dim>>(box),
               db::get<evolution::dg::Tags::NormalCovectorAndMagnitude<
                   Metavariables::volume_dim>>(box));
@@ -420,11 +423,12 @@ struct component {
           tmpl::list<tmpl::conditional_t<
               local_time_stepping,
               ::evolution::dg::Actions::ApplyLtsBoundaryCorrections<
-                  typename Metavariables::system, Metavariables::volume_dim>,
+                  typename Metavariables::system, Metavariables::volume_dim,
+                  false>,
               ::evolution::dg::Actions::
                   ApplyBoundaryCorrectionsToTimeDerivative<
-                      typename Metavariables::system,
-                      Metavariables::volume_dim>>>>>;
+                      typename Metavariables::system, Metavariables::volume_dim,
+                      false>>>>>;
 };
 
 template <size_t Dim, TestHelpers::SystemType SystemType,
@@ -455,7 +459,7 @@ void test_impl(const Spectral::Quadrature quadrature,
   CAPTURE(SystemType);
   CAPTURE(quadrature);
   CAPTURE(UseLocalTimeStepping);
-  Parallel::register_derived_classes_with_charm<BoundaryCorrection<Dim>>();
+  register_derived_classes_with_charm<BoundaryCorrection<Dim>>();
   using metavars = Metavariables<Dim, SystemType, UseLocalTimeStepping>;
   using comp = component<metavars>;
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
@@ -627,6 +631,9 @@ void test_impl(const Spectral::Quadrature quadrature,
   using mortar_tags_list = typename BoundaryTerms<Dim>::dg_package_field_tags;
   constexpr size_t number_of_dg_package_tags_components =
       Variables<mortar_tags_list>::number_of_independent_components;
+  typename evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>::type
+      neighbor_decision{};
+  int decision = 1;
   for (const auto& direction_and_neighbor_id : order_to_send_neighbor_data_in) {
     const auto& direction = direction_and_neighbor_id.first;
     const auto& neighbor_id = direction_and_neighbor_id.second;
@@ -635,11 +642,12 @@ void test_impl(const Spectral::Quadrature quadrature,
 
     size_t count = 0;
     const Mesh<Dim - 1> face_mesh = mesh.slice_away(direction.dimension());
-    const auto insert_neighbor_data = [&all_mortar_data, &count, &direction,
-                                       &face_mesh, &local_next_time_step_id,
-                                       &mesh, &mortar_data_history,
-                                       &mortar_meshes, &neighbor_id, &runner,
-                                       &self_id](
+    const auto insert_neighbor_data = [&all_mortar_data, &count, &decision,
+                                       &direction, &face_mesh,
+                                       &local_next_time_step_id, &mesh,
+                                       &mortar_data_history, &mortar_meshes,
+                                       &neighbor_decision, &neighbor_id,
+                                       &runner, &self_id](
                                           const TimeStepId&
                                               neighbor_time_step_id,
                                           const TimeStepId&
@@ -648,15 +656,20 @@ void test_impl(const Spectral::Quadrature quadrature,
       std::pair mortar_id{direction, neighbor_id};
       const Mesh<Dim - 1>& mortar_mesh = mortar_meshes.at(mortar_id);
 
-      std::vector<double> flux_data(mortar_mesh.number_of_grid_points() *
-                                    number_of_dg_package_tags_components);
+      DataVector flux_data{mortar_mesh.number_of_grid_points() *
+                               number_of_dg_package_tags_components,
+                           0.0};
       alg::iota(flux_data,
                 direction.dimension() +
                     10 * static_cast<unsigned long>(direction.side()) +
                     100 * count);
-      std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<std::vector<double>>,
-                 std::optional<std::vector<double>>, ::TimeStepId>
-          data{mesh, face_mesh, {}, {flux_data}, {neighbor_next_time_step_id}};
+      std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<DataVector>,
+                 std::optional<DataVector>, ::TimeStepId, int>
+          data{
+              mesh,    face_mesh, {}, {flux_data}, {neighbor_next_time_step_id},
+              decision};
+      neighbor_decision.insert(std::pair{mortar_id, decision});
+      ++decision;
 
       runner.template mock_distributed_objects<comp>()
           .at(self_id)
@@ -772,10 +785,10 @@ void test_impl(const Spectral::Quadrature quadrature,
         mortar_mesh.number_of_grid_points()};
     Variables<mortar_tags_list> neighbor_data_on_mortar{
         mortar_mesh.number_of_grid_points()};
-    const std::pair<Mesh<Dim - 1>, std::vector<double>>& local_mesh_and_data =
+    const std::pair<Mesh<Dim - 1>, DataVector>& local_mesh_and_data =
         *local_mortar_data.local_mortar_data();
-    const std::pair<Mesh<Dim - 1>, std::vector<double>>&
-        neighbor_mesh_and_data = *neighbor_mortar_data.neighbor_mortar_data();
+    const std::pair<Mesh<Dim - 1>, DataVector>& neighbor_mesh_and_data =
+        *neighbor_mortar_data.neighbor_mortar_data();
     std::copy(std::get<1>(local_mesh_and_data).begin(),
               std::get<1>(local_mesh_and_data).end(),
               local_data_on_mortar.data());
@@ -935,13 +948,13 @@ void test_impl(const Spectral::Quadrature quadrature,
       mortar_id_ptr = &mortar_id;
       compute_correction_coupling(mortar_data, mortar_data);
     }
-    tmpl::for_each<dt_variables_tags>([&expected_dt_variables_volume, &runner,
-                                       &self_id](auto tag_v) {
-      using tag = tmpl::type_from<decltype(tag_v)>;
-      CHECK_ITERABLE_APPROX(
-          get<tag>(get_tag<dt_variables_tag>(runner, self_id)),
-          get<tag>(expected_dt_variables_volume));
-    });
+    tmpl::for_each<dt_variables_tags>(
+        [&expected_dt_variables_volume, &runner, &self_id](auto tag_v) {
+          using tag = tmpl::type_from<decltype(tag_v)>;
+          CHECK_ITERABLE_APPROX(
+              get<tag>(get_tag<dt_variables_tag>(runner, self_id)),
+              get<tag>(expected_dt_variables_volume));
+        });
     CHECK(expected_evolved_variables ==
           get_tag<variables_tag>(runner, self_id));
   }
@@ -971,18 +984,15 @@ void test_impl(const Spectral::Quadrature quadrature,
   CHECK(neighbor_meshes.size() == total_neighbors);
 }
 
-template <size_t Dim, bool UseLocalTimeStepping>
+template <size_t Dim, bool UseLocalTimeStepping,
+          TestHelpers::SystemType SystemType>
 void test() {
   for (const auto dg_formulation :
        {::dg::Formulation::StrongInertial, ::dg::Formulation::WeakInertial}) {
     for (const auto quadrature :
          {Spectral::Quadrature::GaussLobatto, Spectral::Quadrature::Gauss}) {
-      test_impl<Dim, TestHelpers::SystemType::Conservative,
-                UseLocalTimeStepping>(quadrature, dg_formulation);
-      test_impl<Dim, TestHelpers::SystemType::Nonconservative,
-                UseLocalTimeStepping>(quadrature, dg_formulation);
-      test_impl<Dim, TestHelpers::SystemType::Mixed, UseLocalTimeStepping>(
-          quadrature, dg_formulation);
+      test_impl<Dim, SystemType, UseLocalTimeStepping>(quadrature,
+                                                       dg_formulation);
     }
   }
 }
@@ -990,11 +1000,19 @@ void test() {
 SPECTRE_TEST_CASE("Unit.Evolution.DG.ApplyBoundaryCorrections",
                   "[Unit][Evolution][Actions]") {
   PUPable_reg(TimeSteppers::AdamsBashforth);
-  test<1, false>();
-  test<1, true>();
-  test<2, false>();
-  test<2, true>();
-  test<3, false>();
-  test<3, true>();
+  tmpl::for_each<tmpl::integral_list<size_t, 1, 2, 3>>([](auto dim_v) {
+    tmpl::for_each<tmpl::integral_list<bool, false, true>>(
+        [&dim_v](auto lts_v) {
+          tmpl::for_each<tmpl::integral_list<
+              TestHelpers::SystemType, TestHelpers::SystemType::Conservative,
+              TestHelpers::SystemType::Nonconservative,
+              TestHelpers::SystemType::Mixed>>([&dim_v, &lts_v](auto system_v) {
+            (void)dim_v, (void)lts_v;
+            test<tmpl::type_from<decltype(dim_v)>::value,
+                 tmpl::type_from<decltype(lts_v)>::value,
+                 tmpl::type_from<decltype(system_v)>::value>();
+          });
+        });
+  });
 }
 }  // namespace

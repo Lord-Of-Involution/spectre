@@ -1,12 +1,15 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: ExportTimeDependentCoordinates3D
-# Check: parse;execute
-# Timeout: 10
-# ExpectedOutput:
-#   ExportTimeDependentCoordinates3DVolume0.h5
-#   ExportTimeDependentCoordinates3DReductions.h5
+Executable: ExportTimeDependentCoordinates3D
+Testing:
+  Check: parse;execute
+  Timeout: 10
+ExpectedOutput:
+  - ExportTimeDependentCoordinates3DVolume0.h5
+  - ExportTimeDependentCoordinates3DReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -29,38 +32,41 @@ DomainCreator:
       XCoord: -7.683
       ExciseInterior: true
       UseLogarithmicMap: true
-    EnvelopingCube:
+    Envelope:
       Radius: 100.0
       UseProjectiveMap: false
-      Sphericity: 1.0
     OuterShell:
-      InnerRadius: Auto
-      OuterRadius: 300.0
+      Radius: 300.0
       RadialDistribution: Linear
+      OpeningAngle: 90.0
+    UseEquiangularMap: True
     InitialRefinement:
       ObjectAShell:   [1, 1, 1]
       ObjectBShell:   [1, 1, 1]
       ObjectACube:    [1, 1, 0]
       ObjectBCube:    [1, 1, 0]
-      EnvelopingCube: [1, 1, 1]
+      Envelope: [1, 1, 1]
       OuterShell:     [1, 1, 1]
     InitialGridPoints: 3
     TimeDependentMaps:
       InitialTime: 0.0
       ExpansionMap:
-        OuterBoundary: 300.0
-        InitialExpansion: 1.0
-        InitialExpansionVelocity: -4.6148457646200002e-05
+        InitialValues: [1.0, -4.6148457646200002e-05]
         AsymptoticVelocityOuterBoundary: -1.0e-6
         DecayTimescaleOuterBoundaryVelocity: 50.0
       RotationMap:
         InitialAngularVelocity: [0.0, 0.0, 1.5264577062000000e-02]
-      SizeMap:
-        InitialValues: [0.0, 0.0]
-        InitialVelocities: [0.0, 0.0]
-        InitialAccelerations: [0.0, 0.0]
+      SizeMapA:
+        InitialValues: [0.0, 0.0, 0.0]
+      SizeMapB:
+        InitialValues: [0.0, 0.0, 0.0]
+      ShapeMapA:
+        LMax: 8
+      ShapeMapB:
+        LMax: 8
 
 SpatialDiscretization:
+  ActiveGrid: Dg
   DiscontinuousGalerkin:
     Quadrature: GaussLobatto
 
@@ -72,10 +78,12 @@ Evolution:
       Order: 1
 
 EventsAndTriggers:
-  - - TimeCompares:
+  - Trigger:
+      TimeCompares:
         Comparison: GreaterThanOrEqualTo
         Value: 0.5
-    - - Completion
+    Events:
+      - Completion
 
 Observers:
   VolumeFileName: "ExportTimeDependentCoordinates3DVolume"

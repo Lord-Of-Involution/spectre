@@ -8,13 +8,13 @@
 #include <string>
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/Minkowski.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/IdealFluid.hpp"  // IWYU pragma: keep
 #include "PointwiseFunctions/Hydro/TagsDeclarations.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialData.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -280,10 +280,9 @@ class RiemannProblem : public evolution::initial_data::InitialData,
       -> tuples::TaggedTuple<gr::Tags::Lapse<DataType>>;
 
   template <typename DataType>
-  auto variables(
-      const tnsr::I<DataType, 3>& x,
-      tmpl::list<gr::Tags::Shift<3, Frame::Inertial, DataType>> /*meta*/) const
-      -> tuples::TaggedTuple<gr::Tags::Shift<3, Frame::Inertial, DataType>>;
+  auto variables(const tnsr::I<DataType, 3>& x,
+                 tmpl::list<gr::Tags::Shift<DataType, 3>> /*meta*/) const
+      -> tuples::TaggedTuple<gr::Tags::Shift<DataType, 3>>;
   /// @}
 
   /// Retrieve a collection of hydrodynamic variables at position x

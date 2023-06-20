@@ -31,21 +31,21 @@
 #include "NumericalAlgorithms/Interpolation/CubicSpanInterpolator.hpp"
 #include "NumericalAlgorithms/Interpolation/LinearSpanInterpolator.hpp"
 #include "NumericalAlgorithms/Interpolation/SpanInterpolator.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/Algorithms/AlgorithmSingleton.hpp"
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/StepChoosers/Factory.hpp"
-#include "Time/StepControllers/Factory.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/Factory.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 /// \cond
 namespace PUP {
@@ -55,7 +55,7 @@ class er;
 
 template <template <typename> class BoundaryComponent>
 struct EvolutionMetavars : CharacteristicExtractDefaults<false> {
-  using system = Cce::System<uses_partially_flat_cartesian_coordinates>;
+  using system = Cce::System<evolve_ccm>;
   static constexpr bool local_time_stepping = true;
   using cce_boundary_component = BoundaryComponent<EvolutionMetavars>;
 
@@ -69,7 +69,6 @@ struct EvolutionMetavars : CharacteristicExtractDefaults<false> {
     using factory_classes = tmpl::map<
         tmpl::pair<LtsTimeStepper, TimeSteppers::lts_time_steppers>,
         tmpl::pair<StepChooser<StepChooserUse::LtsStep>, cce_step_choosers>,
-        tmpl::pair<StepController, StepControllers::standard_step_controllers>,
         tmpl::pair<TimeSequence<double>,
                    TimeSequences::all_time_sequences<double>>,
         tmpl::pair<TimeSequence<std::uint64_t>,
@@ -96,17 +95,15 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_memory_allocation_failure_reporting,
     &disable_openblas_multithreading,
     &Cce::register_initialize_j_with_charm<
-        metavariables::uses_partially_flat_cartesian_coordinates,
-        metavariables::cce_boundary_component>,
-    &Parallel::register_derived_classes_with_charm<
+        metavariables::evolve_ccm, metavariables::cce_boundary_component>,
+    &register_derived_classes_with_charm<
         Cce::WorldtubeBufferUpdater<Cce::cce_metric_input_tags>>,
-    &Parallel::register_derived_classes_with_charm<
+    &register_derived_classes_with_charm<
         Cce::WorldtubeBufferUpdater<Cce::cce_bondi_input_tags>>,
-    &Parallel::register_derived_classes_with_charm<Cce::WorldtubeDataManager>,
-    &Parallel::register_derived_classes_with_charm<intrp::SpanInterpolator>,
-    &Parallel::register_derived_classes_with_charm<
-        Cce::Solutions::WorldtubeData>,
-    &Parallel::register_factory_classes_with_charm<metavariables>};
+    &register_derived_classes_with_charm<Cce::WorldtubeDataManager>,
+    &register_derived_classes_with_charm<intrp::SpanInterpolator>,
+    &register_derived_classes_with_charm<Cce::Solutions::WorldtubeData>,
+    &register_factory_classes_with_charm<metavariables>};
 
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};

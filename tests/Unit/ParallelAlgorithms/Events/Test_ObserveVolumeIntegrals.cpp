@@ -19,6 +19,7 @@
 #include "DataStructures/Tensor/EagerMath/Determinant.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
+#include "DataStructures/VariablesTag.hpp"
 #include "Domain/Creators/Brick.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
 #include "Domain/Creators/Interval.hpp"
@@ -41,7 +42,6 @@
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "Parallel/Reduction.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/Tags/Metavariables.hpp"
 #include "ParallelAlgorithms/Events/ObserveVolumeIntegrals.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
@@ -51,6 +51,7 @@
 #include "Utilities/Numeric.hpp"
 #include "Utilities/PrettyType.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/StdHelpers.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -187,8 +188,7 @@ std::unique_ptr<DomainCreator<SpatialDim>> domain_creator();
 template <>
 std::unique_ptr<DomainCreator<1>> domain_creator() {
   return std::make_unique<domain::creators::Interval>(
-      domain::creators::Interval({{-0.5}}, {{0.5}}, {{0}}, {{4}}, {{false}},
-                                 nullptr));
+      domain::creators::Interval({{-0.5}}, {{0.5}}, {{0}}, {{4}}));
 }
 
 template <>
@@ -259,8 +259,9 @@ void test_observe(const std::unique_ptr<ObserveEvent> observe,
   const double observation_time = 2.0;
   const auto box = db::create<db::AddSimpleTags<
       Parallel::Tags::MetavariablesImpl<metavariables>, ObservationTimeTag,
-      domain::Tags::Mesh<VolumeDim>,
-      domain::Tags::DetInvJacobian<Frame::ElementLogical, Frame::Inertial>,
+      ::Events::Tags::ObserverMesh<VolumeDim>,
+      ::Events::Tags::ObserverDetInvJacobian<Frame::ElementLogical,
+                                             Frame::Inertial>,
       Tags::Variables<typename decltype(vars)::tags_list>,
       observers::Tags::ObservationKey<ArraySectionIdTag>>>(
       metavariables{}, observation_time, mesh, det_inv_jacobian, vars, section);
@@ -326,7 +327,7 @@ void test_observe_system(
   }
   {
     INFO("Testing create/serialize for Dim = " << VolumeDim);
-    Parallel::register_factory_classes_with_charm<metavariables>();
+    register_factory_classes_with_charm<metavariables>();
     const auto factory_event =
         TestHelpers::test_creation<std::unique_ptr<Event>, metavariables>(
             "ObserveVolumeIntegrals:\n"

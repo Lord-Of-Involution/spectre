@@ -7,7 +7,6 @@
 #include <string>
 
 #include "ApparentHorizons/HorizonAliases.hpp"
-#include "ApparentHorizons/ObjectLabel.hpp"
 #include "ApparentHorizons/StrahlkorperGr.hpp"
 #include "ApparentHorizons/Tags.hpp"
 #include "DataStructures/DataBox/DataBox.hpp"
@@ -16,6 +15,7 @@
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
 #include "Domain/Protocols/Metavariables.hpp"
 #include "Domain/Structure/ElementId.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/DiscontinuousGalerkin/Actions/InitializeDomain.hpp"
 #include "Elliptic/DiscontinuousGalerkin/DgElementArray.hpp"
@@ -27,8 +27,8 @@
 #include "IO/Observer/ObserverComponent.hpp"
 #include "IO/Observer/ReductionActions.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
-#include "Options/Options.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
+#include "Options/String.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Algorithms/AlgorithmArray.hpp"
 #include "Parallel/GlobalCache.hpp"
@@ -36,7 +36,6 @@
 #include "Parallel/Invoke.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "ParallelAlgorithms/Interpolation/Actions/CleanUpInterpolator.hpp"
 #include "ParallelAlgorithms/Interpolation/Actions/InitializeInterpolationTarget.hpp"
@@ -63,8 +62,10 @@
 #include "Time/Tags.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Overloader.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -72,10 +73,9 @@ namespace FindHorizons {
 
 namespace OptionTags {
 struct VolumeDataGroup {
-  static std::string name() { return "VolumeData"; }
+  static std::string name() { return "Importers"; }
   static constexpr Options::String help =
       "Volume data to load and find horizons in";
-  using group = importers::OptionTags::Group;
 };
 }  // namespace OptionTags
 
@@ -102,14 +102,16 @@ struct InitializeFields {
     // the importer will have to send information about the observation value it
     // read from the file, as well as the available observation IDs/values in
     // the file.
+    const auto& options =
+        db::get<importers::Tags::ImporterOptions<OptionTags::VolumeDataGroup>>(
+            box);
     const double observation_time = std::visit(
         Overloader{
             [](const double local_obs_value) { return local_obs_value; },
             [](const importers::ObservationSelector /*local_obs_selector*/) {
               return 0.;
             }},
-        db::get<importers::Tags::ObservationValue<OptionTags::VolumeDataGroup>>(
-            box));
+        get<importers::OptionTags::ObservationValue>(options));
     ::Initialization::mutate_assign<tmpl::list<::Tags::Time>>(
         make_not_null(&box), observation_time);
     // Nothing to do to initialize the fields. They will be read from the
@@ -133,9 +135,8 @@ struct DispatchApparentHorizonFinder {
     intrp::interpolate<InterpolationTargetTag>(
         db::get<::Tags::Time>(box), db::get<domain::Tags::Mesh<Dim>>(box),
         cache, element_id,
-        db::get<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataVector>>(box),
-        db::get<gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataVector>>(
-            box),
+        db::get<gr::Tags::SpatialMetric<DataVector, Dim>>(box),
+        db::get<gr::Tags::ExtrinsicCurvature<DataVector, Dim>>(box),
         db::get<domain::Tags::InverseJacobian<Dim, Frame::ElementLogical,
                                               Frame::Inertial>>(box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
@@ -148,18 +149,18 @@ template <size_t Dim>
 struct ComputeHorizonVolumeQuantities
     : tt::ConformsTo<intrp::protocols::ComputeVarsToInterpolate> {
   using allowed_src_tags =
-      tmpl::list<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataVector>,
-                 gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataVector>,
+      tmpl::list<gr::Tags::SpatialMetric<DataVector, Dim>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, Dim>,
                  domain::Tags::InverseJacobian<Dim, Frame::ElementLogical,
                                                Frame::Inertial>>;
   using required_src_tags = allowed_src_tags;
   template <typename TargetFrame>
-  using allowed_dest_tags =
-      tmpl::list<gr::Tags::SpatialMetric<Dim, TargetFrame>,
-                 gr::Tags::InverseSpatialMetric<Dim, TargetFrame>,
-                 gr::Tags::ExtrinsicCurvature<Dim, TargetFrame>,
-                 gr::Tags::SpatialChristoffelSecondKind<Dim, TargetFrame>,
-                 gr::Tags::SpatialRicci<Dim, TargetFrame>>;
+  using allowed_dest_tags = tmpl::list<
+      gr::Tags::SpatialMetric<DataVector, Dim, TargetFrame>,
+      gr::Tags::InverseSpatialMetric<DataVector, Dim, TargetFrame>,
+      gr::Tags::ExtrinsicCurvature<DataVector, Dim, TargetFrame>,
+      gr::Tags::SpatialChristoffelSecondKind<DataVector, Dim, TargetFrame>,
+      gr::Tags::SpatialRicci<DataVector, Dim, TargetFrame>>;
   template <typename TargetFrame>
   using required_dest_tags = allowed_dest_tags<TargetFrame>;
 
@@ -168,45 +169,42 @@ struct ComputeHorizonVolumeQuantities
                     const Variables<SrcTagList>& src_vars,
                     const Mesh<Dim>& mesh) {
     const auto& spatial_metric =
-        get<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataVector>>(
-            src_vars);
+        get<gr::Tags::SpatialMetric<DataVector, Dim>>(src_vars);
     const auto& ext_curvature =
-        get<gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataVector>>(
-            src_vars);
+        get<gr::Tags::ExtrinsicCurvature<DataVector, Dim>>(src_vars);
     const auto& inv_jacobian =
         get<domain::Tags::InverseJacobian<Dim, Frame::ElementLogical,
                                           Frame::Inertial>>(src_vars);
-    get<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataVector>>(
-        *target_vars) = spatial_metric;
-    get<gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataVector>>(
-        *target_vars) = ext_curvature;
+    get<gr::Tags::SpatialMetric<DataVector, Dim>>(*target_vars) =
+        spatial_metric;
+    get<gr::Tags::ExtrinsicCurvature<DataVector, Dim>>(*target_vars) =
+        ext_curvature;
     auto& inv_spatial_metric =
-        get<gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataVector>>(
-            *target_vars);
+        get<gr::Tags::InverseSpatialMetric<DataVector, Dim>>(*target_vars);
     Scalar<DataVector> unused_det{mesh.number_of_grid_points()};
     determinant_and_inverse(make_not_null(&unused_det),
                             make_not_null(&inv_spatial_metric), spatial_metric);
     const auto deriv_spatial_metric =
         ::partial_derivative(spatial_metric, mesh, inv_jacobian);
     auto& spatial_christoffel_second_kind =
-        get<gr::Tags::SpatialChristoffelSecondKind<Dim, Frame::Inertial,
-                                                   DataVector>>(*target_vars);
+        get<gr::Tags::SpatialChristoffelSecondKind<DataVector, Dim>>(
+            *target_vars);
     gr::christoffel_second_kind(make_not_null(&spatial_christoffel_second_kind),
                                 deriv_spatial_metric, inv_spatial_metric);
     const auto deriv_spatial_christoffel_second_kind = ::partial_derivative(
         spatial_christoffel_second_kind, mesh, inv_jacobian);
     auto& spatial_ricci =
-        get<gr::Tags::SpatialRicci<Dim, Frame::Inertial>>(*target_vars);
+        get<gr::Tags::SpatialRicci<DataVector, Dim>>(*target_vars);
     gr::ricci_tensor(make_not_null(&spatial_ricci),
                      spatial_christoffel_second_kind,
                      deriv_spatial_christoffel_second_kind);
   }
 };
 
-template <size_t Dim, ah::ObjectLabel Label>
+template <size_t Dim, domain::ObjectLabel Label>
 struct ApparentHorizon
     : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
-  static std::string name() { return "Ah" + ah::name(Label); }
+  static std::string name() { return "Ah" + ::domain::name(Label); }
   using temporal_id = ::Tags::Time;
   using compute_target_points =
       intrp::TargetPoints::ApparentHorizon<ApparentHorizon, Frame::Inertial>;
@@ -237,8 +235,8 @@ struct Metavariables {
   // A placeholder system for the domain creators
   struct system {};
 
-  using AhA = ApparentHorizon<Dim, ah::ObjectLabel::A>;
-  using AhB = ApparentHorizon<Dim, ah::ObjectLabel::B>;
+  using AhA = ApparentHorizon<Dim, domain::ObjectLabel::A>;
+  using AhB = ApparentHorizon<Dim, domain::ObjectLabel::B>;
   static constexpr bool two_horizons = TwoHorizons;
 
   struct domain : tt::ConformsTo<::domain::protocols::Metavariables> {
@@ -247,11 +245,10 @@ struct Metavariables {
 
   using const_global_cache_tags = tmpl::list<>;
 
-  using adm_vars = tmpl::list<
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataVector>,
-      gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataVector>>;
+  using adm_vars =
+      tmpl::list<gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim>,
+                 gr::Tags::SpatialMetric<DataVector, Dim>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, Dim>>;
 
   using interpolator_source_vars =
       typename ComputeHorizonVolumeQuantities<Dim>::required_src_tags;
@@ -283,8 +280,7 @@ struct Metavariables {
               tmpl::list<
                   importers::Actions::ReadVolumeData<
                       OptionTags::VolumeDataGroup, adm_vars>,
-                  importers::Actions::ReceiveVolumeData<
-                      OptionTags::VolumeDataGroup, adm_vars>,
+                  importers::Actions::ReceiveVolumeData<adm_vars>,
                   Actions::DispatchApparentHorizonFinder<AhA>,
                   tmpl::conditional_t<
                       two_horizons, Actions::DispatchApparentHorizonFinder<AhB>,
@@ -317,7 +313,7 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting,
     &disable_openblas_multithreading,
     &domain::creators::register_derived_with_charm,
-    &Parallel::register_factory_classes_with_charm<metavariables>};
+    &register_factory_classes_with_charm<metavariables>};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 /// \endcond

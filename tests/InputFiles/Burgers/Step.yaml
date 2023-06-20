@@ -1,10 +1,13 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveBurgers
-# CommandLineArgs: +balancer RandCentLB +p2
-# Timeout: 5
-# Check: parse;execute
+Executable: EvolveBurgers
+Testing:
+  CommandLineArgs: +balancer RandCentLB +p2
+  Timeout: 5
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -23,16 +26,20 @@ Evolution:
       Order: 3
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 10
           Offset: 0
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 
 DomainCreator:
   Interval:
     LowerBound: [-1.0]
     UpperBound: [1.0]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [2]
     InitialGridPoints: [7]
     TimeDependence: None
@@ -60,12 +67,16 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
   SubcellSolver:
     Reconstructor: MonotonisedCentral
 
 EventsAndTriggers:
-  - - Always
-    - - ChangeSlabSize:
+  - Trigger: Always
+    Events:
+      - ChangeSlabSize:
           DelayChange: 5
           StepChoosers:
             - Cfl:
@@ -74,10 +85,12 @@ EventsAndTriggers:
                 Factor: 2.0
 
 EventsAndDenseTriggers:
-  - - Times:
+  - Trigger:
+      Times:
         Specified:
           Values: [0.123456]
-    - - Completion
+    Events:
+      - Completion
 
 Observers:
   VolumeFileName: "BurgersStepVolume"

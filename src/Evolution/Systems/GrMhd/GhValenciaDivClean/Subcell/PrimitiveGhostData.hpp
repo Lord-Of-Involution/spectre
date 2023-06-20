@@ -43,14 +43,13 @@ class PrimitiveGhostVariables {
   using return_tags = tmpl::list<>;
   using argument_tags =
       tmpl::list<::Tags::Variables<hydro::grmhd_tags<DataVector>>,
-                 gr::Tags::SpacetimeMetric<3>,
-                 GeneralizedHarmonic::Tags::Phi<3>,
-                 GeneralizedHarmonic::Tags::Pi<3>>;
+                 gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Phi<DataVector, 3>, gh::Tags::Pi<DataVector, 3>>;
 
-  static Variables<tags_for_reconstruction> apply(
+  static DataVector apply(
       const Variables<hydro::grmhd_tags<DataVector>>& prims,
       const tnsr::aa<DataVector, 3, Frame::Inertial>& spacetime_metric,
       const tnsr::iaa<DataVector, 3, Frame::Inertial>& phi,
-      const tnsr::aa<DataVector, 3, Frame::Inertial>& pi);
+      const tnsr::aa<DataVector, 3, Frame::Inertial>& pi, size_t rdmp_size);
 };
 }  // namespace grmhd::GhValenciaDivClean::subcell

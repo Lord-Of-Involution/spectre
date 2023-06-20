@@ -37,22 +37,19 @@ void test() {
     CAPTURE(bc_string);
 
     helpers::test_boundary_condition_with_python<
-        GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<
-            Dim>,
-        GeneralizedHarmonic::BoundaryConditions::BoundaryCondition<Dim>,
-        GeneralizedHarmonic::System<Dim>,
-        tmpl::list<
-            GeneralizedHarmonic::BoundaryCorrections::UpwindPenalty<Dim>>>(
+        gh::BoundaryConditions::ConstraintPreservingBjorhus<Dim>,
+        gh::BoundaryConditions::BoundaryCondition<Dim>, gh::System<Dim>,
+        tmpl::list<gh::BoundaryCorrections::UpwindPenalty<Dim>>>(
         make_not_null(&gen),
         "Evolution.Systems.GeneralizedHarmonic.BoundaryConditions.Bjorhus",
         tuples::TaggedTuple<
             helpers::Tags::PythonFunctionForErrorMessage<>,
             helpers::Tags::PythonFunctionName<
-                ::Tags::dt<gr::Tags::SpacetimeMetric<Dim, frame, DataVector>>>,
+                ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, Dim, frame>>>,
             helpers::Tags::PythonFunctionName<
-                ::Tags::dt<GeneralizedHarmonic::Tags::Pi<Dim, frame>>>,
+                ::Tags::dt<gh::Tags::Pi<DataVector, Dim, frame>>>,
             helpers::Tags::PythonFunctionName<
-                ::Tags::dt<GeneralizedHarmonic::Tags::Phi<Dim, frame>>>>{
+                ::Tags::dt<gh::Tags::Phi<DataVector, Dim, frame>>>>{
             "error", "dt_spacetime_metric", "dt_pi_" + bc_string,
             "dt_phi_" + bc_string},
         "ConstraintPreservingBjorhus:\n"
@@ -61,9 +58,9 @@ void test() {
         Index<Dim - 1>{Dim == 1 ? 1 : 5}, db::DataBox<tmpl::list<>>{},
         tuples::TaggedTuple<
             helpers::Tags::Range<gr::Tags::Lapse<DataVector>>,
-            helpers::Tags::Range<gr::Tags::Shift<Dim, frame, DataVector>>,
+            helpers::Tags::Range<gr::Tags::Shift<DataVector, Dim, frame>>,
             helpers::Tags::Range<
-                GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<Dim, frame>>,
+                gh::Tags::SpacetimeDerivGaugeH<DataVector, Dim, frame>>,
             helpers::Tags::Range<
                 domain::Tags::Coordinates<Dim, Frame::Inertial>>>{
             std::array<double, 2>{{0.8, 1.}}, std::array<double, 2>{{0.1, 0.2}},
@@ -107,9 +104,9 @@ void wrap_dt_vars_corrections_ConstraintPreserving(
     const tnsr::iaa<DataVector, Dim, frame>& d_spacetime_metric,
     const tnsr::iaa<DataVector, Dim, frame>& d_pi,
     const tnsr::ijaa<DataVector, Dim, frame>& d_phi) {
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<Dim>
-      bjorhus_obj{GeneralizedHarmonic::BoundaryConditions::detail::
-                      ConstraintPreservingBjorhusType::ConstraintPreserving};
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<Dim> bjorhus_obj{
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+          ConstraintPreserving};
   bjorhus_obj.dg_time_derivative(
       dt_spacetime_metric_correction, dt_pi_correction, dt_phi_correction,
       face_mesh_velocity, normal_covector, normal_vector, spacetime_metric, pi,
@@ -152,9 +149,9 @@ void wrap_dt_vars_corrections_ConstraintPreserving_static_mesh(
     const tnsr::iaa<DataVector, Dim, frame>& d_spacetime_metric,
     const tnsr::iaa<DataVector, Dim, frame>& d_pi,
     const tnsr::ijaa<DataVector, Dim, frame>& d_phi) {
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<Dim>
-      bjorhus_obj{GeneralizedHarmonic::BoundaryConditions::detail::
-                      ConstraintPreservingBjorhusType::ConstraintPreserving};
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<Dim> bjorhus_obj{
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+          ConstraintPreserving};
   bjorhus_obj.dg_time_derivative(
       dt_spacetime_metric_correction, dt_pi_correction, dt_phi_correction,
       std::nullopt, normal_covector, normal_vector, spacetime_metric, pi, phi,
@@ -198,10 +195,9 @@ void wrap_dt_vars_corrections_ConstraintPreservingPhysical(
     const tnsr::iaa<DataVector, Dim, frame>& d_spacetime_metric,
     const tnsr::iaa<DataVector, Dim, frame>& d_pi,
     const tnsr::ijaa<DataVector, Dim, frame>& d_phi) {
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<Dim>
-      bjorhus_obj{
-          GeneralizedHarmonic::BoundaryConditions::detail::
-              ConstraintPreservingBjorhusType::ConstraintPreservingPhysical};
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<Dim> bjorhus_obj{
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+          ConstraintPreservingPhysical};
   bjorhus_obj.dg_time_derivative(
       dt_spacetime_metric_correction, dt_pi_correction, dt_phi_correction,
       face_mesh_velocity, normal_covector, normal_vector, spacetime_metric, pi,
@@ -244,10 +240,9 @@ void wrap_dt_vars_corrections_ConstraintPreservingPhysical_static_mesh(
     const tnsr::iaa<DataVector, Dim, frame>& d_spacetime_metric,
     const tnsr::iaa<DataVector, Dim, frame>& d_pi,
     const tnsr::ijaa<DataVector, Dim, frame>& d_phi) {
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<Dim>
-      bjorhus_obj{
-          GeneralizedHarmonic::BoundaryConditions::detail::
-              ConstraintPreservingBjorhusType::ConstraintPreservingPhysical};
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<Dim> bjorhus_obj{
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType::
+          ConstraintPreservingPhysical};
   bjorhus_obj.dg_time_derivative(
       dt_spacetime_metric_correction, dt_pi_correction, dt_phi_correction,
       std::nullopt, normal_covector, normal_vector, spacetime_metric, pi, phi,

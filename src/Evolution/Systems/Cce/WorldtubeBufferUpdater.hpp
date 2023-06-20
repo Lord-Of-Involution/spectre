@@ -21,11 +21,11 @@
 #include "IO/H5/File.hpp"
 #include "IO/H5/Version.hpp"
 #include "NumericalAlgorithms/Spectral/SwshTags.hpp"
-#include "Parallel/CharmPupable.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -34,9 +34,8 @@ namespace Tags {
 namespace detail {
 // tags for use in the buffers for the modal input worldtube data management
 // classes
-using SpatialMetric =
-    gr::Tags::SpatialMetric<3, ::Frame::Inertial, ComplexModalVector>;
-using Shift = gr::Tags::Shift<3, ::Frame::Inertial, ComplexModalVector>;
+using SpatialMetric = gr::Tags::SpatialMetric<ComplexModalVector, 3>;
+using Shift = gr::Tags::Shift<ComplexModalVector, 3>;
 using Lapse = gr::Tags::Lapse<ComplexModalVector>;
 
 // radial derivative prefix tag to be used with the modal input worldtube data

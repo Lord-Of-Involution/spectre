@@ -9,24 +9,24 @@ spectre_load_sys_modules() {
     module load oneapi/mpi/2021.5.1
     module load mkl/18.1
     module load gsl/2.4
-    module load hdf5/1.10.1
+    module load hdf5/1.12.1
     module load boost/1_68_0-gcc730
     module load cmake/3.18.0
     module load python3/3.8.5
-    module load git/2.26.0
+    module load git/2.37.2
 }
 
 # Unload system modules
 spectre_unload_sys_modules() {
     module unload boost/1_68_0-gcc730
-    module unload hdf5/1.10.1
+    module unload hdf5/1.12.1
     module unload gsl/2.4
     module unload mkl/18.1
     module unload oneapi/mpi/2021.5.1
     module unload gcc/9.2.0
     module unload cmake/3.18.0
     module unload python3/3.8.5
-    module unload git/2.26.0
+    module unload git/2.37.2
 }
 
 
@@ -135,6 +135,7 @@ EOF
         cd build
         cmake -D CMAKE_BUILD_TYPE=Release -D YAML_CPP_BUILD_TESTS=OFF \
               -D CMAKE_C_COMPILER=gcc -D CMAKE_CXX_COMPILER=g++ \
+              -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
               -D YAML_CPP_BUILD_CONTRIB=OFF \
               -D YAML_CPP_BUILD_TOOLS=ON \
               -D CMAKE_INSTALL_PREFIX=$dep_dir/yaml-cpp ..
@@ -296,6 +297,7 @@ EOF
 setenv VIRTUAL_ENV $dep_dir/py_env
 prepend-path PATH ${VIRTUAL_ENV}/bin
 EOF
+    pip install --upgrade pip
     pip install pybind11~=2.6.1
     # HDF5_DIR is set by the HDF5 module
     pip install --no-binary=h5py \
@@ -356,10 +358,10 @@ spectre_run_cmake() {
     cmake -D CHARM_ROOT=$CHARM_ROOT \
           -D CMAKE_BUILD_TYPE=Release \
           -D CMAKE_Fortran_COMPILER=gfortran \
-          -D MEMORY_ALLOCATOR=JEMALLOC \
+          -D MEMORY_ALLOCATOR=SYSTEM \
           -D BUILD_PYTHON_BINDINGS=ON \
+          -D MACHINE=CaltechHpc \
           -D Python_EXECUTABLE=`which python3` \
-          -D USE_SCOTCH_LB=ON \
           -D OVERRIDE_ARCH=skylake-avx512 \
           "$@" \
           $SPECTRE_HOME

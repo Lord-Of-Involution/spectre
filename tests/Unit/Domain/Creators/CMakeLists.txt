@@ -9,6 +9,7 @@ set(LIBRARY "Test_DomainCreators")
 set(LIBRARY_SOURCES
   Test_AlignedLattice.cpp
   Test_BinaryCompactObject.cpp
+  Test_BinaryCompactObjectHelpers.cpp
   Test_Brick.cpp
   Test_Cylinder.cpp
   Test_CylindricalBinaryCompactObject.cpp
@@ -16,12 +17,13 @@ set(LIBRARY_SOURCES
   Test_ExpandOverBlocks.cpp
   Test_FrustalCloak.cpp
   Test_Interval.cpp
+  Test_Tags.cpp
   Test_Rectangle.cpp
   Test_RotatedBricks.cpp
   Test_RotatedIntervals.cpp
   Test_RotatedRectangles.cpp
-  Test_Shell.cpp
   Test_Sphere.cpp
+  Test_SphereTimeDependentMaps.cpp
   )
 
 add_test_library(

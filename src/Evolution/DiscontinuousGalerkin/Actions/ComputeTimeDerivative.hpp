@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
@@ -18,11 +17,11 @@
 #include "DataStructures/Variables.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/InterfaceHelpers.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/OrientationMapHelpers.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryCorrectionTags.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/BoundaryConditionsImpl.hpp"
@@ -59,9 +58,16 @@ namespace evolution::dg::subcell {
 // We use a forward declaration instead of including a header file to avoid
 // coupling to the DG-subcell libraries for executables that don't use subcell.
 template <typename Metavariables, typename DbTagsList, size_t Dim>
-auto prepare_neighbor_data(gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
-                           gsl::not_null<db::DataBox<DbTagsList>*> box)
-    -> DirectionMap<Metavariables::volume_dim, std::vector<double>>;
+void prepare_neighbor_data(
+    const gsl::not_null<DirectionMap<Dim, DataVector>*>
+        all_neighbor_data_for_reconstruction,
+    const gsl::not_null<Mesh<Dim>*> ghost_data_mesh,
+    const gsl::not_null<db::DataBox<DbTagsList>*> box,
+    [[maybe_unused]] const Variables<db::wrap_tags_in<
+        ::Tags::Flux, typename Metavariables::system::flux_variables,
+        tmpl::size_t<Dim>, Frame::Inertial>>& volume_fluxes);
+template <typename DbTagsList>
+int get_tci_decision(const db::DataBox<DbTagsList>& box);
 }  // namespace evolution::dg::subcell
 namespace tuples {
 template <typename...>
@@ -70,6 +76,22 @@ class TaggedTuple;
 /// \endcond
 
 namespace evolution::dg::Actions {
+namespace detail {
+template <typename T>
+struct get_dg_package_temporary_tags {
+  using type = typename T::dg_package_data_temporary_tags;
+};
+template <typename T>
+struct get_dg_package_field_tags {
+  using type = typename T::dg_package_field_tags;
+};
+template <typename System, typename T>
+struct get_primitive_tags_for_face {
+  using type = typename get_primitive_vars<
+      System::has_primitive_and_conservative_vars>::template f<T>;
+};
+}  // namespace detail
+
 /*!
  * \brief Computes the time derivative for a DG time step.
  *
@@ -336,7 +358,10 @@ struct ComputeTimeDerivative {
             typename Metavariables>
   static void send_data_for_fluxes(
       gsl::not_null<Parallel::GlobalCache<Metavariables>*> cache,
-      gsl::not_null<db::DataBox<DbTagsList>*> box);
+      gsl::not_null<db::DataBox<DbTagsList>*> box,
+      [[maybe_unused]] const Variables<db::wrap_tags_in<
+          ::Tags::Flux, typename EvolutionSystem::flux_variables,
+          tmpl::size_t<Dim>, Frame::Inertial>>& volume_fluxes);
 };
 
 template <size_t Dim, typename EvolutionSystem, typename DgStepChoosers,
@@ -378,6 +403,57 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
          "it offers are quite substantial. Relaxing this assumption is likely "
          "to require quite a bit of careful code refactoring and debugging.");
 
+  const auto& boundary_correction =
+      db::get<evolution::Tags::BoundaryCorrection<EvolutionSystem>>(box);
+  using derived_boundary_corrections =
+      typename std::decay_t<decltype(boundary_correction)>::creatable_classes;
+
+  // To avoid a second allocation in internal_mortar_data, we allocate the
+  // variables needed to construct the fields on the faces here along with
+  // everything else. This requires us to know all the tags necessary to apply
+  // boundary corrections. However, since we pick boundary corrections at
+  // runtime, we just gather all possible tags from all possible boundary
+  // corrections and lump them into the allocation. This may result in a
+  // larger-than-necessary allocation, but it won't be that much larger.
+  using all_dg_package_temporary_tags =
+      tmpl::transform<derived_boundary_corrections,
+                      detail::get_dg_package_temporary_tags<tmpl::_1>>;
+  using all_primitive_tags_for_face =
+      tmpl::transform<derived_boundary_corrections,
+                      detail::get_primitive_tags_for_face<
+                          tmpl::pin<EvolutionSystem>, tmpl::_1>>;
+  using fluxes_tags = db::wrap_tags_in<::Tags::Flux, flux_variables,
+                                       tmpl::size_t<Dim>, Frame::Inertial>;
+  using dg_package_data_projected_tags =
+      tmpl::list<typename variables_tag::tags_list, fluxes_tags,
+                 all_dg_package_temporary_tags, all_primitive_tags_for_face>;
+  using all_face_temporary_tags =
+      tmpl::remove_duplicates<tmpl::flatten<tmpl::push_back<
+          tmpl::list<dg_package_data_projected_tags,
+                     detail::inverse_spatial_metric_tag<EvolutionSystem>>,
+          detail::OneOverNormalVectorMagnitude, detail::NormalVector<Dim>>>>;
+  // To avoid additional allocations in internal_mortar_data, we provide a
+  // buffer used to compute the packaged data before it has to be projected to
+  // the mortar. We get all mortar tags for similar reasons as described above
+  using all_mortar_tags = tmpl::remove_duplicates<tmpl::flatten<
+      tmpl::transform<derived_boundary_corrections,
+                      detail::get_dg_package_field_tags<tmpl::_1>>>>;
+
+  // We also don't use the number of volume mesh grid points. We instead use the
+  // max number of grid points from each face. That way, our allocation will be
+  // large enough to hold any face and we can reuse the allocation for each face
+  // without having to resize it.
+  size_t num_face_temporary_grid_points = 0;
+  {
+    for (const auto& [direction, neighbors_in_direction] :
+         db::get<domain::Tags::Element<Dim>>(box).neighbors()) {
+      (void)neighbors_in_direction;
+      const auto face_mesh = mesh.slice_away(direction.dimension());
+      num_face_temporary_grid_points = std::max(
+          num_face_temporary_grid_points, face_mesh.number_of_grid_points());
+    }
+  }
+
   // Allocate the Variables classes needed for the time derivative
   // computation.
   //
@@ -399,13 +475,20 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
   using VarsDivFluxes = Variables<db::wrap_tags_in<
       ::Tags::div, db::wrap_tags_in<::Tags::Flux, flux_variables,
                                     tmpl::size_t<Dim>, Frame::Inertial>>>;
+  using VarsFaceTemporaries = Variables<all_face_temporary_tags>;
+  using DgPackagedDataVarsOnFace = Variables<all_mortar_tags>;
   const size_t number_of_grid_points = mesh.number_of_grid_points();
   auto buffer = cpp20::make_unique_for_overwrite<double[]>(
       (VarsTemporaries::number_of_independent_components +
        VarsFluxes::number_of_independent_components +
        VarsPartialDerivatives::number_of_independent_components +
        VarsDivFluxes::number_of_independent_components) *
-      number_of_grid_points);
+          number_of_grid_points +
+      // Different number of grid points. See explanation above where
+      // num_face_temporary_grid_points is defined
+      (VarsFaceTemporaries::number_of_independent_components +
+       DgPackagedDataVarsOnFace::number_of_independent_components) *
+          num_face_temporary_grid_points);
   VarsTemporaries temporaries{
       &buffer[0], VarsTemporaries::number_of_independent_components *
                       number_of_grid_points};
@@ -425,6 +508,30 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
                VarsPartialDerivatives::number_of_independent_components) *
               number_of_grid_points],
       VarsDivFluxes::number_of_independent_components * number_of_grid_points};
+  // Lighter weight data structure than a Variables to avoid passing even more
+  // templates to internal_mortar_data.
+  gsl::span<double> face_temporaries = gsl::make_span<double>(
+      &buffer[(VarsTemporaries::number_of_independent_components +
+               VarsFluxes::number_of_independent_components +
+               VarsPartialDerivatives::number_of_independent_components +
+               VarsDivFluxes::number_of_independent_components) *
+              number_of_grid_points],
+      // Different number of grid points. See explanation above where
+      // num_face_temporary_grid_points is defined
+      VarsFaceTemporaries::number_of_independent_components *
+          num_face_temporary_grid_points);
+  gsl::span<double> packaged_data_buffer = gsl::make_span<double>(
+      &buffer[(VarsTemporaries::number_of_independent_components +
+               VarsFluxes::number_of_independent_components +
+               VarsPartialDerivatives::number_of_independent_components +
+               VarsDivFluxes::number_of_independent_components) *
+                  number_of_grid_points +
+              VarsFaceTemporaries::number_of_independent_components *
+                  num_face_temporary_grid_points],
+      // Different number of grid points. See explanation above where
+      // num_face_temporary_grid_points is defined
+      DgPackagedDataVarsOnFace::number_of_independent_components *
+          num_face_temporary_grid_points);
 
   const Scalar<DataVector>* det_inverse_jacobian = nullptr;
   if constexpr (tmpl::size<flux_variables>::value != 0) {
@@ -461,11 +568,6 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
       },
       make_not_null(&box));
 
-  const auto& boundary_correction =
-      db::get<evolution::Tags::BoundaryCorrection<EvolutionSystem>>(box);
-  using derived_boundary_corrections =
-      typename std::decay_t<decltype(boundary_correction)>::creatable_classes;
-
   const Variables<detail::get_primitive_vars_tags_from_system<EvolutionSystem>>*
       primitive_vars{nullptr};
   if constexpr (EvolutionSystem::has_primitive_and_conservative_vars) {
@@ -479,7 +581,8 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
       "final.");
   tmpl::for_each<derived_boundary_corrections>(
       [&boundary_correction, &box, &partial_derivs, &primitive_vars,
-       &temporaries, &volume_fluxes](auto derived_correction_v) {
+       &temporaries, &volume_fluxes, &packaged_data_buffer,
+       &face_temporaries](auto derived_correction_v) {
         using DerivedCorrection =
             tmpl::type_from<decltype(derived_correction_v)>;
         if (typeid(boundary_correction) == typeid(DerivedCorrection)) {
@@ -490,7 +593,8 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
           //  - evolution::dg::Tags::NormalCovectorAndMagnitude<Dim>,
           //  - evolution::dg::Tags::MortarData<Dim>
           detail::internal_mortar_data<EvolutionSystem, Dim>(
-              make_not_null(&box),
+              make_not_null(&box), make_not_null(&face_temporaries),
+              make_not_null(&packaged_data_buffer),
               dynamic_cast<const DerivedCorrection&>(boundary_correction),
               db::get<variables_tag>(box), volume_fluxes, temporaries,
               primitive_vars,
@@ -510,7 +614,7 @@ ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers, LocalTimeStepping>::
   }
 
   send_data_for_fluxes<ParallelComponent>(make_not_null(&cache),
-                                          make_not_null(&box));
+                                          make_not_null(&box), volume_fluxes);
   return {Parallel::AlgorithmExecution::Continue, std::nullopt};
 }
 
@@ -522,7 +626,10 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
                            LocalTimeStepping>::
     send_data_for_fluxes(
         const gsl::not_null<Parallel::GlobalCache<Metavariables>*> cache,
-        const gsl::not_null<db::DataBox<DbTagsList>*> box) {
+        const gsl::not_null<db::DataBox<DbTagsList>*> box,
+        [[maybe_unused]] const Variables<db::wrap_tags_in<
+            ::Tags::Flux, typename EvolutionSystem::flux_variables,
+            tmpl::size_t<Dim>, Frame::Inertial>>& volume_fluxes) {
   auto& receiver_proxy =
       Parallel::get_parallel_component<ParallelComponent>(*cache);
   const auto& element = db::get<domain::Tags::Element<Dim>>(*box);
@@ -532,22 +639,28 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
       db::get<evolution::dg::Tags::MortarData<Dim>>(*box);
   const auto& mortar_meshes = get<evolution::dg::Tags::MortarMesh<Dim>>(*box);
 
-  std::optional<DirectionMap<Dim, std::vector<double>>>
+  std::optional<DirectionMap<Dim, DataVector>>
       all_neighbor_data_for_reconstruction = std::nullopt;
+  int tci_decision = 0;
   // Set ghost_cell_mesh to the DG mesh, then update it below if we did a
   // projection.
   Mesh<Dim> ghost_data_mesh = db::get<domain::Tags::Mesh<Dim>>(*box);
   if constexpr (using_subcell_v<Metavariables>) {
-    all_neighbor_data_for_reconstruction =
-        evolution::dg::subcell::prepare_neighbor_data<Metavariables>(
-            make_not_null(&ghost_data_mesh), box);
+    if (not all_neighbor_data_for_reconstruction.has_value()) {
+      all_neighbor_data_for_reconstruction = DirectionMap<Dim, DataVector>{};
+    }
+
+    evolution::dg::subcell::prepare_neighbor_data<Metavariables>(
+        make_not_null(&all_neighbor_data_for_reconstruction.value()),
+        make_not_null(&ghost_data_mesh), box, volume_fluxes);
+    tci_decision = evolution::dg::subcell::get_tci_decision(*box);
   }
 
   for (const auto& [direction, neighbors] : element.neighbors()) {
     const auto& orientation = neighbors.orientation();
     const auto direction_from_neighbor = orientation(direction.opposite());
 
-    std::vector<double> ghost_and_subcell_data{};
+    DataVector ghost_and_subcell_data{};
     if constexpr (using_subcell_v<Metavariables>) {
       ASSERT(all_neighbor_data_for_reconstruction.has_value(),
              "Trying to do DG-subcell but the ghost and subcell data for the "
@@ -561,8 +674,7 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
     for (const auto& neighbor : neighbors) {
       const std::pair mortar_id{direction, neighbor};
 
-      std::pair<Mesh<Dim - 1>, std::vector<double>>
-          neighbor_boundary_data_on_mortar{};
+      std::pair<Mesh<Dim - 1>, DataVector> neighbor_boundary_data_on_mortar{};
       ASSERT(time_step_id == all_mortar_data.at(mortar_id).time_step_id(),
              "The current time step id of the volume is "
                  << time_step_id
@@ -570,7 +682,6 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
                  << mortar_id << " is "
                  << all_mortar_data.at(mortar_id).time_step_id());
 
-      // Reorient the data to the neighbor orientation if necessary
       if (LIKELY(orientation.is_aligned())) {
         neighbor_boundary_data_on_mortar =
             *all_mortar_data.at(mortar_id).local_mortar_data();
@@ -592,9 +703,8 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
       }();
 
       using SendData =
-          std::tuple<Mesh<Dim>, Mesh<Dim - 1>,
-                     std::optional<std::vector<double>>,
-                     std::optional<std::vector<double>>, ::TimeStepId>;
+          std::tuple<Mesh<Dim>, Mesh<Dim - 1>, std::optional<DataVector>,
+                     std::optional<DataVector>, ::TimeStepId, int>;
       SendData data{};
 
       if (neighbor_count == total_neighbors) {
@@ -602,13 +712,15 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
                         neighbor_boundary_data_on_mortar.first,
                         std::move(ghost_and_subcell_data),
                         {std::move(neighbor_boundary_data_on_mortar.second)},
-                        next_time_step_id};
+                        next_time_step_id,
+                        tci_decision};
       } else {
         data = SendData{ghost_data_mesh,
                         neighbor_boundary_data_on_mortar.first,
                         ghost_and_subcell_data,
                         {std::move(neighbor_boundary_data_on_mortar.second)},
-                        next_time_step_id};
+                        next_time_step_id,
+                        tci_decision};
       }
 
       // Send mortar data (the `std::tuple` named `data`) to neighbor
@@ -654,7 +766,6 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
     db::mutate<evolution::dg::Tags::MortarData<Dim>,
                evolution::dg::Tags::MortarDataHistory<
                    Dim, typename dt_variables_tag::type>>(
-        box,
         [&element, integration_order, &time_step_id, using_gauss_points,
          &volume_det_inv_jacobian](
             const gsl::not_null<std::unordered_map<
@@ -732,7 +843,7 @@ void ComputeTimeDerivative<Dim, EvolutionSystem, DgStepChoosers,
             }
           }
         },
-        db::get<domain::Tags::Mesh<Dim>>(*box),
+        box, db::get<domain::Tags::Mesh<Dim>>(*box),
         db::get<evolution::dg::Tags::NormalCovectorAndMagnitude<Dim>>(*box));
   }
 }

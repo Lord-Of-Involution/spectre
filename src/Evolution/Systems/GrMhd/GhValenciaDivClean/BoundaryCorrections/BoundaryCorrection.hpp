@@ -9,8 +9,8 @@
 
 #include "Evolution/Systems/GeneralizedHarmonic/BoundaryCorrections/BoundaryCorrection.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryCorrections/BoundaryCorrection.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// Boundary corrections/numerical fluxes
@@ -51,7 +51,7 @@ class BoundaryCorrection : public PUP::able {
   /// \endcond
 
   using creatable_classes = typename detail::AllProductCorrections<
-      typename GeneralizedHarmonic::BoundaryCorrections::BoundaryCorrection<
+      typename gh::BoundaryCorrections::BoundaryCorrection<
           3_st>::creatable_classes,
       typename grmhd::ValenciaDivClean::BoundaryCorrections::
           BoundaryCorrection::creatable_classes>::type;

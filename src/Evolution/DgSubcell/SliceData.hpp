@@ -4,12 +4,15 @@
 #pragma once
 
 #include <cstddef>
-#include <vector>
+#include <unordered_set>
 
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Variables.hpp"
 #include "Utilities/Gsl.hpp"
 
 /// \cond
+template <size_t Dim>
+class Direction;
 template <size_t Dim, typename T>
 class DirectionMap;
 template <size_t Dim>
@@ -19,13 +22,14 @@ class Index;
 namespace evolution::dg::subcell {
 namespace detail {
 template <size_t Dim>
-DirectionMap<Dim, std::vector<double>> slice_data_impl(
+DirectionMap<Dim, DataVector> slice_data_impl(
     const gsl::span<const double>& volume_subcell_vars,
     const Index<Dim>& subcell_extents, size_t number_of_ghost_points,
-    const DirectionMap<Dim, bool>& directions_to_slice,
+    const std::unordered_set<Direction<Dim>>& directions_to_slice,
     size_t additional_buffer);
 }  // namespace detail
 
+/// @{
 /*!
  * \brief Slice the subcell variables needed for neighbors to perform
  * reconstruction.
@@ -46,15 +50,29 @@ DirectionMap<Dim, std::vector<double>> slice_data_impl(
  * storage to be used for example for sending the RDMP TCI data. This eliminates
  * expensive data copying.
  */
-template <size_t Dim, typename TagList>
-DirectionMap<Dim, std::vector<double>> slice_data(
-    const Variables<TagList>& volume_subcell_vars,
-    const Index<Dim>& subcell_extents, const size_t number_of_ghost_points,
-    const DirectionMap<Dim, bool>& directions_to_slice,
+template <size_t Dim>
+DirectionMap<Dim, DataVector> slice_data(
+    const DataVector& volume_subcell_vars, const Index<Dim>& subcell_extents,
+    const size_t number_of_ghost_points,
+    const std::unordered_set<Direction<Dim>>& directions_to_slice,
     const size_t additional_buffer) {
   return detail::slice_data_impl(
       gsl::make_span(volume_subcell_vars.data(), volume_subcell_vars.size()),
       subcell_extents, number_of_ghost_points, directions_to_slice,
       additional_buffer);
 }
+
+template <size_t Dim, typename TagList>
+DirectionMap<Dim, DataVector> slice_data(
+    const Variables<TagList>& volume_subcell_vars,
+    const Index<Dim>& subcell_extents, const size_t number_of_ghost_points,
+    const std::unordered_set<Direction<Dim>>& directions_to_slice,
+    const size_t additional_buffer) {
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  const DataVector view{const_cast<double*>(volume_subcell_vars.data()),
+                        volume_subcell_vars.size()};
+  return slice_data(view, subcell_extents, number_of_ghost_points,
+                    directions_to_slice, additional_buffer);
+}
+/// @}
 }  // namespace evolution::dg::subcell

@@ -1,12 +1,15 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveGhValenciaDivCleanBondiMichel
-# Check: parse;execute
-# Timeout: 8
-# ExpectedOutput:
-#   GhMhdBondiMichelVolume0.h5
-#   GhMhdBondiMichelReductions.h5
+Executable: EvolveGhValenciaDivCleanBondiMichel
+Testing:
+  Check: parse;execute
+  Timeout: 8
+ExpectedOutput:
+  - GhMhdBondiMichelVolume0.h5
+  - GhMhdBondiMichelReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -23,11 +26,13 @@ Evolution:
       Order: 3
 
 PhaseChangeAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1000
           Offset: 5
-    - - VisitAndReturn(LoadBalancing)
+    PhaseChanges:
+      - VisitAndReturn(LoadBalancing)
 
 AnalyticSolution: &InitialData
   BondiMichel:
@@ -38,28 +43,28 @@ AnalyticSolution: &InitialData
     MagFieldStrength: 1.0e-2
 
 DomainCreator:
-  Shell:
+  Sphere:
     InnerRadius: 1.9
     OuterRadius: 20.0
+    Interior:
+      ExciseWithBoundaryCondition:
+        ProductDirichletAnalyticAndDirichletAnalytic:
+          GeneralizedHarmonicDirichletAnalytic:
+            AnalyticPrescription: *InitialData
+          ValenciaDirichletAnalytic:
     InitialRefinement: 1
-    InitialGridPoints: [2, 2]
+    InitialGridPoints: 2
     UseEquiangularMap: true
     EquatorialCompression: None
     WhichWedges: All
     RadialPartitioning: []
     RadialDistribution: [Logarithmic]
-    TimeDependence: None
-    BoundaryConditions:
-      InnerBoundary:
-        ProductDirichletAnalyticAndDirichletAnalytic:
-          GeneralizedHarmonicDirichletAnalytic:
-            AnalyticPrescription: *InitialData
-          ValenciaDirichletAnalytic:
-      OuterBoundary:
-        ProductDirichletAnalyticAndDirichletAnalytic:
-          GeneralizedHarmonicDirichletAnalytic:
-            AnalyticPrescription: *InitialData
-          ValenciaDirichletAnalytic:
+    TimeDependentMaps: None
+    OuterBoundaryCondition:
+      ProductDirichletAnalyticAndDirichletAnalytic:
+        GeneralizedHarmonicDirichletAnalytic:
+          AnalyticPrescription: *InitialData
+        ValenciaDirichletAnalytic:
 
 VariableFixing:
   FixConservatives:
@@ -118,22 +123,26 @@ SpatialDiscretization:
       Rusanov:
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 0
-    - - ChangeSlabSize:
+    Events:
+      - ChangeSlabSize:
           DelayChange: 5
           StepChoosers:
             - Cfl:
                 SafetyFactor: 0.6
             - Increase:
                 Factor: 1.5
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 1
           Offset: 0
-    - - ObserveNorms:
+    Events:
+      - ObserveNorms:
           SubfileName: Errors
           TensorsToObserve:
             - Name: Error(SpacetimeMetric)
@@ -169,11 +178,13 @@ EventsAndTriggers:
             - Name: Error(SpecificEnthalpy)
               NormType: L2Norm
               Components: Sum
-  - - Slabs:
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 2
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve:
             - SpacetimeMetric
@@ -184,20 +195,25 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double, Double, Double, Double, Double]
-  - - Slabs:
+          OverrideObservationValue: None
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 5
           Offset: 3
-    - - AhA
-  - - Slabs:
+    Events:
+      - AhA
+  - Trigger:
+      Slabs:
         Specified:
           Values: [2]
-    - - Completion
+    Events:
+      - Completion
 
 ApparentHorizons:
   AhA:
     InitialGuess:
-      Lmax: 4
+      LMax: 4
       Radius: 2.2
       Center: [0.0, 0.0, 0.0]
     FastFlow:
@@ -219,3 +235,5 @@ Interpolator:
   DumpVolumeDataOnFailure: false
 
 EventsAndDenseTriggers:
+
+EventsRunAtCleanup:

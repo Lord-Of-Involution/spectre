@@ -11,6 +11,7 @@ spectre_target_sources(
   Info.cpp
   AhSpeed.cpp
   DeltaR.cpp
+  Error.cpp
   Initial.cpp
   RegisterDerivedWithCharm.cpp
   )
@@ -23,6 +24,7 @@ spectre_target_headers(
   State.hpp
   AhSpeed.hpp
   DeltaR.hpp
+  Error.hpp
   Initial.hpp
   RegisterDerivedWithCharm.hpp
   )
@@ -30,9 +32,11 @@ spectre_target_headers(
 target_link_libraries(
   ${LIBRARY}
   PUBLIC
+  ApparentHorizons
   Boost::boost
   DataStructures
   ErrorHandling
   GSL::gsl
+  Interpolation
   Parallel
   )

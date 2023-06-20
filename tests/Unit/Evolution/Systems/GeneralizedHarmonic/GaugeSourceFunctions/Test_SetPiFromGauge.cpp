@@ -20,9 +20,9 @@
 #include "Domain/CoordinateMaps/Identity.hpp"
 #include "Domain/CoordinateMaps/Tags.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
-#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/Tags.hpp"
 #include "Evolution/Initialization/Tags.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Constraints.hpp"
@@ -57,32 +57,28 @@ void test(const gsl::not_null<std::mt19937*> generator) {
   std::uniform_real_distribution<> deriv_dist(-1.e-5, 1.e-5);
 
   using evolved_vars_tags =
-      tmpl::list<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>,
-                 GeneralizedHarmonic::Tags::Pi<Dim, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<Dim, Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, Dim>,
+                 gh::Tags::Pi<DataVector, Dim>, gh::Tags::Phi<DataVector, Dim>>;
 
   const Mesh<Dim> mesh{5, Spectral::Basis::Legendre,
                        Spectral::Quadrature::GaussLobatto};
   const size_t num_points = mesh.number_of_grid_points();
   Variables<evolved_vars_tags> evolved_vars{mesh.number_of_grid_points()};
-  get<GeneralizedHarmonic::Tags::Pi<Dim, Frame::Inertial>>(evolved_vars) =
+  get<gh::Tags::Pi<DataVector, Dim>>(evolved_vars) =
       make_with_random_values<tnsr::aa<DataVector, Dim, Frame::Inertial>>(
           generator, make_not_null(&deriv_dist), num_points);
-  get<GeneralizedHarmonic::Tags::Phi<Dim, Frame::Inertial>>(evolved_vars) =
+  get<gh::Tags::Phi<DataVector, Dim>>(evolved_vars) =
       make_with_random_values<tnsr::iaa<DataVector, Dim, Frame::Inertial>>(
           generator, make_not_null(&deriv_dist), num_points);
-  get<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>(
-      evolved_vars) =
+  get<gr::Tags::SpacetimeMetric<DataVector, Dim>>(evolved_vars) =
       make_with_random_values<tnsr::aa<DataVector, Dim, Frame::Inertial>>(
           generator, make_not_null(&metric_dist), num_points);
-  get<0, 0>(get<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>(
-      evolved_vars)) += -2.0;
+  get<0, 0>(get<gr::Tags::SpacetimeMetric<DataVector, Dim>>(evolved_vars)) +=
+      -2.0;
   for (size_t i = 0; i < Dim; ++i) {
-    get<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>(
-        evolved_vars)
+    get<gr::Tags::SpacetimeMetric<DataVector, Dim>>(evolved_vars)
         .get(i + 1, i + 1) += 4.0;
-    get<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>(
-        evolved_vars)
+    get<gr::Tags::SpacetimeMetric<DataVector, Dim>>(evolved_vars)
         .get(i + 1, 0) *= 0.01;
   }
 
@@ -93,7 +89,7 @@ void test(const gsl::not_null<std::mt19937*> generator) {
                                                   Frame::Inertial>,
       domain::Tags::FunctionsOfTimeInitialize,
       domain::Tags::Coordinates<Dim, Frame::ElementLogical>,
-      GeneralizedHarmonic::gauges::Tags::GaugeCondition>>(
+      gh::gauges::Tags::GaugeCondition>>(
       0., evolved_vars, mesh,
       ElementMap<Dim, Frame::Grid>{
           ElementId<Dim>{0},
@@ -105,19 +101,16 @@ void test(const gsl::not_null<std::mt19937*> generator) {
           std::string,
           std::unique_ptr<domain::FunctionsOfTime::FunctionOfTime>>{},
       logical_coordinates(mesh),
-      std::unique_ptr<GeneralizedHarmonic::gauges::GaugeCondition>(
-          std::make_unique<GeneralizedHarmonic::gauges::DampedHarmonic>(
+      std::unique_ptr<gh::gauges::GaugeCondition>(
+          std::make_unique<gh::gauges::DampedHarmonic>(
               100., std::array{1.2, 1.5, 1.7}, std::array{2, 4, 6})));
-  db::mutate_apply<GeneralizedHarmonic::gauges::SetPiFromGauge<Dim>>(
-      make_not_null(&box));
+  db::mutate_apply<gh::gauges::SetPiFromGauge<Dim>>(make_not_null(&box));
 
   // Verify that the gauge constraint is satisfied
   const auto& spacetime_metric =
-      db::get<gr::Tags::SpacetimeMetric<Dim, Frame::Inertial, DataVector>>(box);
-  const auto& pi =
-      db::get<GeneralizedHarmonic::Tags::Pi<Dim, Frame::Inertial>>(box);
-  const auto& phi =
-      db::get<GeneralizedHarmonic::Tags::Phi<Dim, Frame::Inertial>>(box);
+      db::get<gr::Tags::SpacetimeMetric<DataVector, Dim>>(box);
+  const auto& pi = db::get<gh::Tags::Pi<DataVector, Dim>>(box);
+  const auto& phi = db::get<gh::Tags::Phi<DataVector, Dim>>(box);
 
   const auto spatial_metric = gr::spatial_metric(spacetime_metric);
   auto [sqrt_det_spatial_metric, inverse_spatial_metric] =
@@ -128,11 +121,11 @@ void test(const gsl::not_null<std::mt19937*> generator) {
   const auto inverse_spacetime_metric =
       gr::inverse_spacetime_metric(lapse, shift, inverse_spatial_metric);
   const auto spacetime_normal_one_form =
-      gr::spacetime_normal_one_form<Dim, Frame::Inertial>(lapse);
+      gr::spacetime_normal_one_form<DataVector, Dim, Frame::Inertial>(lapse);
   const auto spacetime_normal_vector =
       gr::spacetime_normal_vector(lapse, shift);
   tnsr::abb<DataVector, Dim, Frame::Inertial> d4_spacetime_metric{};
-  GeneralizedHarmonic::spacetime_derivative_of_spacetime_metric(
+  gh::spacetime_derivative_of_spacetime_metric(
       make_not_null(&d4_spacetime_metric), lapse, shift, pi, phi);
 
   Scalar<DataVector> half_pi_two_normals{get(lapse).size(), 0.0};
@@ -160,7 +153,7 @@ void test(const gsl::not_null<std::mt19937*> generator) {
 
   tnsr::a<DataVector, Dim, Frame::Inertial> gauge_h(num_points);
   tnsr::ab<DataVector, Dim, Frame::Inertial> d4_gauge_h(num_points);
-  GeneralizedHarmonic::gauges::dispatch(
+  gh::gauges::dispatch(
       make_not_null(&gauge_h), make_not_null(&d4_gauge_h), lapse, shift,
       spacetime_normal_one_form, spacetime_normal_vector,
       sqrt_det_spatial_metric, inverse_spatial_metric, d4_spacetime_metric,
@@ -170,9 +163,9 @@ void test(const gsl::not_null<std::mt19937*> generator) {
                                                           Frame::Inertial>>(
           box)(db::get<domain::Tags::ElementMap<Dim, Frame::Grid>>(box)(
           db::get<domain::Tags::Coordinates<Dim, Frame::ElementLogical>>(box))),
-      {}, db::get<GeneralizedHarmonic::gauges::Tags::GaugeCondition>(box));
+      {}, db::get<gh::gauges::Tags::GaugeCondition>(box));
 
-  const auto gauge_constraint = GeneralizedHarmonic::gauge_constraint(
+  const auto gauge_constraint = gh::gauge_constraint(
       gauge_h, spacetime_normal_one_form, spacetime_normal_vector,
       inverse_spatial_metric, inverse_spacetime_metric, pi, phi);
   const tnsr::a<DataVector, Dim, Frame::Inertial> expected_gauge_constraint{

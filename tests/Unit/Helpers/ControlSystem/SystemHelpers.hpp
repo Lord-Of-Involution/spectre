@@ -14,8 +14,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "ApparentHorizons/ObjectLabel.hpp"
-#include "ControlSystem/ApparentHorizons/Measurements.hpp"
 #include "ControlSystem/Averager.hpp"
 #include "ControlSystem/Component.hpp"
 #include "ControlSystem/ControlErrors/Expansion.hpp"
@@ -25,12 +23,16 @@
 #include "ControlSystem/Controller.hpp"
 #include "ControlSystem/DataVectorHelpers.hpp"
 #include "ControlSystem/ExpirationTimes.hpp"
+#include "ControlSystem/Measurements/BothHorizons.hpp"
+#include "ControlSystem/Measurements/SingleHorizon.hpp"
 #include "ControlSystem/Systems/Expansion.hpp"
 #include "ControlSystem/Systems/Rotation.hpp"
 #include "ControlSystem/Systems/Shape.hpp"
 #include "ControlSystem/Systems/Translation.hpp"
-#include "ControlSystem/Tags.hpp"
+#include "ControlSystem/Tags/IsActive.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "ControlSystem/TimescaleTuner.hpp"
 #include "ControlSystem/UpdateControlSystem.hpp"
 #include "DataStructures/DataBox/Tag.hpp"
@@ -39,6 +41,10 @@
 #include "DataStructures/LinkedMessageQueue.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
+#include "Domain/Creators/OptionTags.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
+#include "Domain/Creators/Tags/ObjectCenter.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FunctionsOfTime/FixedSpeedCubic.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
@@ -46,10 +52,9 @@
 #include "Domain/FunctionsOfTime/QuaternionFunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
-#include "Domain/OptionTags.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/ExcisionSphere.hpp"
-#include "Domain/Tags.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestingFramework.hpp"
@@ -83,7 +88,6 @@ using init_simple_tags =
                control_system::Tags::TimescaleTuner<ControlSystem>,
                control_system::Tags::Controller<ControlSystem>,
                control_system::Tags::ControlError<ControlSystem>,
-               control_system::Tags::WriteDataToDisk,
                control_system::Tags::IsActive<ControlSystem>,
                control_system::Tags::CurrentNumberOfMeasurements,
                typename ControlSystem::MeasurementQueue>;
@@ -116,9 +120,9 @@ class FakeCreator : public DomainCreator<3> {
     std::unordered_map<std::string, ExcisionSphere<3>> excision_spheres{};
     if (number_of_excisions_ > 0) {
       excision_spheres.insert(
-          {"ObjectAExcisionSphere",
+          {"ExcisionSphereA",
            ExcisionSphere<3>{1.3,
-                             {{+0.9, 0.0, 0.0}},
+                             tnsr::I<double, 3, Frame::Grid>{{+0.9, 0.0, 0.0}},
                              {{0, Direction<3>::lower_zeta()},
                               {1, Direction<3>::lower_zeta()},
                               {2, Direction<3>::lower_zeta()},
@@ -128,9 +132,9 @@ class FakeCreator : public DomainCreator<3> {
     }
     if (number_of_excisions_ > 1) {
       excision_spheres.insert(
-          {"ObjectBExcisionSphere",
+          {"ExcisionSphereB",
            ExcisionSphere<3>{0.8,
-                             {{-1.1, 0.0, 0.0}},
+                             tnsr::I<double, 3, Frame::Grid>{{-1.1, 0.0, 0.0}},
                              {{0, Direction<3>::lower_zeta()},
                               {1, Direction<3>::lower_zeta()},
                               {2, Direction<3>::lower_zeta()},
@@ -201,7 +205,11 @@ struct MockControlComponent {
   using simple_tags = init_simple_tags<ControlSystem>;
 
   using const_global_cache_tags =
-      tmpl::list<control_system::Tags::MeasurementsPerUpdate>;
+      tmpl::list<control_system::Tags::MeasurementsPerUpdate,
+                 control_system::Tags::WriteDataToDisk,
+                 control_system::Tags::Verbosity,
+                 domain::Tags::ExcisionCenter<domain::ObjectLabel::A>,
+                 domain::Tags::ExcisionCenter<domain::ObjectLabel::B>>;
 
   using phase_dependent_action_list = tmpl::list<Parallel::PhaseActions<
       Parallel::Phase::Initialization,
@@ -284,12 +292,17 @@ struct MockMetavars {
 
   using element_component = MockElementComponent<metavars>;
 
-  using expansion_system = control_system::Systems::Expansion<exp_deriv_order>;
-  using rotation_system = control_system::Systems::Rotation<rot_deriv_order>;
+  using BothHorizons = control_system::measurements::BothHorizons;
+
+  using expansion_system =
+      control_system::Systems::Expansion<exp_deriv_order, BothHorizons>;
+  using rotation_system =
+      control_system::Systems::Rotation<rot_deriv_order, BothHorizons>;
   using translation_system =
-      control_system::Systems::Translation<trans_deriv_order>;
+      control_system::Systems::Translation<trans_deriv_order, BothHorizons>;
   using shape_system =
-      control_system::Systems::Shape<::ah::ObjectLabel::A, shape_deriv_order>;
+      control_system::Systems::Shape<::domain::ObjectLabel::A,
+                                     shape_deriv_order, BothHorizons>;
 
   using control_systems = tmpl::flatten<tmpl::list<
       tmpl::conditional_t<using_expansion, expansion_system, tmpl::list<>>,
@@ -451,7 +464,7 @@ grid_frame_horizon_centers_for_basic_control_systems(
 
 template <typename ElementComponent, typename Metavars, typename F,
           typename CoordMap>
-std::pair<Strahlkorper<Frame::Grid>, Strahlkorper<Frame::Grid>>
+std::pair<Strahlkorper<Frame::Distorted>, Strahlkorper<Frame::Distorted>>
 build_horizons_for_basic_control_systems(
     const double time, ActionTesting::MockRuntimeSystem<Metavars>& runner,
     const F position_function, const CoordMap& coord_map) {
@@ -461,11 +474,12 @@ build_horizons_for_basic_control_systems(
 
   // Construct strahlkorpers to pass to control systems. Only the centers
   // matter.
-  Strahlkorper<Frame::Grid> horizon_a{2, 2, 1.0, positions.first};
-  Strahlkorper<Frame::Grid> horizon_b{2, 2, 1.0, positions.second};
+  Strahlkorper<Frame::Distorted> horizon_a{2, 2, 1.0, positions.first};
+  Strahlkorper<Frame::Distorted> horizon_b{2, 2, 1.0, positions.second};
 
-  return std::make_pair<Strahlkorper<Frame::Grid>, Strahlkorper<Frame::Grid>>(
-      std::move(horizon_a), std::move(horizon_b));
+  return std::make_pair<Strahlkorper<Frame::Distorted>,
+                        Strahlkorper<Frame::Distorted>>(std::move(horizon_a),
+                                                        std::move(horizon_b));
 }
 
 /*!
@@ -597,18 +611,20 @@ struct SystemHelper {
     // have these specific names hard-coded into them.
     stored_excision_spheres_ =
         std::unordered_map<std::string, ExcisionSphere<3>>{
-            {"ObjectAExcisionSphere",
+            {"ExcisionSphereA",
              ExcisionSphere<3>{excision_radius,
-                               {{+0.5 * initial_separation, 0.0, 0.0}},
+                               tnsr::I<double, 3, Frame::Grid>{
+                                   {+0.5 * initial_separation, 0.0, 0.0}},
                                {{0, Direction<3>::lower_zeta()},
                                 {1, Direction<3>::lower_zeta()},
                                 {2, Direction<3>::lower_zeta()},
                                 {3, Direction<3>::lower_zeta()},
                                 {4, Direction<3>::lower_zeta()},
                                 {5, Direction<3>::lower_zeta()}}}},
-            {"ObjectBExcisionSphere",
+            {"ExcisionSphereB",
              ExcisionSphere<3>{excision_radius,
-                               {{-0.5 * initial_separation, 0.0, 0.0}},
+                               tnsr::I<double, 3, Frame::Grid>{
+                                   {-0.5 * initial_separation, 0.0, 0.0}},
                                {{0, Direction<3>::lower_zeta()},
                                 {1, Direction<3>::lower_zeta()},
                                 {2, Direction<3>::lower_zeta()},
@@ -628,7 +644,7 @@ struct SystemHelper {
    * \brief Actually run the control system test
    *
    * The `horizon_function` should return a
-   * `std::pair<Strahlkorper<Frame::Grid>, Strahlkorper<Frame::Grid>>`
+   * `std::pair<Strahlkorper<Frame::Distorted>, Strahlkorper<Frame::Distorted>>`
    * representing the two horizons in the grid frame. This means the user is
    * responsible for doing any coordinate transformations inside
    * `horizon_function` as this function won't do any. The `number_of_horizons`
@@ -643,7 +659,7 @@ struct SystemHelper {
   void run_control_system_test(
       ActionTesting::MockRuntimeSystem<Metavars>& runner,
       const double final_time, gsl::not_null<Generator*> generator,
-      const F horizon_function, const size_t number_of_horizons) {
+      const F horizon_function) {
     auto& cache = ActionTesting::cache<element_component>(runner, 0);
     const auto& measurement_timescales =
         Parallel::get<control_system::Tags::MeasurementTimescales>(cache);
@@ -676,24 +692,32 @@ struct SystemHelper {
 
       // Apply measurements
       tmpl::for_each<control_components>([this, &runner, &generator,
-                                          &measurement_id, &cache,
-                                          &number_of_horizons](
-                                             auto control_component) {
+                                          &measurement_id,
+                                          &cache](auto control_component) {
         using component = tmpl::type_from<decltype(control_component)>;
         using system = typename component::system;
-        // Even if we only have 1 horizon, we still apply both measurements
-        // because the BothHorizons measurement will always send both regardless
-        // of if both are needed.
-        system::process_measurement::apply(
-            ah::BothHorizons::FindHorizon<::ah::ObjectLabel::A>{}, horizon_a_,
-            cache, measurement_id);
-        system::process_measurement::apply(
-            ah::BothHorizons::FindHorizon<::ah::ObjectLabel::B>{}, horizon_b_,
-            cache, measurement_id);
+        constexpr bool is_shape =
+            std::is_same_v<system, typename Metavars::shape_system>;
+        // Depending on the measurement, apply the submeasurements
+        if constexpr (is_shape) {
+          system::process_measurement::apply(
+              measurements::SingleHorizon<
+                  ::domain::ObjectLabel::A>::Submeasurement{},
+              horizon_a_, cache, measurement_id);
+        } else {
+          system::process_measurement::apply(
+              measurements::BothHorizons::FindHorizon<
+                  ::domain::ObjectLabel::A>{},
+              horizon_a_, cache, measurement_id);
+          system::process_measurement::apply(
+              measurements::BothHorizons::FindHorizon<
+                  ::domain::ObjectLabel::B>{},
+              horizon_b_, cache, measurement_id);
+        }
         CHECK(ActionTesting::number_of_queued_simple_actions<component>(
-                  runner, 0) == number_of_horizons);
+                  runner, 0) == (is_shape ? 1 : 2));
 
-        if (number_of_horizons > 1) {
+        if constexpr (not is_shape) {
           // We invoke a random measurement because during a normal simulation
           // we don't know which measurement will reach the control system
           // first because of charm++ communication
@@ -776,16 +800,17 @@ struct SystemHelper {
               get<control_system::Tags::TimescaleTuner<system>>(created_tags),
               get<control_system::Tags::Controller<system>>(created_tags),
               get<control_system::Tags::ControlError<system>>(created_tags),
-              get<control_system::Tags::WriteDataToDisk>(created_tags), true, 0,
+              true, 0,
               // Just need an empty queue. It will get filled in as the control
               // system is updated
               LinkedMessageQueue<
                   double,
                   tmpl::conditional_t<
                       std::is_same_v<system, typename Metavars::shape_system>,
-                      tmpl::list<QueueTags::Strahlkorper<::Frame::Grid>>,
-                      tmpl::list<QueueTags::Center<::ah::ObjectLabel::A>,
-                                 QueueTags::Center<::ah::ObjectLabel::B>>>>{}};
+                      tmpl::list<QueueTags::Horizon<::Frame::Distorted>>,
+                      tmpl::list<
+                          QueueTags::Center<::domain::ObjectLabel::A>,
+                          QueueTags::Center<::domain::ObjectLabel::B>>>>{}};
     });
   }
 
@@ -801,8 +826,8 @@ struct SystemHelper {
 
   // Members that won't be moved out of this struct
   AllTags all_init_tags_{};
-  Strahlkorper<Frame::Grid> horizon_a_{};
-  Strahlkorper<Frame::Grid> horizon_b_{};
+  Strahlkorper<Frame::Distorted> horizon_a_{};
+  Strahlkorper<Frame::Distorted> horizon_b_{};
   int measurements_per_update_{};
   double initial_time_{std::numeric_limits<double>::signaling_NaN()};
 

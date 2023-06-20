@@ -18,12 +18,12 @@
 #include "Domain/CoordinateMaps/DiscreteRotation.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/Translation.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
+#include "Domain/Creators/OptionTags.hpp"
 #include "Domain/Creators/RotatedIntervals.hpp"
 #include "Domain/Creators/TimeDependence/None.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
-#include "Domain/OptionTags.hpp"
 #include "Domain/Structure/BlockNeighbor.hpp"  // IWYU pragma: keep
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
@@ -33,8 +33,8 @@
 #include "Helpers/Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Helpers/Domain/Creators/TestHelpers.hpp"
 #include "Helpers/Domain/DomainTestHelpers.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/MakeVector.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace domain {
 namespace {
@@ -59,8 +59,9 @@ void test_rotated_intervals_construction(
     const bool is_periodic = false,
     const std::unordered_map<std::string, double>& initial_expiration_times =
         {}) {
+  const std::vector<double> times{1.};
   const auto domain = TestHelpers::domain::creators::test_domain_creator(
-      rotated_intervals, expect_boundary_conditions, is_periodic);
+      rotated_intervals, expect_boundary_conditions, is_periodic, times);
 
   CHECK(rotated_intervals.initial_extents() == expected_extents);
   CHECK(rotated_intervals.initial_refinement_levels() ==

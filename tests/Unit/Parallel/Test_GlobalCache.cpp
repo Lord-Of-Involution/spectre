@@ -23,19 +23,20 @@
 #include "Parallel/Algorithms/AlgorithmNodegroup.hpp"
 #include "Parallel/Algorithms/AlgorithmSingleton.hpp"
 #include "Parallel/Callback.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/InitializationFunctions.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Parallel/ResourceInfo.hpp"
 #include "Parallel/Tags/ResourceInfo.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MemoryHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/System/Exit.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -465,7 +466,7 @@ template <typename Metavariables>
 Test_GlobalCache<Metavariables>::Test_GlobalCache(CkArgMsg*
                                                   /*msg*/) {
   // Register the pup functions.
-  Parallel::register_classes_with_charm<Triangle, Square, Arthropod>();
+  register_classes_with_charm<Triangle, Square, Arthropod>();
 
   // Call the single core test before doing anything else.
   run_single_core_test();
@@ -587,7 +588,7 @@ PUP::able::PUP_ID Arthropod::my_PUP_ID = 0;  // NOLINT
 static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Test_GlobalCache<TestMetavariables>;
 

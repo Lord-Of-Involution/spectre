@@ -22,9 +22,7 @@
 #include "Parallel/Info.hpp"
 #include "Parallel/Local.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "Parallel/ResourceInfo.hpp"
-#include "Parallel/Serialize.hpp"
 #include "Parallel/Tags/ResourceInfo.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
@@ -32,6 +30,8 @@
 #include "Utilities/Numeric.hpp"
 #include "Utilities/PrettyType.hpp"
 #include "Utilities/Requires.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
@@ -972,28 +972,24 @@ template <class CacheTag>
 struct FromGlobalCache : CacheTag, db::ReferenceTag {
   static_assert(db::is_simple_tag_v<CacheTag>);
   using base = CacheTag;
-  using parent_tag = GlobalCache;
+  using argument_tags = tmpl::list<GlobalCache>;
 
   template <class Metavariables>
   static const auto& get(
       const Parallel::GlobalCache<Metavariables>* const& cache) {
     return Parallel::get<CacheTag>(*cache);
   }
-
-  using argument_tags = tmpl::list<parent_tag>;
 };
 
 template <typename Metavariables>
 struct ResourceInfoReference : ResourceInfo<Metavariables>, db::ReferenceTag {
   using base = ResourceInfo<Metavariables>;
-  using parent_tag = GlobalCache;
+  using argument_tags = tmpl::list<GlobalCache>;
 
   static const auto& get(
       const Parallel::GlobalCache<Metavariables>* const& cache) {
     return cache->get_resource_info();
   }
-
-  using argument_tags = tmpl::list<parent_tag>;
 };
 }  // namespace Tags
 }  // namespace Parallel

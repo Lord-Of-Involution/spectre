@@ -14,11 +14,14 @@
 #include "DataStructures/Tensor/Metafunctions.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
-#include "Domain/Tags.hpp"
+#include "Domain/CoordinateMaps/Composition.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/ElementToBlockLogicalMap.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "Parallel/Invoke.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
+#include "ParallelAlgorithms/Interpolation/TagsMetafunctions.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Literals.hpp"
@@ -69,9 +72,6 @@ namespace InterpolationTarget_detail {
 double get_temporal_id_value(double time);
 double get_temporal_id_value(const LinkedMessageId<double>& id);
 double get_temporal_id_value(const TimeStepId& time_id);
-double evaluate_temporal_id_for_expiration(double time);
-double evaluate_temporal_id_for_expiration(const LinkedMessageId<double>& id);
-double evaluate_temporal_id_for_expiration(const TimeStepId& time_id);
 
 // apply_callback accomplishes the overload for the
 // two signatures of callback functions.
@@ -125,7 +125,6 @@ void fill_invalid_points(const gsl::not_null<db::DataBox<DbTags>*> box,
       not invalid_indices.at(temporal_id).empty()) {
     db::mutate<Tags::IndicesOfInvalidInterpPoints<TemporalId>,
                Tags::InterpolatedVars<InterpolationTargetTag, TemporalId>>(
-        box,
         [&temporal_id](
             const gsl::not_null<
                 std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
@@ -148,7 +147,8 @@ void fill_invalid_points(const gsl::not_null<db::DataBox<DbTags>*> box,
           // Further functions may test if there are invalid points.
           // Clear the invalid points now, since we have filled them.
           indices_of_invalid_points->erase(temporal_id);
-        });
+        },
+        box);
   }
 }
 
@@ -217,19 +217,19 @@ void clean_up_interpolation_target(
              Tags::IndicesOfFilledInterpPoints<TemporalId>,
              Tags::IndicesOfInvalidInterpPoints<TemporalId>,
              Tags::InterpolatedVars<InterpolationTargetTag, TemporalId>>(
-      box, [&temporal_id](
-               const gsl::not_null<std::deque<TemporalId>*> ids,
-               const gsl::not_null<std::deque<TemporalId>*> completed_ids,
-               const gsl::not_null<
-                   std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
-                   indices_of_filled,
-               const gsl::not_null<
-                   std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
-                   indices_of_invalid,
-               const gsl::not_null<std::unordered_map<
-                   TemporalId, Variables<typename InterpolationTargetTag::
-                                             vars_to_interpolate_to_target>>*>
-                   interpolated_vars) {
+      [&temporal_id](
+          const gsl::not_null<std::deque<TemporalId>*> ids,
+          const gsl::not_null<std::deque<TemporalId>*> completed_ids,
+          const gsl::not_null<
+              std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
+              indices_of_filled,
+          const gsl::not_null<
+              std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
+              indices_of_invalid,
+          const gsl::not_null<std::unordered_map<
+              TemporalId, Variables<typename InterpolationTargetTag::
+                                        vars_to_interpolate_to_target>>*>
+              interpolated_vars) {
         completed_ids->push_back(temporal_id);
         ASSERT(std::find(ids->begin(), ids->end(), temporal_id) != ids->end(),
                "Temporal id " << temporal_id << " does not exist in ids");
@@ -248,7 +248,8 @@ void clean_up_interpolation_target(
         indices_of_filled->erase(temporal_id);
         indices_of_invalid->erase(temporal_id);
         interpolated_vars->erase(temporal_id);
-      });
+      },
+      box);
 }
 
 /// Returns true if this InterpolationTarget has received data
@@ -410,14 +411,14 @@ void add_received_variables(
     const TemporalId& temporal_id) {
   db::mutate<Tags::IndicesOfFilledInterpPoints<TemporalId>,
              Tags::InterpolatedVars<InterpolationTargetTag, TemporalId>>(
-      box, [&temporal_id, &vars_src, &global_offsets](
-               const gsl::not_null<
-                   std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
-                   indices_of_filled,
-               const gsl::not_null<std::unordered_map<
-                   TemporalId, Variables<typename InterpolationTargetTag::
-                                             vars_to_interpolate_to_target>>*>
-                   vars_dest_all_times) {
+      [&temporal_id, &vars_src, &global_offsets](
+          const gsl::not_null<
+              std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
+              indices_of_filled,
+          const gsl::not_null<std::unordered_map<
+              TemporalId, Variables<typename InterpolationTargetTag::
+                                        vars_to_interpolate_to_target>>*>
+              vars_dest_all_times) {
         auto& vars_dest = vars_dest_all_times->at(temporal_id);
         // Here we assume that vars_dest has been allocated to the correct
         // size (but could contain garbage, since below we are filling it).
@@ -449,7 +450,8 @@ void add_received_variables(
             }
           }
         }
-      });
+      },
+      box);
 }
 
 /// Computes the block logical coordinates of an InterpolationTarget.
@@ -489,8 +491,7 @@ auto block_logical_coords(
       const auto& functions_of_time = get<domain::Tags::FunctionsOfTime>(cache);
       return ::block_logical_coordinates(
           domain, coords,
-          InterpolationTarget_detail::evaluate_temporal_id_for_expiration(
-              temporal_id),
+          InterpolationTarget_detail::get_temporal_id_value(temporal_id),
           functions_of_time);
     } else {
       // We error here because the maps are time-dependent, yet
@@ -568,17 +569,17 @@ void set_up_interpolation(
   db::mutate<Tags::IndicesOfFilledInterpPoints<TemporalId>,
              Tags::IndicesOfInvalidInterpPoints<TemporalId>,
              Tags::InterpolatedVars<InterpolationTargetTag, TemporalId>>(
-      box, [&block_logical_coords, &temporal_id](
-               const gsl::not_null<
-                   std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
-                   indices_of_filled,
-               const gsl::not_null<
-                   std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
-                   indices_of_invalid_points,
-               const gsl::not_null<std::unordered_map<
-                   TemporalId, Variables<typename InterpolationTargetTag::
-                                             vars_to_interpolate_to_target>>*>
-                   vars_dest_all_times) {
+      [&block_logical_coords, &temporal_id](
+          const gsl::not_null<
+              std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
+              indices_of_filled,
+          const gsl::not_null<
+              std::unordered_map<TemporalId, std::unordered_set<size_t>>*>
+              indices_of_invalid_points,
+          const gsl::not_null<std::unordered_map<
+              TemporalId, Variables<typename InterpolationTargetTag::
+                                        vars_to_interpolate_to_target>>*>
+              vars_dest_all_times) {
         // Because we are sending new points to the interpolator,
         // we know that none of these points have been interpolated to,
         // so clear the list.
@@ -603,7 +604,8 @@ void set_up_interpolation(
               typename InterpolationTargetTag::vars_to_interpolate_to_target>(
               block_logical_coords.size());
         }
-      });
+      },
+      box);
 }
 
 CREATE_HAS_TYPE_ALIAS(compute_vars_to_interpolate)
@@ -636,12 +638,8 @@ void compute_dest_vars_from_source_vars(
     const Mesh<Metavariables::volume_dim>& mesh, const ElementId& element_id,
     const Parallel::GlobalCache<Metavariables>& cache,
     const typename InterpolationTargetTag::temporal_id::type& temporal_id) {
-  if constexpr (any_index_in_frame_v<SourceTags, Frame::Inertial> and
-                any_index_in_frame_v<typename InterpolationTargetTag::
-                                         vars_to_interpolate_to_target,
-                                     Frame::Grid>) {
-    // Need to do frame transformations.
-
+  const auto& block = domain.blocks().at(element_id.block_id());
+  if (block.is_time_dependent()) {
     // The functions of time are always guaranteed to be
     // up-to-date here.
     // For interpolation without an Interpolator ParallelComponent,
@@ -650,25 +648,98 @@ void compute_dest_vars_from_source_vars(
     // For interpolation with an Interpolator ParallelCompoent,
     // this is because the functions of time are made up to date before
     // calling SendPointsToInterpolator.
-    const auto& functions_of_time = get<domain::Tags::FunctionsOfTime>(cache);
-    const auto& block = domain.blocks().at(element_id.block_id());
-    ElementMap<3, ::Frame::Grid> map_logical_to_grid{
-        element_id, block.moving_mesh_logical_to_grid_map().get_clone()};
-    const auto invjac_logical_to_grid =
-        map_logical_to_grid.inv_jacobian(logical_coordinates(mesh));
-    const auto jac_grid_to_inertial =
-        block.moving_mesh_grid_to_inertial_map().jacobian(
-            map_logical_to_grid(logical_coordinates(mesh)),
-            InterpolationTarget_detail::evaluate_temporal_id_for_expiration(
-                temporal_id),
-            functions_of_time);
-    InterpolationTargetTag::compute_vars_to_interpolate::apply(
-        dest_vars, source_vars, mesh, jac_grid_to_inertial,
-        invjac_logical_to_grid);
+    if constexpr (any_index_in_frame_v<SourceTags, Frame::Inertial> and
+                  any_index_in_frame_v<typename InterpolationTargetTag::
+                                           vars_to_interpolate_to_target,
+                                       Frame::Grid>) {
+      // Need to do frame transformations to Grid frame.
+      const auto& functions_of_time = get<domain::Tags::FunctionsOfTime>(cache);
+      ElementMap<3, ::Frame::Grid> map_logical_to_grid{
+          element_id, block.moving_mesh_logical_to_grid_map().get_clone()};
+      const auto logical_coords = logical_coordinates(mesh);
+      const auto time =
+          InterpolationTarget_detail::get_temporal_id_value(temporal_id);
+      const auto jac_logical_to_grid =
+          map_logical_to_grid.jacobian(logical_coords);
+      const auto invjac_logical_to_grid =
+          map_logical_to_grid.inv_jacobian(logical_coords);
+      const auto [inertial_coords, invjac_grid_to_inertial,
+                  jac_grid_to_inertial, inertial_mesh_velocity] =
+          block.moving_mesh_grid_to_inertial_map()
+              .coords_frame_velocity_jacobians(
+                  map_logical_to_grid(logical_coords), time, functions_of_time);
+      InterpolationTargetTag::compute_vars_to_interpolate::apply(
+          dest_vars, source_vars, mesh, jac_grid_to_inertial,
+          invjac_grid_to_inertial, jac_logical_to_grid, invjac_logical_to_grid,
+          inertial_mesh_velocity, tnsr::I<DataVector, 3, Frame::Grid>{});
+    } else if constexpr (any_index_in_frame_v<SourceTags, Frame::Inertial> and
+                         any_index_in_frame_v<typename InterpolationTargetTag::
+                                                  vars_to_interpolate_to_target,
+                                              Frame::Distorted>) {
+      // Need to do frame transformations to Distorted frame.
+      const auto& functions_of_time = get<domain::Tags::FunctionsOfTime>(cache);
+      ASSERT(block.has_distorted_frame(),
+             "Cannot interpolate to distorted frame in a block that does not "
+             "have a distorted frame");
+      const domain::CoordinateMaps::Composition
+          element_logical_to_distorted_map{
+              domain::element_to_block_logical_map(element_id),
+              block.moving_mesh_logical_to_grid_map().get_clone(),
+              block.moving_mesh_grid_to_distorted_map().get_clone()};
+      const domain::CoordinateMaps::Composition element_logical_to_grid_map{
+          domain::element_to_block_logical_map(element_id),
+          block.moving_mesh_logical_to_grid_map().get_clone()};
+      const auto logical_coords = logical_coordinates(mesh);
+      const auto time =
+          InterpolationTarget_detail::get_temporal_id_value(temporal_id);
+      const auto [inertial_coords, invjac_distorted_to_inertial,
+                  jac_distorted_to_inertial,
+                  distorted_to_inertial_mesh_velocity] =
+          block.moving_mesh_distorted_to_inertial_map()
+              .coords_frame_velocity_jacobians(
+                  element_logical_to_distorted_map(logical_coords, time,
+                                                   functions_of_time),
+                  time, functions_of_time);
+      const auto grid_to_distorted_mesh_velocity =
+          get<3>(block.moving_mesh_grid_to_distorted_map()
+                     .coords_frame_velocity_jacobians(
+                         element_logical_to_grid_map(logical_coords, time,
+                                                     functions_of_time),
+                         time, functions_of_time));
+      InterpolationTargetTag::compute_vars_to_interpolate::apply(
+          dest_vars, source_vars, mesh, jac_distorted_to_inertial,
+          invjac_distorted_to_inertial,
+          element_logical_to_distorted_map.jacobian(logical_coords, time,
+                                                    functions_of_time),
+          element_logical_to_distorted_map.inv_jacobian(logical_coords, time,
+                                                        functions_of_time),
+          distorted_to_inertial_mesh_velocity, grid_to_distorted_mesh_velocity);
+    } else {
+      // No frame transformations needed.
+      InterpolationTargetTag::compute_vars_to_interpolate::apply(
+          dest_vars, source_vars, mesh);
+    }
   } else {
-    // No frame transformations needed.
+    // No frame transformations needed, since the maps are time-independent
+    // and therefore all the frames are the same.
+    //
+    // Sometimes dest_vars and source_vars have different Frame tags
+    // in the time-independent case, even though the frames are really
+    // the same.  The source vars should all be in the Inertial frame,
+    // so we create a new non-owning Variables called
+    // dest_vars_in_inertial_frame that points to dest_vars but is
+    // tagged as the inertial frame, and we pass
+    // dest_vars_in_inertial_frame to
+    // compute_vars_to_interpolate::apply.
+    using dest_vars_tags =
+        typename InterpolationTargetTag::vars_to_interpolate_to_target;
+    using dest_tags_in_inertial_frame =
+        TensorMetafunctions::replace_frame_in_taglist<dest_vars_tags,
+                                                      ::Frame::Inertial>;
+    Variables<dest_tags_in_inertial_frame> dest_vars_in_inertial_frame(
+        dest_vars->data(), dest_vars->size());
     InterpolationTargetTag::compute_vars_to_interpolate::apply(
-        dest_vars, source_vars, mesh);
+        make_not_null(&dest_vars_in_inertial_frame), source_vars, mesh);
   }
 }
 

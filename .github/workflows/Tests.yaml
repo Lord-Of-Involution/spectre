@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Check commits
@@ -102,7 +102,7 @@ jobs:
       image: sxscollaboration/spectre:ci
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       # Work around https://github.com/actions/checkout/issues/760
@@ -129,6 +129,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip3 install -r .github/scripts/requirements-release.txt
+          pip3 install -r support/Python/dev_requirements.txt
       - name: Test tools
         run: |
           python3 -m unittest discover -p 'Test_CompileReleaseNotes.py' \
@@ -136,7 +137,8 @@ jobs:
       - name: Check Python formatting
         run: |
           cd $GITHUB_WORKSPACE
-          ./tools/CheckPythonFormatting.sh
+          black --check .
+          isort --check-only .
       - name: Test script
         run: |
           cd $GITHUB_WORKSPACE
@@ -168,7 +170,7 @@ jobs:
           python3 tools/CompileReleaseNotes.py -vv -o release_notes.md \
             --github-token ${{ secrets.GITHUB_TOKEN }}
       - name: Upload release notes
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: release-notes
           path: release_notes.md
@@ -196,7 +198,7 @@ jobs:
         build_type: [Debug, Release]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
       # Work around https://github.com/actions/checkout/issues/760
@@ -225,7 +227,7 @@ jobs:
           -D CMAKE_C_COMPILER=clang
           -D CMAKE_CXX_COMPILER=clang++
           -D CMAKE_Fortran_COMPILER=gfortran-9
-          -D CHARM_ROOT=/work/charm_7_0_0/multicore-linux-x86_64-clang
+          -D CHARM_ROOT=${CHARM_ROOT}
           -D CMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -D OVERRIDE_ARCH=x86-64
           -D USE_CCACHE=OFF
@@ -252,11 +254,15 @@ jobs:
       image: sxscollaboration/spectre:ci
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
       # Work around https://github.com/actions/checkout/issues/760
       - name: Trust checkout
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
+      # These can be installed directly in the Docker container instead
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install -r support/Python/dev_requirements.txt
       - name: Configure with cmake
         working-directory: /work
         run: >
@@ -266,7 +272,7 @@ jobs:
           -D CMAKE_C_COMPILER=clang
           -D CMAKE_CXX_COMPILER=clang++
           -D CMAKE_Fortran_COMPILER=gfortran-9
-          -D CHARM_ROOT=/work/charm_7_0_0/multicore-linux-x86_64-clang
+          -D CHARM_ROOT=${CHARM_ROOT}
           -D CMAKE_BUILD_TYPE=Debug
           -D DEBUG_SYMBOLS=OFF
           -D BUILD_PYTHON_BINDINGS=ON
@@ -282,13 +288,17 @@ jobs:
         working-directory: /work/build
         run: |
           make doc-coverage
+      - name: Build Python docs
+        working-directory: /work/build
+        run: |
+          make py-docs
       # Upload as an artifact to make available to PRs
       - name: Prepare for upload
         working-directory: /work/build
         run: |
           zip -qr docs-html.zip docs/html
       - name: Upload documentation
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: docs-html
           path: /work/build/docs-html.zip
@@ -319,9 +329,6 @@ jobs:
           - gcc-10
           - gcc-11
         build_type: [Debug, Release]
-        use_pch: [ON]
-        use_xsimd: [ON]
-        charm_name: ["Charm 7.0.0"]
         include:
           # Configure ccache sizes. The cache becomes ineffective if it can't
           # hold at least one full build. The sizes for the build configurations
@@ -330,15 +337,21 @@ jobs:
           # remain below 80% of the size configured here. Configurations further
           # down in the `include` list can override these default settings.
           - build_type: Debug
-            ccache_max_size: 900M
+            ccache_max_size: 1.3G
           - build_type: Release
-            ccache_max_size: 400M
+            ccache_max_size: 500M
           # Generate code coverage report for a single build
-          - compiler: gcc-9
+          # Note: currently disabled because it exceeds the available disk space
+          # - compiler: gcc-9
+          #   build_type: Debug
+          #   COVERAGE: ON
+          #   TEST_TIMEOUT_FACTOR: 3
+          #   ccache_max_size: 2G
+          # This configuration seems to run consistently slower than newer gcc
+          # or clang builds, so we increase the test timeout a bit
+          - compiler: gcc-10
             build_type: Debug
-            COVERAGE: ON
-            TEST_TIMEOUT_FACTOR: 3
-            ccache_max_size: 2.3G
+            TEST_TIMEOUT_FACTOR: 2
           # Test with Python 3.7 so that we retain backwards compatibility. We
           # keep track of Python versions on supercomputers in this issue:
           # https://github.com/sxs-collaboration/spectre/issues/442
@@ -352,16 +365,14 @@ jobs:
           - compiler: clang-10
             build_type: Debug
             use_pch: OFF
-            ccache_max_size: 400M
+            ccache_max_size: 600M
           # Full clang-10 build to catch any incompatibilities.
           - compiler: clang-10
-            use_pch: ON
             build_type: Release
-            ccache_max_size: 400M
+            ccache_max_size: 700M
           # Test with ASAN
           - compiler: clang-11
             build_type: Debug
-            use_pch: ON
             # When building with ASAN we also need python bindings to be
             # disabled because otherwise we get link errors. See issue:
             # https://github.com/sxs-collaboration/spectre/issues/1890
@@ -370,21 +381,25 @@ jobs:
             ASAN: ON
             BUILD_PYTHON_BINDINGS: OFF
             MEMORY_ALLOCATOR: JEMALLOC
-            ccache_max_size: 1.3G
+            ccache_max_size: 2G
           # Test building with static libraries. Do so with clang in release
           # mode because these builds use up little disk space compared to GCC
           # builds or clang Debug builds
           - compiler: clang-11
-            use_pch: ON
             build_type: Release
             BUILD_SHARED_LIBS: OFF
             use_xsimd: OFF
             MEMORY_ALLOCATOR: JEMALLOC
-          # Test compatibility with oldest supported CMake version
+            ccache_max_size: 650M
+          # Test compatibility with oldest supported CMake version and using an
+          # mpi version of charm
           - compiler: clang-13
-            use_pch: ON
             build_type: Debug
-            CMAKE_EXECUTABLE: /opt/local/cmake/3.12.4/bin/cmake
+            CMAKE_EXECUTABLE: /opt/local/cmake/3.18.2/bin/cmake
+            CHARM_ROOT: /work/charm_7_0_0/mpi-linux-x86_64-smp-clang
+            # MPI running tests is a bit slower than multicore
+            TEST_TIMEOUT_FACTOR: 3
+            ccache_max_size: 1.4G
 
     container:
       image: sxscollaboration/spectre:ci
@@ -404,9 +419,16 @@ jobs:
         # We hash the content of the compiler rather than the location and mtime
         # to make sure the cache works across the different machines
         CCACHE_COMPILERCHECK: content
+        # These vars are to allow running charm with MPI as root inside the
+        # container which arises from using the "--privileged" flag just below.
+        OMPI_ALLOW_RUN_AS_ROOT: 1
+        OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      # See https://lists.cs.illinois.edu/lists/arc/charm/2018-10/msg00011.html
+      # for why we need this
+      options: --privileged
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
       # Work around https://github.com/actions/checkout/issues/760
       - name: Trust checkout
         run: |
@@ -426,7 +448,7 @@ jobs:
         uses: actions/cache@v3
         env:
           CACHE_KEY_PREFIX: "ccache-${{ matrix.compiler }}-\
-${{ matrix.build_type }}-pch-${{ matrix.use_pch }}"
+${{ matrix.build_type }}-pch-${{ matrix.use_pch || 'ON' }}"
         with:
           path: /work/ccache
           key: "${{ env.CACHE_KEY_PREFIX }}-${{ github.ref }}-\
@@ -454,7 +476,6 @@ ${{ env.CACHE_KEY_SUFFIX }}"
 
           if [[ ${{ matrix.compiler }} =~ (gcc|clang)-([0-9\.]+) ]]; then
             CC=${BASH_REMATCH[1]}-${BASH_REMATCH[2]};
-            CHARM_CC=${BASH_REMATCH[1]};
             if [[ ${BASH_REMATCH[1]} = gcc ]]; then
               CXX=g++-${BASH_REMATCH[2]};
               FC=gfortran-${BASH_REMATCH[2]};
@@ -468,8 +489,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
           BUILD_SHARED_LIBS=${{ matrix.BUILD_SHARED_LIBS }}
           PYTHON_EXECUTABLE=${{ matrix.PYTHON_EXECUTABLE }}
           CMAKE_EXECUTABLE=${{ matrix.CMAKE_EXECUTABLE }}
-          CHARM_DIR_DEFAULT=/work/charm_7_0_0/multicore-linux-x86_64-
-          CHARM_DIR=${{ matrix.CHARM_DIR }}
+          MATRIX_CHARM_ROOT=${{ matrix.CHARM_ROOT }}
           ASAN=${{ matrix.ASAN }}
           MEMORY_ALLOCATOR=${{ matrix.MEMORY_ALLOCATOR }}
           UBSAN_UNDEFINED=${{ matrix.UBSAN_UNDEFINED }}
@@ -485,15 +505,15 @@ ${{ env.CACHE_KEY_SUFFIX }}"
           -D CMAKE_Fortran_COMPILER=${FC}
           -D CMAKE_CXX_FLAGS="${CXXFLAGS} ${{ matrix.EXTRA_CXX_FLAGS }}"
           -D OVERRIDE_ARCH=x86-64
-          -D CHARM_ROOT=${CHARM_DIR:-${CHARM_DIR_DEFAULT}}${CHARM_CC}
+          -D CHARM_ROOT=${MATRIX_CHARM_ROOT:-$CHARM_ROOT}
           -D CMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -D DEBUG_SYMBOLS=OFF
           -D UNIT_TESTS_IN_TEST_EXECUTABLES=OFF
           -D STRIP_SYMBOLS=ON
           -D STUB_EXECUTABLE_OBJECT_FILES=ON
           -D STUB_LIBRARY_OBJECT_FILES=ON
-          -D USE_PCH=${USE_PCH}
-          -D USE_XSIMD=${USE_XSIMD}
+          -D USE_PCH=${USE_PCH:-'ON'}
+          -D USE_XSIMD=${USE_XSIMD:-'ON'}
           -D USE_CCACHE=ON
           -D COVERAGE=${COVERAGE:-'OFF'}
           -D BUILD_PYTHON_BINDINGS=${BUILD_PYTHON_BINDINGS:-'ON'}
@@ -515,12 +535,12 @@ ${{ env.CACHE_KEY_SUFFIX }}"
         run: |
           ! grep -A 6 "CMake Warning" ./CMakeOutput.txt
       - name: Build unit tests
-        if: matrix.use_pch == 'ON'
+        if: matrix.use_pch != 'OFF'
         working-directory: /work/build
         run: |
           make -j2 unit-tests
       - name: Run unit tests
-        if: matrix.use_pch == 'ON' && matrix.COVERAGE != 'ON'
+        if: matrix.use_pch != 'OFF' && matrix.COVERAGE != 'ON'
         working-directory: /work/build
         run: |
           # We get occasional random timeouts, repeat tests to see if
@@ -535,23 +555,22 @@ ${{ env.CACHE_KEY_SUFFIX }}"
         working-directory: /work/build
         run: |
           make unit-test-coverage
+          rm -r docs/html/unit-test-coverage
       - name: Upload coverage report to codecov.io
         if: matrix.COVERAGE == 'ON'
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
         with:
-          file: /work/build/tmp/coverage.info
-      - name: Upload coverage report to coveralls.io
-        if: matrix.COVERAGE == 'ON'
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: /work/build/tmp/coverage.info
-        # We don't actively use coveralls currently, so it's ok when the upload
-        # fails (they had some outages)
+          files: /work/build/tmp/coverage.info
+          # Display the job as failed if upload fails (defaults to false for
+          # some reason)
+          fail_ci_if_error: true
+        # We currently don't require codecov in our guidelines, so don't fail
+        # the CI build if codecov fails to upload
         continue-on-error: true
       # Build the executables in a single thread to reduce memory usage
       # sufficiently so they compile on the GitHub-hosted runners
       - name: Build executables
+        if: matrix.COVERAGE != 'ON'
         working-directory: /work/build
         run: |
           make test-executables
@@ -569,18 +588,21 @@ ${{ env.CACHE_KEY_SUFFIX }}"
         run: |
           ccache -s
       - name: Run non-unit tests
+        if: matrix.COVERAGE != 'ON'
         working-directory: /work/build
         run: |
           # We get occasional random timeouts, repeat tests to see if
           # it is a random timeout or systematic
           ctest -j2 -LE unit --output-on-failure --repeat after-timeout:3
       - name: Install
+        if: matrix.COVERAGE != 'ON'
         working-directory: /work/build
         # Make sure the `install` target runs without error. We could add some
         # basic smoke tests here to make sure the installation worked.
         run: |
           make install
       - name: Print size of install directory
+        if: matrix.COVERAGE != 'ON'
         working-directory: /work/spectre_install
         # Remove files post-install to reduce disk space for later on.
         run: |
@@ -620,7 +642,6 @@ ${{ env.CACHE_KEY_SUFFIX }}"
 
           if [[ ${{ matrix.compiler }} =~ (gcc|clang)-([0-9\.]+) ]]; then
             CC=${BASH_REMATCH[1]}-${BASH_REMATCH[2]};
-            CHARM_CC=${BASH_REMATCH[1]};
             if [[ ${BASH_REMATCH[1]} = gcc ]]; then
               CXX=g++-${BASH_REMATCH[2]};
               FC=gfortran-${BASH_REMATCH[2]};
@@ -640,14 +661,14 @@ ${{ env.CACHE_KEY_SUFFIX }}"
           -D CMAKE_CXX_FLAGS="${CXXFLAGS} ${{ matrix.EXTRA_CXX_FLAGS }}"
           -D OVERRIDE_ARCH=x86-64
           -D BUILD_SHARED_LIBS=ON
-          -D CHARM_ROOT=/work/charm_7_0_0/multicore-linux-x86_64-${CHARM_CC}
+          -D CHARM_ROOT=${CHARM_ROOT}
           -D CMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -D DEBUG_SYMBOLS=OFF
           -D UNIT_TESTS_IN_TEST_EXECUTABLES=OFF
           -D STRIP_SYMBOLS=ON
           -D STUB_EXECUTABLE_OBJECT_FILES=ON
           -D STUB_LIBRARY_OBJECT_FILES=ON
-          -D USE_PCH=${USE_PCH}
+          -D USE_PCH=${USE_PCH:-'ON'}
           -D USE_CCACHE=OFF
           -D BUILD_PYTHON_BINDINGS=OFF
           -D MEMORY_ALLOCATOR=${MEMORY_ALLOCATOR:-'SYSTEM'}
@@ -679,7 +700,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
   # Build all test executables and run unit tests on macOS
   unit_tests_macos:
     name: Unit tests on macOS
-    runs-on: macos-latest
+    runs-on: macos-11
     env:
       # We install some low-level dependencies with Homebrew. They get picked up
       # by `spack external find`.
@@ -690,7 +711,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
       # to create the cache.
       SPECTRE_SPACK_DEPS: >-
         blaze boost brigand catch2 charmpp gsl hdf5 libsharp libxsmm openblas
-        py-h5py py-numpy py-matplotlib py-pybind11 py-scipy py-pyyaml yaml-cpp
+        py-pybind11 yaml-cpp
       CCACHE_DIR: $HOME/ccache
       CCACHE_MAXSIZE: 700M
       CCACHE_COMPRESS: 1
@@ -700,7 +721,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
       SPACK_COLOR: always
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
@@ -747,10 +768,17 @@ ${{ env.CACHE_KEY_SUFFIX }}"
           source $HOME/spack/share/spack/setup-env.sh
           spack env create spectre support/DevEnvironments/spack.yaml
           spack env activate spectre
-          spack remove doxygen jemalloc py-nbconvert
+          spack remove doxygen jemalloc
           spack concretize --reuse
           spack install --no-check-signature
           spack find -v
+      # Install remaining pure Python dependencies with pip because the Spack
+      # package index can be incomplete (it can't mirror all of pip)
+      - name: Install Python dependencies
+        run: |
+          source $HOME/spack/share/spack/setup-env.sh
+          spack env activate spectre
+          pip install -r support/Python/requirements.txt
       # Replace the ccache directory that building the dependencies may have
       # generated with the cached ccache directory.
       - name: Clear ccache from dependencies
@@ -883,7 +911,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
     env:
       TZ: ${{ github.event.inputs.timezone }}
     steps:
-      - uses: actions/checkout@v3.0.1
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           # Using a personal access token with admin privileges here so this
@@ -938,7 +966,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
             --github-token ${{ secrets.GITHUB_TOKEN }}
           git diff
       - name: Download release notes
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         id: release-notes
         with:
           name: release-notes
@@ -1007,7 +1035,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
         CXXFLAGS: "-Werror"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3.0.1
+        uses: actions/checkout@v3
       # Work around https://github.com/actions/checkout/issues/760
       - name: Trust checkout
         run: |
@@ -1030,7 +1058,6 @@ ${{ env.CACHE_KEY_SUFFIX }}"
             mkdir $BUILD_DIR && cd $BUILD_DIR
             if [[ ${{ matrix.compiler }} =~ (gcc|clang)-([0-9\.]+) ]]; then
               CC=${BASH_REMATCH[1]}-${BASH_REMATCH[2]};
-              CHARM_CC=${BASH_REMATCH[1]};
               if [[ ${BASH_REMATCH[1]} = gcc ]]; then
                 CXX=g++-${BASH_REMATCH[2]};
                 FC=gfortran-${BASH_REMATCH[2]};
@@ -1046,7 +1073,7 @@ ${{ env.CACHE_KEY_SUFFIX }}"
             -D CMAKE_Fortran_COMPILER=${FC}\
             -D CMAKE_CXX_FLAGS="${CXXFLAGS}"\
             -D OVERRIDE_ARCH=${OVERRIDE_ARCH}\
-            -D CHARM_ROOT=/work/charm_7_0_0/multicore-linux-x86_64-${CHARM_CC}\
+            -D CHARM_ROOT=${CHARM_ROOT}\
             -D CMAKE_BUILD_TYPE=Debug\
             -D DEBUG_SYMBOLS=OFF\
             -D STRIP_SYMBOLS=ON\

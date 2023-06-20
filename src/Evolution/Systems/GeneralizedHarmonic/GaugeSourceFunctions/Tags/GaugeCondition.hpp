@@ -15,24 +15,24 @@
 #include "Evolution/Systems/GeneralizedHarmonic/GaugeSourceFunctions/Gauges.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "ParallelAlgorithms/Events/Tags.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Time/Tags.hpp"
 #include "Utilities/Gsl.hpp"
 
 /// \cond
-namespace GeneralizedHarmonic::OptionTags {
+namespace gh::OptionTags {
 struct Group;
-}  // namespace GeneralizedHarmonic::OptionTags
+}  // namespace gh::OptionTags
 /// \endcond
 
-namespace GeneralizedHarmonic::gauges {
+namespace gh::gauges {
 namespace OptionTags {
 struct GaugeCondition {
   using type = std::unique_ptr<gauges::GaugeCondition>;
   static constexpr Options::String help{"The gauge condition to impose."};
-  using group = GeneralizedHarmonic::OptionTags::Group;
+  using group = gh::OptionTags::Group;
 };
 }  // namespace OptionTags
 
@@ -40,8 +40,7 @@ namespace Tags {
 /// \brief The gauge condition to impose.
 struct GaugeCondition : db::SimpleTag {
   using type = std::unique_ptr<gauges::GaugeCondition>;
-  using option_tags =
-      tmpl::list<GeneralizedHarmonic::gauges::OptionTags::GaugeCondition>;
+  using option_tags = tmpl::list<gh::gauges::OptionTags::GaugeCondition>;
 
   static constexpr bool pass_metavariables = false;
   static std::unique_ptr<gauges::GaugeCondition> create_from_options(
@@ -55,22 +54,22 @@ struct GaugeCondition : db::SimpleTag {
 template <size_t Dim>
 struct GaugeAndDerivativeCompute
     : ::Tags::Variables<
-          tmpl::list<::GeneralizedHarmonic::Tags::GaugeH<Dim, Frame::Inertial>,
-                     ::GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<
-                         Dim, Frame::Inertial>>>,
+          tmpl::list<::gh::Tags::GaugeH<DataVector, Dim>,
+                     ::gh::Tags::SpacetimeDerivGaugeH<DataVector, Dim>>>,
       db::ComputeTag {
-  using base = ::Tags::Variables<tmpl::list<
-      ::GeneralizedHarmonic::Tags::GaugeH<Dim, Frame::Inertial>,
-      ::GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<Dim, Frame::Inertial>>>;
+  using base = ::Tags::Variables<
+      tmpl::list<::gh::Tags::GaugeH<DataVector, Dim>,
+                 ::gh::Tags::SpacetimeDerivGaugeH<DataVector, Dim>>>;
   using return_type = typename base::type;
   using argument_tags = tmpl::list<
-      gr::Tags::Lapse<>, gr::Tags::Shift<Dim>,
-      gr::Tags::SpacetimeNormalOneForm<Dim>,
-      gr::Tags::SpacetimeNormalVector<Dim>, gr::Tags::SqrtDetSpatialMetric<>,
-      gr::Tags::InverseSpatialMetric<Dim>, gr::Tags::SpacetimeMetric<Dim>,
-      GeneralizedHarmonic::Tags::Pi<Dim>, GeneralizedHarmonic::Tags::Phi<Dim>,
-      ::Events::Tags::ObserverMesh<Dim>, ::Tags::Time,
-      ::Events::Tags::ObserverCoordinates<Dim, Frame::Inertial>,
+      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, Dim>,
+      gr::Tags::SpacetimeNormalOneForm<DataVector, Dim>,
+      gr::Tags::SpacetimeNormalVector<DataVector, Dim>,
+      gr::Tags::SqrtDetSpatialMetric<DataVector>,
+      gr::Tags::InverseSpatialMetric<DataVector, Dim>,
+      gr::Tags::SpacetimeMetric<DataVector, Dim>, gh::Tags::Pi<DataVector, Dim>,
+      gh::Tags::Phi<DataVector, Dim>, ::Events::Tags::ObserverMesh<Dim>,
+      ::Tags::Time, ::Events::Tags::ObserverCoordinates<Dim, Frame::Inertial>,
       ::Events::Tags::ObserverInverseJacobian<Dim, Frame::ElementLogical,
                                               Frame::Inertial>,
       Tags::GaugeCondition>;
@@ -94,4 +93,4 @@ struct GaugeAndDerivativeCompute
       const gauges::GaugeCondition& gauge_condition);
 };
 }  // namespace Tags
-}  // namespace GeneralizedHarmonic::gauges
+}  // namespace gh::gauges

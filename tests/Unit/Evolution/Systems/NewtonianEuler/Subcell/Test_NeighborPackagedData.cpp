@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -32,12 +33,13 @@
 #include "Domain/Tags.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryCorrectionTags.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/MortarTags.hpp"
@@ -163,8 +165,8 @@ double test(const size_t num_dg_pts) {
   // 1. compute prims from solution
   // 2. compute prims needed for reconstruction
   // 3. set neighbor data
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<
-      Dim>::type neighbor_data{};
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>::type
+      neighbor_data{};
   using prims_to_reconstruct_tags =
       tmpl::list<NewtonianEuler::Tags::MassDensity<DataVector>,
                  NewtonianEuler::Tags::Velocity<DataVector, Dim>,
@@ -185,16 +187,16 @@ double test(const size_t num_dg_pts) {
           get<tag>(prims_to_reconstruct) = get<tag>(neighbor_prims);
         });
     // Slice data so we can add it to the element's neighbor data
-    DirectionMap<Dim, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
-    std::vector<double> neighbor_data_in_direction =
+    DataVector neighbor_data_in_direction =
         evolution::dg::subcell::slice_data(
             prims_to_reconstruct, subcell_mesh.extents(),
             NewtonianEuler::fd::MonotonisedCentralPrim<Dim>{}.ghost_zone_size(),
-            directions_to_slice, 0)
+            std::unordered_set{direction.opposite()}, 0)
             .at(direction.opposite());
-    neighbor_data[std::pair{direction,
-                            *element.neighbors().at(direction).begin()}] =
+    const auto key =
+        std::pair{direction, *element.neighbors().at(direction).begin()};
+    neighbor_data[key] = evolution::dg::subcell::GhostData{1};
+    neighbor_data[key].neighbor_ghost_data_for_reconstruction() =
         neighbor_data_in_direction;
   }
   Variables<prim_tags> dg_prim_vars{dg_mesh.number_of_grid_points()};
@@ -236,10 +238,10 @@ double test(const size_t num_dg_pts) {
           evolution::Tags::BoundaryCorrection<system>,
           hydro::Tags::EquationOfState<eos>,
           typename system::primitive_variables_tag, variables_tag,
-          evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
+          evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
           evolution::dg::Tags::MortarData<Dim>, domain::Tags::MeshVelocity<Dim>,
           evolution::dg::Tags::NormalCovectorAndMagnitude<Dim>,
-          evolution::dg::subcell::Tags::SubcellOptions>,
+          evolution::dg::subcell::Tags::SubcellOptions<Dim>>,
       db::AddComputeTags<
           evolution::dg::subcell::Tags::LogicalCoordinatesCompute<Dim>>>(
       MetaVars<Dim>{}, element, dg_mesh, subcell_mesh,
@@ -255,7 +257,8 @@ double test(const size_t num_dg_pts) {
       normal_vectors,
       evolution::dg::subcell::SubcellOptions{
           1.0e-3, 1.0e-4, 1.0e-3, 1.0e-4, 4.0, 4.0, false,
-          evolution::dg::subcell::fd::ReconstructionMethod::DimByDim});
+          evolution::dg::subcell::fd::ReconstructionMethod::DimByDim, false,
+          std::nullopt, ::fd::DerivativeOrder::Two});
 
   db::mutate_apply<NewtonianEuler::ConservativeFromPrimitive<Dim>>(
       make_not_null(&box));

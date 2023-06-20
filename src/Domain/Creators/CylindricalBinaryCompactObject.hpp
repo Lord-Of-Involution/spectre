@@ -15,11 +15,14 @@
 #include "Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Domain/BoundaryConditions/GetBoundaryConditionsBase.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
+#include "Domain/Creators/BinaryCompactObjectHelpers.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
-#include "Domain/Creators/TimeDependence/TimeDependence.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
-#include "Options/Options.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
+#include "Options/Context.hpp"
+#include "Options/String.hpp"
+#include "Utilities/GetOutput.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -48,6 +51,8 @@ class FunctionOfTime;
 }  // namespace domain
 
 namespace Frame {
+struct Grid;
+struct Distorted;
 struct Inertial;
 struct BlockLogical;
 }  // namespace Frame
@@ -135,7 +140,7 @@ namespace domain::creators {
  */
 class CylindricalBinaryCompactObject : public DomainCreator<3> {
  public:
-  using maps_list =
+  using maps_list = tmpl::flatten<
       tmpl::list<domain::CoordinateMap<
                      Frame::BlockLogical, Frame::Inertial,
                      CoordinateMaps::ProductOf3Maps<CoordinateMaps::Interval,
@@ -167,7 +172,8 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
                      CoordinateMaps::ProductOf2Maps<CoordinateMaps::Wedge<2>,
                                                     CoordinateMaps::Interval>,
                      CoordinateMaps::UniformCylindricalSide,
-                     CoordinateMaps::DiscreteRotation<3>>>;
+                     CoordinateMaps::DiscreteRotation<3>>,
+                 bco::TimeDependentMapOptions::maps_list>>;
 
   struct CenterA {
     using type = std::array<double, 3>;
@@ -209,6 +215,12 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
     static constexpr Options::String help = {
         "Grid-coordinate radius of outer boundary."};
   };
+  struct UseEquiangularMap {
+    using type = bool;
+    static constexpr Options::String help = {
+        "Distribute grid points equiangularly in 2d wedges."};
+    static bool suggested_value() { return false; }
+  };
 
   struct InitialRefinement {
     using type =
@@ -235,13 +247,6 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
         "the third direction."};
   };
 
-  struct TimeDependence {
-    using type =
-        std::unique_ptr<domain::creators::time_dependence::TimeDependence<3>>;
-    static constexpr Options::String help = {
-        "The time dependence of the moving mesh domain."};
-  };
-
   struct BoundaryConditions {
     static constexpr Options::String help = "The boundary conditions to apply.";
   };
@@ -263,24 +268,35 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
     using group = BoundaryConditions;
   };
 
-  using basic_options =
+  struct TimeDependentMaps {
+    using type = bco::TimeDependentMapOptions;
+    static constexpr Options::String help = type::help;
+  };
+
+  using time_independent_options =
       tmpl::list<CenterA, CenterB, RadiusA, RadiusB, IncludeInnerSphereA,
                  IncludeInnerSphereB, IncludeOuterSphere, OuterRadius,
-                 InitialRefinement, InitialGridPoints, TimeDependence>;
+                 UseEquiangularMap, InitialRefinement, InitialGridPoints>;
+
+  template <typename Metavariables>
+  using basic_options = tmpl::conditional_t<
+      domain::creators::bco::enable_time_dependent_maps_v<Metavariables>,
+      tmpl::push_front<time_independent_options, TimeDependentMaps>,
+      time_independent_options>;
 
   template <typename Metavariables>
   using options = tmpl::conditional_t<
       domain::BoundaryConditions::has_boundary_conditions_base_v<
           typename Metavariables::system>,
       tmpl::push_back<
-          basic_options,
+          basic_options<Metavariables>,
           InnerBoundaryCondition<
               domain::BoundaryConditions::get_boundary_conditions_base<
                   typename Metavariables::system>>,
           OuterBoundaryCondition<
               domain::BoundaryConditions::get_boundary_conditions_base<
                   typename Metavariables::system>>>,
-      basic_options>;
+      basic_options<Metavariables>>;
 
   static constexpr Options::String help{
       "The CylindricalBinaryCompactObject domain is a general domain for "
@@ -289,16 +305,26 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
       "each of the two compact objects A and B."};
 
   CylindricalBinaryCompactObject(
-      typename CenterA::type center_A, typename CenterB::type center_B,
-      typename RadiusA::type radius_A, typename RadiusB::type radius_B,
-      typename IncludeInnerSphereA::type include_inner_sphere_A,
-      typename IncludeInnerSphereB::type include_inner_sphere_B,
-      typename IncludeOuterSphere::type include_outer_sphere,
-      typename OuterRadius::type outer_radius,
+      std::array<double, 3> center_A, std::array<double, 3> center_B,
+      double radius_A, double radius_B, bool include_inner_sphere_A,
+      bool include_inner_sphere_B, bool include_outer_sphere,
+      double outer_radius, bool use_equiangular_map,
       const typename InitialRefinement::type& initial_refinement,
       const typename InitialGridPoints::type& initial_grid_points,
-      std::unique_ptr<domain::creators::time_dependence::TimeDependence<3>>
-          time_dependence = nullptr,
+      std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+          inner_boundary_condition = nullptr,
+      std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+          outer_boundary_condition = nullptr,
+      const Options::Context& context = {});
+
+  CylindricalBinaryCompactObject(
+      bco::TimeDependentMapOptions time_dependent_options,
+      std::array<double, 3> center_A, std::array<double, 3> center_B,
+      double radius_A, double radius_B, bool include_inner_sphere_A,
+      bool include_inner_sphere_B, bool include_outer_sphere,
+      double outer_radius, bool use_equiangular_map,
+      const typename InitialRefinement::type& initial_refinement,
+      const typename InitialGridPoints::type& initial_grid_points,
       std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
           inner_boundary_condition = nullptr,
       std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
@@ -344,14 +370,17 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
   // construct the map in a frame where the centers are offset in the
   // z direction.  At the end, there will be another rotation back to
   // the grid frame (where the centers are offset in the x direction).
-  typename CenterA::type center_A_{};
-  typename CenterB::type center_B_{};
-  typename RadiusA::type radius_A_{};
-  typename RadiusB::type radius_B_{};
-  typename IncludeInnerSphereA::type include_inner_sphere_A_{};
-  typename IncludeInnerSphereB::type include_inner_sphere_B_{};
-  typename IncludeOuterSphere::type include_outer_sphere_{};
-  typename OuterRadius::type outer_radius_{};
+  std::array<double, 3> center_A_{};
+  std::array<double, 3> center_B_{};
+  double radius_A_{};
+  double radius_B_{};
+  double outer_radius_A_{};
+  double outer_radius_B_{};
+  bool include_inner_sphere_A_{};
+  bool include_inner_sphere_B_{};
+  bool include_outer_sphere_{};
+  double outer_radius_{};
+  bool use_equiangular_map_{false};
   typename std::vector<std::array<size_t, 3>> initial_refinement_{};
   typename std::vector<std::array<size_t, 3>> initial_grid_points_{};
   // cut_spheres_offset_factor_ is eta in Eq. (A.9) of
@@ -364,8 +393,6 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
   // https://arxiv.org/abs/1206.3015 (but rotated to the z-axis).
   double z_cutting_plane_{};
   size_t number_of_blocks_{};
-  std::unique_ptr<domain::creators::time_dependence::TimeDependence<3>>
-      time_dependence_;
   std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
       inner_boundary_condition_;
   std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
@@ -373,5 +400,7 @@ class CylindricalBinaryCompactObject : public DomainCreator<3> {
   std::vector<std::string> block_names_{};
   std::unordered_map<std::string, std::unordered_set<std::string>>
       block_groups_{};
+  // FunctionsOfTime options
+  std::optional<bco::TimeDependentMapOptions> time_dependent_options_{};
 };
 }  // namespace domain::creators

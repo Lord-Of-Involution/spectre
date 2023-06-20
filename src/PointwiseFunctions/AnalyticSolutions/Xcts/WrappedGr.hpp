@@ -14,14 +14,17 @@
 #include "Elliptic/Systems/Xcts/Tags.hpp"
 #include "NumericalAlgorithms/LinearOperators/Divergence.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
+#include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/Xcts/CommonVariables.hpp"
+#include "PointwiseFunctions/AnalyticSolutions/Xcts/Flatness.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags/Conformal.hpp"
+#include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/AnalyticSolution.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/PrettyType.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -29,29 +32,30 @@ namespace Xcts::Solutions {
 namespace detail {
 
 template <typename DataType, size_t Dim>
-using gr_solution_vars = tmpl::list<
-    gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-    gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataType>,
-    ::Tags::deriv<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    gr::Tags::Lapse<DataType>,
-    ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
-                  Frame::Inertial>,
-    gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-    ::Tags::deriv<gr::Tags::Shift<Dim, Frame::Inertial, DataType>,
-                  tmpl::size_t<Dim>, Frame::Inertial>,
-    gr::Tags::ExtrinsicCurvature<Dim, Frame::Inertial, DataType>>;
+using gr_solution_vars =
+    tmpl::list<gr::Tags::SpatialMetric<DataType, Dim>,
+               gr::Tags::InverseSpatialMetric<DataType, Dim>,
+               ::Tags::deriv<gr::Tags::SpatialMetric<DataType, Dim>,
+                             tmpl::size_t<Dim>, Frame::Inertial>,
+               gr::Tags::Lapse<DataType>,
+               ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               gr::Tags::Shift<DataType, Dim>,
+               ::Tags::deriv<gr::Tags::Shift<DataType, Dim>, tmpl::size_t<Dim>,
+                             Frame::Inertial>,
+               gr::Tags::ExtrinsicCurvature<DataType, Dim>>;
 
 template <typename DataType>
 using WrappedGrVariablesCache =
     cached_temp_buffer_from_typelist<tmpl::push_back<
         common_tags<DataType>,
+        hydro::Tags::MagneticFieldDotSpatialVelocity<DataType>,
+        hydro::Tags::ComovingMagneticFieldSquared<DataType>,
         gr::Tags::Conformal<gr::Tags::EnergyDensity<DataType>, 0>,
         gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0>,
-        gr::Tags::Conformal<
-            gr::Tags::MomentumDensity<3, Frame::Inertial, DataType>, 0>>>;
+        gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, 3>, 0>>>;
 
-template <typename DataType>
+template <typename DataType, bool HasMhd>
 struct WrappedGrVariables
     : CommonVariables<DataType, WrappedGrVariablesCache<DataType>> {
   static constexpr size_t Dim = 3;
@@ -66,14 +70,19 @@ struct WrappedGrVariables
           local_inv_jacobian,
       const tnsr::I<DataType, 3>& local_x,
       const tuples::tagged_tuple_from_typelist<gr_solution_vars<DataType, Dim>>&
-          local_gr_solution)
+          local_gr_solution,
+      const tuples::tagged_tuple_from_typelist<hydro_tags<DataType>>&
+          local_hydro_solution)
       : Base(std::move(local_mesh), std::move(local_inv_jacobian)),
         x(local_x),
-        gr_solution(local_gr_solution) {}
+        gr_solution(local_gr_solution),
+        hydro_solution(local_hydro_solution) {}
 
   const tnsr::I<DataType, Dim>& x;
   const tuples::tagged_tuple_from_typelist<gr_solution_vars<DataType, Dim>>&
       gr_solution;
+  const tuples::tagged_tuple_from_typelist<hydro_tags<DataType>>&
+      hydro_solution;
 
   void operator()(
       gsl::not_null<tnsr::ii<DataType, Dim>*> conformal_metric,
@@ -90,21 +99,19 @@ struct WrappedGrVariables
       ::Tags::deriv<Xcts::Tags::ConformalMetric<DataType, Dim, Frame::Inertial>,
                     tmpl::size_t<Dim>, Frame::Inertial> /*meta*/)
       const override;
-  void operator()(gsl::not_null<tnsr::ii<DataType, Dim>*> spatial_metric,
-                  gsl::not_null<Cache*> cache,
-                  gr::Tags::SpatialMetric<Dim, Frame::Inertial,
-                                          DataType> /*meta*/) const override;
+  void operator()(
+      gsl::not_null<tnsr::ii<DataType, Dim>*> spatial_metric,
+      gsl::not_null<Cache*> cache,
+      gr::Tags::SpatialMetric<DataType, Dim> /*meta*/) const override;
   void operator()(
       gsl::not_null<tnsr::II<DataType, Dim>*> inv_spatial_metric,
       gsl::not_null<Cache*> cache,
-      gr::Tags::InverseSpatialMetric<Dim, Frame::Inertial, DataType> /*meta*/)
-      const override;
+      gr::Tags::InverseSpatialMetric<DataType, Dim> /*meta*/) const override;
   void operator()(
       gsl::not_null<tnsr::ijj<DataType, Dim>*> deriv_spatial_metric,
       gsl::not_null<Cache*> cache,
-      ::Tags::deriv<gr::Tags::SpatialMetric<Dim, Frame::Inertial, DataType>,
-                    tmpl::size_t<Dim>, Frame::Inertial> /*meta*/)
-      const override;
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataType, Dim>, tmpl::size_t<Dim>,
+                    Frame::Inertial> /*meta*/) const override;
   void operator()(
       gsl::not_null<Scalar<DataType>*> trace_extrinsic_curvature,
       gsl::not_null<Cache*> cache,
@@ -159,8 +166,15 @@ struct WrappedGrVariables
   void operator()(
       gsl::not_null<tnsr::ii<DataType, 3>*> extrinsic_curvature,
       gsl::not_null<Cache*> cache,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataType> /*meta*/)
-      const override;
+      gr::Tags::ExtrinsicCurvature<DataType, 3> /*meta*/) const override;
+  void operator()(
+      gsl::not_null<Scalar<DataType>*> magnetic_field_dot_spatial_velocity,
+      gsl::not_null<Cache*> cache,
+      hydro::Tags::MagneticFieldDotSpatialVelocity<DataType> /*meta*/) const;
+  void operator()(
+      gsl::not_null<Scalar<DataType>*> comoving_magnetic_field_squared,
+      gsl::not_null<Cache*> cache,
+      hydro::Tags::ComovingMagneticFieldSquared<DataType> /*meta*/) const;
   void operator()(
       gsl::not_null<Scalar<DataType>*> energy_density,
       gsl::not_null<Cache*> cache,
@@ -171,9 +185,8 @@ struct WrappedGrVariables
       gr::Tags::Conformal<gr::Tags::StressTrace<DataType>, 0> /*meta*/) const;
   void operator()(gsl::not_null<tnsr::I<DataType, Dim>*> momentum_density,
                   gsl::not_null<Cache*> cache,
-                  gr::Tags::Conformal<
-                      gr::Tags::MomentumDensity<Dim, Frame::Inertial, DataType>,
-                      0> /*meta*/) const;
+                  gr::Tags::Conformal<gr::Tags::MomentumDensity<DataType, Dim>,
+                                      0> /*meta*/) const;
 };
 
 }  // namespace detail
@@ -210,10 +223,39 @@ struct WrappedGrVariables
  * production solves this is not an issue because we choose a much better
  * initial guess than flatness, such as a superposition of Kerr solutions for
  * black-hole binary initial data.
+ *
+ * \warning
+ * The computation of the XCTS matter source terms (energy density $\rho$,
+ * momentum density $S^i$, stress trace $S$) uses GR quantities (lapse $\alpha$,
+ * shift $\beta^i$, spatial metric $\gamma_{ij}$), which means these GR
+ * quantities are not treated dynamically in the source terms when solving the
+ * XCTS equations. If the GR quantities satisfy the Einstein constraints (as is
+ * the case if the `GrSolution` is actually a solution to the Einstein
+ * equations), then the XCTS solve will reproduce the GR quantities given the
+ * fixed sources computed here. However, if the GR quantities don't satisfy the
+ * Einstein constraints (e.g. because a magnetic field was added to the solution
+ * but ignored in the gravity sector, or because it is a hydrodynamic solution
+ * on a fixed background metric) then the XCTS solution will depend on our
+ * treatment of the source terms: fixing the source terms (the simple approach
+ * taken here) means we're making a choice of $W$ and $u^i$. This is what
+ * initial data codes usually do when they iterate back and forth between a
+ * hydro solve and an XCTS solve (e.g. see \cite Tacik2016zal). Alternatively,
+ * we could fix $v^i$ and compute $W$ and $u^i$ from $v^i$ and the dynamic
+ * metric variables at every step in the XCTS solver algorithm. This requires
+ * adding the source terms and their linearization to the XCTS equations, and
+ * could be interesting to explore.
+ *
+ * \tparam GrSolution Any solution to the Einstein constraint equations
+ * \tparam HasMhd Enable to compute matter source terms. Disable to set matter
+ * source terms to zero.
  */
-template <typename GrSolution>
-class WrappedGr : public elliptic::analytic_data::AnalyticSolution,
-                  public GrSolution {
+template <typename GrSolution, bool HasMhd = false,
+          typename GrSolutionOptions = typename GrSolution::options>
+class WrappedGr;
+
+template <typename GrSolution, bool HasMhd, typename... GrSolutionOptions>
+class WrappedGr<GrSolution, HasMhd, tmpl::list<GrSolutionOptions...>>
+    : public elliptic::analytic_data::AnalyticSolution {
  public:
   static constexpr size_t Dim = 3;
 
@@ -221,26 +263,35 @@ class WrappedGr : public elliptic::analytic_data::AnalyticSolution,
   static constexpr Options::String help = GrSolution::help;
   static std::string name() { return pretty_type::name<GrSolution>(); }
 
-  using GrSolution::GrSolution;
+  WrappedGr() = default;
+  WrappedGr(const WrappedGr&) = default;
+  WrappedGr& operator=(const WrappedGr&) = default;
+  WrappedGr(WrappedGr&&) = default;
+  WrappedGr& operator=(WrappedGr&&) = default;
+  ~WrappedGr() = default;
+
+  WrappedGr(typename GrSolutionOptions::type... gr_solution_options)
+      : gr_solution_(std::move(gr_solution_options)...) {}
+
+  const GrSolution& gr_solution() const { return gr_solution_; }
+
+  /// \cond
+  explicit WrappedGr(CkMigrateMessage* m)
+      : elliptic::analytic_data::AnalyticSolution(m) {}
   using PUP::able::register_constructor;
-  WRAPPED_PUPable_decl_template(WrappedGr<GrSolution>);
+  WRAPPED_PUPable_decl_template(WrappedGr);
   std::unique_ptr<elliptic::analytic_data::AnalyticSolution> get_clone()
       const override {
-    return std::make_unique<WrappedGr<GrSolution>>(*this);
+    return std::make_unique<WrappedGr>(*this);
   }
+  /// \endcond
 
   template <typename DataType, typename... RequestedTags>
   tuples::TaggedTuple<RequestedTags...> variables(
       const tnsr::I<DataType, 3, Frame::Inertial>& x,
       tmpl::list<RequestedTags...> /*meta*/) const {
-    const auto gr_solution =
-        GrSolution::variables(x, std::numeric_limits<double>::signaling_NaN(),
-                              detail::gr_solution_vars<DataType, Dim>{});
-    using VarsComputer = detail::WrappedGrVariables<DataType>;
-    const size_t num_points = get_size(*x.begin());
-    typename VarsComputer::Cache cache{num_points};
-    const VarsComputer computer{std::nullopt, std::nullopt, x, gr_solution};
-    return {cache.get_var(computer, RequestedTags{})...};
+    return variables_impl<DataType>(x, std::nullopt, std::nullopt,
+                                    tmpl::list<RequestedTags...>{});
   }
 
   template <typename DataType, typename... RequestedTags>
@@ -249,20 +300,84 @@ class WrappedGr : public elliptic::analytic_data::AnalyticSolution,
       const InverseJacobian<DataVector, 3, Frame::ElementLogical,
                             Frame::Inertial>& inv_jacobian,
       tmpl::list<RequestedTags...> /*meta*/) const {
-    const auto gr_solution =
-        GrSolution::variables(x, std::numeric_limits<double>::signaling_NaN(),
-                              detail::gr_solution_vars<DataType, Dim>{});
-    using VarsComputer = detail::WrappedGrVariables<DataType>;
-    const size_t num_points = get_size(*x.begin());
-    typename VarsComputer::Cache cache{num_points};
-    VarsComputer computer{mesh, inv_jacobian, x, gr_solution};
-    return {cache.get_var(computer, RequestedTags{})...};
+    return variables_impl<DataVector>(x, mesh, inv_jacobian,
+                                      tmpl::list<RequestedTags...>{});
   }
 
   void pup(PUP::er& p) override {
-    GrSolution::pup(p);
     elliptic::analytic_data::AnalyticSolution::pup(p);
+    p | gr_solution_;
   }
+
+ private:
+  template <typename DataType, typename... RequestedTags>
+  tuples::TaggedTuple<RequestedTags...> variables_impl(
+      const tnsr::I<DataType, 3, Frame::Inertial>& x,
+      std::optional<std::reference_wrapper<const Mesh<3>>> mesh,
+      std::optional<std::reference_wrapper<const InverseJacobian<
+          DataType, 3, Frame::ElementLogical, Frame::Inertial>>>
+          inv_jacobian,
+      tmpl::list<RequestedTags...> /*meta*/) const {
+    tuples::tagged_tuple_from_typelist<detail::gr_solution_vars<DataType, Dim>>
+        gr_solution;
+    if constexpr (is_analytic_solution_v<GrSolution>) {
+      gr_solution = gr_solution_.variables(
+          x, std::numeric_limits<double>::signaling_NaN(),
+          detail::gr_solution_vars<DataType, Dim>{});
+    } else {
+      gr_solution =
+          gr_solution_.variables(x, detail::gr_solution_vars<DataType, Dim>{});
+    }
+    tuples::tagged_tuple_from_typelist<hydro_tags<DataType>> hydro_solution;
+    if constexpr (HasMhd) {
+      if constexpr (is_analytic_solution_v<GrSolution>) {
+        hydro_solution = gr_solution_.variables(
+            x, std::numeric_limits<double>::signaling_NaN(),
+            hydro_tags<DataType>{});
+      } else {
+        hydro_solution = gr_solution_.variables(x, hydro_tags<DataType>{});
+      }
+    }
+    using VarsComputer = detail::WrappedGrVariables<DataType, HasMhd>;
+    const size_t num_points = get_size(*x.begin());
+    typename VarsComputer::Cache cache{num_points};
+    VarsComputer computer{mesh, inv_jacobian, x, gr_solution, hydro_solution};
+    const auto get_var = [&cache, &computer, &hydro_solution, &x](auto tag_v) {
+      using tag = std::decay_t<decltype(tag_v)>;
+      if constexpr (tmpl::list_contains_v<hydro_tags<DataType>, tag>) {
+        (void)cache;
+        (void)computer;
+        if constexpr (HasMhd) {
+          (void)x;
+          return get<tag>(hydro_solution);
+        } else {
+          (void)hydro_solution;
+          return get<tag>(Flatness{}.variables(x, tmpl::list<tag>{}));
+        }
+      } else {
+        (void)hydro_solution;
+        (void)x;
+        return cache.get_var(computer, tag{});
+      }
+    };
+    return {get_var(RequestedTags{})...};
+  }
+
+  friend bool operator==(const WrappedGr<GrSolution, HasMhd>& lhs,
+                         const WrappedGr<GrSolution, HasMhd>& rhs) {
+    return lhs.gr_solution_ == rhs.gr_solution_;
+  }
+
+  GrSolution gr_solution_;
 };
+
+template <typename GrSolution, bool HasMhd>
+inline bool operator!=(const WrappedGr<GrSolution, HasMhd>& lhs,
+                       const WrappedGr<GrSolution, HasMhd>& rhs) {
+  return not(lhs == rhs);
+}
+
+template <typename GrMhdSolution>
+using WrappedGrMhd = WrappedGr<GrMhdSolution, true>;
 
 }  // namespace Xcts::Solutions

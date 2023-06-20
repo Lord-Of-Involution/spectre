@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/Prefixes.hpp"
 #include "DataStructures/FixedHashMap.hpp"
@@ -17,14 +16,15 @@
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Tags.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/Systems/ScalarAdvection/FiniteDifference/Reconstructor.hpp"
 #include "Evolution/Systems/ScalarAdvection/Tags.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
+class DataVector;
 template <size_t Dim>
 class Direction;
 template <size_t Dim>
@@ -42,6 +42,9 @@ class not_null;
 namespace PUP {
 class er;
 }  // namespace PUP
+namespace evolution::dg::subcell {
+class GhostData;
+}  // namespace evolution::dg::subcell
 /// \endcond
 
 namespace ScalarAdvection::fd {
@@ -52,9 +55,6 @@ namespace ScalarAdvection::fd {
 template <size_t Dim>
 class MonotonisedCentral : public Reconstructor<Dim> {
  private:
-  using face_vars_tags =
-      tmpl::list<Tags::U,
-                 ::Tags::Flux<Tags::U, tmpl::size_t<Dim>, Frame::Inertial>>;
   using volume_vars_tags = tmpl::list<Tags::U>;
 
  public:
@@ -80,10 +80,11 @@ class MonotonisedCentral : public Reconstructor<Dim> {
 
   size_t ghost_zone_size() const override { return 2; }
 
-  using reconstruction_argument_tags = tmpl::list<
-      ::Tags::Variables<volume_vars_tags>, domain::Tags::Element<Dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
-      evolution::dg::subcell::Tags::Mesh<Dim>>;
+  using reconstruction_argument_tags =
+      tmpl::list<::Tags::Variables<volume_vars_tags>,
+                 domain::Tags::Element<Dim>,
+                 evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
+                 evolution::dg::subcell::Tags::Mesh<Dim>>;
 
   template <typename TagsList>
   void reconstruct(
@@ -93,9 +94,9 @@ class MonotonisedCentral : public Reconstructor<Dim> {
       const Element<Dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(Dim),
-          std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
-          neighbor_data,
+          std::pair<Direction<Dim>, ElementId<Dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& ghost_data,
       const Mesh<Dim>& subcell_mesh) const;
 
   template <typename TagsList>
@@ -105,9 +106,9 @@ class MonotonisedCentral : public Reconstructor<Dim> {
       const Element<Dim>& element,
       const FixedHashMap<
           maximum_number_of_neighbors(Dim),
-          std::pair<Direction<Dim>, ElementId<Dim>>, std::vector<double>,
-          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>&
-          neighbor_data,
+          std::pair<Direction<Dim>, ElementId<Dim>>,
+          evolution::dg::subcell::GhostData,
+          boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>& ghost_data,
       const Mesh<Dim>& subcell_mesh,
       const Direction<Dim> direction_to_reconstruct) const;
 };

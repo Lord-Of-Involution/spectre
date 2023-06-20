@@ -20,6 +20,7 @@
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
+#include "DataStructures/VariablesTag.hpp"
 #include "Domain/CoordinateMaps/Affine.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.tpp"
@@ -27,10 +28,10 @@
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
 #include "Domain/CoordinateMaps/Rotation.hpp"
 #include "Domain/CoordinateMaps/TimeDependent/CubicScale.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
 #include "Domain/FunctionsOfTime/PiecewisePolynomial.hpp"
-#include "Domain/FunctionsOfTime/Tags.hpp"
 #include "Domain/InterfaceComputeTags.hpp"
 #include "Domain/InterfaceLogicalCoordinates.hpp"
 #include "Domain/Structure/Direction.hpp"
@@ -470,9 +471,10 @@ void test_interface_subitems() {
       "Interface<Dirs, Var>");
 
   db::mutate<Tags::Interface<Dirs, Var<0>>>(
-      make_not_null(&box), [](const auto boundary_tensor) {
+      [](const auto boundary_tensor) {
         get(boundary_tensor->at(Direction<dim>::lower_xi())) *= 3.;
-      });
+      },
+      make_not_null(&box));
   CHECK((db::get<Tags::Interface<Dirs, Var<0>>>(box)) ==
         make_interface_tensor(3. * boundary_vars_xi, boundary_vars_eta));
 }

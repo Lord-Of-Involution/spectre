@@ -1,9 +1,12 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# This test problem is the same as detailed in `Test_MultigridAlgorithm.yaml`,
-# but the operator includes the mass matrix (with mass-lumping). This is
-# relevant for the multigrid restriction operation.
+Description: |
+  This test problem is the same as detailed in `Test_MultigridAlgorithm.yaml`,
+  but the operator includes the mass matrix (with mass-lumping). This is
+  relevant for the multigrid restriction operation.
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -13,6 +16,8 @@ DomainCreator:
   Interval:
     LowerBound: [0]
     UpperBound: [3.141592653589793]
+    Distribution: Linear
+    Singularity: None
     IsPeriodicIn: [false]
     InitialRefinement: [1]
     InitialGridPoints: [3]

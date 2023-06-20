@@ -9,7 +9,7 @@
 #include <ostream>
 #include <pup.h>
 
-#include "Parallel/PupStlCpp17.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 /// \ingroup DataStructuresGroup
 /// An identifier for an element in a sequence
@@ -72,3 +72,8 @@ struct LinkedMessageIdLessComparator {
     return linked_message_id.id < id;
   }
 };
+
+template <typename Id>
+bool operator<(const LinkedMessageId<Id>& lhs, const LinkedMessageId<Id>& rhs) {
+  return LinkedMessageIdLessComparator<Id>{}(lhs, rhs);
+}

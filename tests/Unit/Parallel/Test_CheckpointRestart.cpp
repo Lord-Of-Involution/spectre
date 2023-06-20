@@ -29,6 +29,7 @@
 #include "Parallel/PhaseDependentActionList.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
@@ -79,13 +80,13 @@ struct MutateLog {
       const ArrayIndex& array_index, ActionList /*meta*/,
       const ParallelComponent* const /*meta*/) {
     db::mutate<Tags::Log>(
-        make_not_null(&box),
         [&array_index](const gsl::not_null<std::string*> log) {
           const std::string component_name =
               pretty_type::short_name<ParallelComponent>() + " " +
               std::to_string(static_cast<int>(array_index));
           log->append(component_name + " invoked action MutateLog\n");
-        });
+        },
+        make_not_null(&box));
     return {Parallel::AlgorithmExecution::Pause, std::nullopt};
   }
 };
@@ -238,7 +239,7 @@ struct TestMetavariables {
 static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Parallel::Main<TestMetavariables>;
 

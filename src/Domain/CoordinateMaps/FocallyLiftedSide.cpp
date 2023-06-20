@@ -10,13 +10,13 @@
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/CoordinateMaps/FocallyLiftedMapHelpers.hpp"
-#include "Parallel/PupStlCpp11.hpp"
 #include "Utilities/ConstantExpressions.hpp"
 #include "Utilities/ContainerHelpers.hpp"
 #include "Utilities/DereferenceWrapper.hpp"
 #include "Utilities/EqualWithinRoundoff.hpp"
 #include "Utilities/GenerateInstantiations.hpp"
 #include "Utilities/MakeWithValue.hpp"
+#include "Utilities/Serialization/PupStlCpp11.hpp"
 
 namespace domain::CoordinateMaps::FocallyLiftedInnerMaps {
 
@@ -246,10 +246,17 @@ void Side::deriv_lambda_tilde(
 }
 
 void Side::pup(PUP::er& p) {
-  p | center_;
-  p | radius_;
-  p | theta_min_;
-  p | theta_max_;
+  size_t version = 0;
+  p | version;
+  // Remember to increment the version number when making changes to this
+  // function. Retain support for unpacking data written by previous versions
+  // whenever possible. See `Domain` docs for details.
+  if (version >= 0) {
+    p | center_;
+    p | radius_;
+    p | theta_min_;
+    p | theta_max_;
+  }
 }
 
 bool operator==(const Side& lhs, const Side& rhs) {

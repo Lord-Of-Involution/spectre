@@ -1,8 +1,11 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveNewtonianEulerRiemannProblem3D
-# Check: parse;execute
+Executable: EvolveNewtonianEulerRiemannProblem3D
+Testing:
+  Check: parse;execute
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -22,7 +25,9 @@ DomainCreator:
     InitialRefinement: [4, 0, 0]
     InitialGridPoints: [2, 2, 2]
     TimeDependence: None
-    BoundaryCondition: DirichletAnalytic
+    BoundaryConditionInX: DirichletAnalytic
+    BoundaryConditionInY: DirichletAnalytic
+    BoundaryConditionInZ: DirichletAnalytic
 
 SpatialDiscretization:
   BoundaryCorrection:
@@ -40,6 +45,9 @@ SpatialDiscretization:
       PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
   SubcellSolver:
     Reconstructor:
       MonotonisedCentralPrim:
@@ -57,10 +65,12 @@ AnalyticSolution:
     PressureStarTol: 1e-9
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
+    Events:
+      - Completion
 
 EventsAndDenseTriggers:
 

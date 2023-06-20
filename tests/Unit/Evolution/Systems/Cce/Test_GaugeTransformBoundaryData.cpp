@@ -163,7 +163,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
       amplitude, frequency, target_time, l_max, false);
 
   db::mutate<spin_weighted_variables_tag>(
-      make_not_null(&forward_transform_box),
       [&spatial_metric_coefficients, &dt_spatial_metric_coefficients,
        &dr_spatial_metric_coefficients, &shift_coefficients,
        &dt_shift_coefficients, &dr_shift_coefficients, &lapse_coefficients,
@@ -176,13 +175,13 @@ void test_gauge_transforms_via_inverse_coordinate_map(
             shift_coefficients, dt_shift_coefficients, dr_shift_coefficients,
             lapse_coefficients, dt_lapse_coefficients, dr_lapse_coefficients,
             extraction_radius, l_max);
-      });
+      },
+      make_not_null(&forward_transform_box));
 
   // construct the coordinate transform quantities
   const double variation_amplitude = value_dist(*gen);
   const double variation_amplitude_inertial = value_dist(*gen);
   db::mutate<Tags::CauchyCartesianCoords>(
-      make_not_null(&forward_transform_box),
       [&l_max,
        &variation_amplitude](const gsl::not_null<tnsr::i<DataVector, 3>*>
                                  cauchy_cartesian_coordinates) {
@@ -191,8 +190,11 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         // There is a bug in Clang 10.0.0 that gives a nonsensical
         // error message for the following call to
         // cached_collocation_metadata unless l_max is captured in
-        // this lambda.  (The capture should not be necessary.)  This
-        // line silences the (correct) "unused capture" warnings.
+        // this lambda. The capture should not be necessary because l_max is a
+        // const integer type that is initialized by a constant expression. Note
+        // that l_max need not be declared constexpr for its value to be
+        // retrieved inside a lambda without capturing it. This
+        // line silences the warning that says capturing l_max is not necessary.
         (void)l_max;
         const auto& collocation = Spectral::Swsh::cached_collocation_metadata<
             Spectral::Swsh::ComplexRepresentation::Interleaved>(l_max);
@@ -212,10 +214,10 @@ void test_gauge_transforms_via_inverse_coordinate_map(
             sin(get<1>(cauchy_angular_coordinates));
         get<2>(*cauchy_cartesian_coordinates) =
             cos(get<0>(cauchy_angular_coordinates));
-      });
+      },
+      make_not_null(&forward_transform_box));
 
   db::mutate<Tags::PartiallyFlatCartesianCoords>(
-      make_not_null(&forward_transform_box),
       [&l_max, &variation_amplitude_inertial](
           const gsl::not_null<tnsr::i<DataVector, 3>*>
               inertial_cartesian_coordinates) {
@@ -224,8 +226,11 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         // There is a bug in Clang 10.0.0 that gives a nonsensical
         // error message for the following call to
         // cached_collocation_metadata unless l_max is captured in
-        // this lambda.  (The capture should not be necessary.)  This
-        // line silences the (correct) "unused capture" warnings.
+        // this lambda. The capture should not be necessary because l_max is a
+        // const integer type that is initialized by a constant expression. Note
+        // that l_max need not be declared constexpr for its value to be
+        // retrieved inside a lambda without capturing it. This
+        // line silences the warning that says capturing l_max is not necessary.
         (void)l_max;
         const auto& collocation = Spectral::Swsh::cached_collocation_metadata<
             Spectral::Swsh::ComplexRepresentation::Interleaved>(l_max);
@@ -245,7 +250,8 @@ void test_gauge_transforms_via_inverse_coordinate_map(
             sin(get<1>(inertial_angular_coordinates));
         get<2>(*inertial_cartesian_coordinates) =
             cos(get<0>(inertial_angular_coordinates));
-      });
+      },
+      make_not_null(&forward_transform_box));
 
   auto inverse_transform_box = db::create<db::AddSimpleTags<
       coordinate_variables_tag, spin_weighted_variables_tag,
@@ -262,7 +268,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
       Spectral::Swsh::SwshInterpolator{});
 
   db::mutate<Tags::CauchyCartesianCoords>(
-      make_not_null(&inverse_transform_box),
       [&l_max,
        &variation_amplitude](const gsl::not_null<tnsr::i<DataVector, 3>*>
                                  inverse_cauchy_cartesian_coordinates) {
@@ -271,8 +276,11 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         // There is a bug in Clang 10.0.0 that gives a nonsensical
         // error message for the following call to
         // cached_collocation_metadata unless l_max is captured in
-        // this lambda.  (The capture should not be necessary.)  This
-        // line silences the (correct) "unused capture" warnings.
+        // this lambda. The capture should not be necessary because l_max is a
+        // const integer type that is initialized by a constant expression. Note
+        // that l_max need not be declared constexpr for its value to be
+        // retrieved inside a lambda without capturing it. This
+        // line silences the warning that says capturing l_max is not necessary.
         (void)l_max;
         const auto& collocation = Spectral::Swsh::cached_collocation_metadata<
             Spectral::Swsh::ComplexRepresentation::Interleaved>(l_max);
@@ -298,10 +306,10 @@ void test_gauge_transforms_via_inverse_coordinate_map(
             sin(get<1>(inverse_cauchy_angular_coordinates));
         get<2>(*inverse_cauchy_cartesian_coordinates) =
             cos(get<0>(inverse_cauchy_angular_coordinates));
-      });
+      },
+      make_not_null(&inverse_transform_box));
 
   db::mutate<Tags::PartiallyFlatCartesianCoords>(
-      make_not_null(&inverse_transform_box),
       [&l_max, &variation_amplitude_inertial](
           const gsl::not_null<tnsr::i<DataVector, 3>*>
               inverse_inertial_cartesian_coordinates) {
@@ -310,8 +318,11 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         // There is a bug in Clang 10.0.0 that gives a nonsensical
         // error message for the following call to
         // cached_collocation_metadata unless l_max is captured in
-        // this lambda.  (The capture should not be necessary.)  This
-        // line silences the (correct) "unused capture" warnings.
+        // this lambda. The capture should not be necessary because l_max is a
+        // const integer type that is initialized by a constant expression. Note
+        // that l_max need not be declared constexpr for its value to be
+        // retrieved inside a lambda without capturing it. This
+        // line silences the warning that says capturing l_max is not necessary.
         (void)l_max;
         const auto& collocation = Spectral::Swsh::cached_collocation_metadata<
             Spectral::Swsh::ComplexRepresentation::Interleaved>(l_max);
@@ -340,7 +351,8 @@ void test_gauge_transforms_via_inverse_coordinate_map(
             sin(get<1>(inverse_inertial_angular_coordinates));
         get<2>(*inverse_inertial_cartesian_coordinates) =
             cos(get<0>(inverse_inertial_angular_coordinates));
-      });
+      },
+      make_not_null(&inverse_transform_box));
 
   {
     INFO("Checking GaugeUpdateAngularFromCartesian");
@@ -537,7 +549,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
     db::mutate_apply<GaugeAdjustedBoundaryValue<tag>>(
         make_not_null(&forward_transform_box));
     db::mutate<Tags::BoundaryValue<tag>>(
-        make_not_null(&inverse_transform_box),
         [](const gsl::not_null<typename Tags::BoundaryValue<tag>::type*>
                inverse_transform_boundary_value,
            const typename Tags::EvolutionGaugeBoundaryValue<tag>::type&
@@ -545,11 +556,11 @@ void test_gauge_transforms_via_inverse_coordinate_map(
           *inverse_transform_boundary_value =
               forward_transform_evolution_gauge_value;
         },
+        make_not_null(&inverse_transform_box),
         db::get<Tags::EvolutionGaugeBoundaryValue<tag>>(forward_transform_box));
     if (std::is_same_v<tag, Tags::BondiQ>) {
       // populate dr_u in the inverse box using the equation of motion.
       db::mutate<Tags::BoundaryValue<Tags::Dr<Tags::BondiU>>>(
-          make_not_null(&inverse_transform_box),
           [](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
                  dr_u,
              const Scalar<SpinWeighted<ComplexDataVector, 0>>& beta,
@@ -563,6 +574,7 @@ void test_gauge_transforms_via_inverse_coordinate_map(
                                 (k.data() * get(q).data() -
                                  get(j).data() * conj(get(q).data()));
           },
+          make_not_null(&inverse_transform_box),
           db::get<Tags::BoundaryValue<Tags::BondiBeta>>(inverse_transform_box),
           db::get<Tags::BoundaryValue<Tags::BondiR>>(inverse_transform_box),
           db::get<Tags::BoundaryValue<Tags::BondiQ>>(inverse_transform_box),
@@ -570,7 +582,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
     }
     if (std::is_same_v<tag, Tags::BondiH>) {
       db::mutate<Tags::BoundaryValue<Tags::Du<Tags::BondiJ>>>(
-          make_not_null(&inverse_transform_box),
           [](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 2>>*>
                  du_j,
              const Scalar<SpinWeighted<ComplexDataVector, 2>>& h,
@@ -580,6 +591,7 @@ void test_gauge_transforms_via_inverse_coordinate_map(
                  du_r_divided_by_r) {
             get(*du_j) = get(h) - get(r) * get(du_r_divided_by_r) * get(dr_j);
           },
+          make_not_null(&inverse_transform_box),
           db::get<Tags::BoundaryValue<Tags::BondiH>>(inverse_transform_box),
           db::get<Tags::BoundaryValue<Tags::Dr<Tags::BondiJ>>>(
               inverse_transform_box),
@@ -638,7 +650,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
   // angular coordinates, and does not need to be consistent with the boundary
   // conditions.
   db::mutate<Tags::BondiU>(
-      make_not_null(&forward_transform_box),
       [](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
              bondi_u,
          const Scalar<SpinWeighted<ComplexDataVector, 1>>& boundary_u) {
@@ -646,13 +657,13 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         fill_with_n_copies(make_not_null(&(get(*bondi_u).data())),
                            time_transform, number_of_radial_grid_points);
       },
+      make_not_null(&forward_transform_box),
       db::get<Tags::EvolutionGaugeBoundaryValue<Tags::BondiU>>(
           forward_transform_box));
 
   // choose a U value for the inverse transform that results in the appropriate
   // inverse time dependence for the inverse coordinate transformation.
   db::mutate<Tags::BondiU, Tags::BoundaryValue<Tags::BondiU>>(
-      make_not_null(&inverse_transform_box),
       [](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
              bondi_u,
          const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
@@ -676,6 +687,7 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         fill_with_n_copies(make_not_null(&(get(*bondi_u).data())), minus_u,
                            number_of_radial_grid_points);
       },
+      make_not_null(&inverse_transform_box),
       db::get<Tags::PartiallyFlatGaugeC>(inverse_transform_box),
       db::get<Tags::PartiallyFlatGaugeD>(inverse_transform_box),
       db::get<Tags::PartiallyFlatGaugeOmega>(inverse_transform_box),
@@ -686,7 +698,6 @@ void test_gauge_transforms_via_inverse_coordinate_map(
   // gauge. This additional manipulation is not performed by the standard gauge
   // transform as the extra operations are not required for typical evaluation.
   db::mutate<Tags::EvolutionGaugeBoundaryValue<Tags::BondiU>>(
-      make_not_null(&inverse_transform_box),
       [](const gsl::not_null<Scalar<SpinWeighted<ComplexDataVector, 1>>*>
              evolution_gauge_boundary_u,
          const Scalar<SpinWeighted<ComplexDataVector, 1>>&
@@ -705,6 +716,7 @@ void test_gauge_transforms_via_inverse_coordinate_map(
         // place.
         get(*evolution_gauge_boundary_u).data() += evolution_gauge_u_scri_slice;
       },
+      make_not_null(&inverse_transform_box),
       db::get<Tags::BondiU>(inverse_transform_box));
 
   db::mutate_apply<GaugeUpdateTimeDerivatives>(

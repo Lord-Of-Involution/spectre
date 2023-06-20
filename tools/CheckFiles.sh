@@ -17,7 +17,8 @@ staged_grep() {
     grep "$@";
 }
 pretty_grep() {
-    GREP_COLOR='1;37;41' grep --with-filename -n $color_option "$@"
+    GREP_COLOR='1;37;41' GREP_COLORS='mt=1;37;41' \
+        grep --with-filename -n $color_option "$@"
 }
 
 ##### CI checks #####
@@ -78,6 +79,11 @@ check_cmakelists_for_missing_cxx() {
       && whitelist "$1" \
                    'src/Informer/InfoAtCompile.cpp$' \
                    'src/Informer/InfoAtLink.cpp$' \
+                   'src/PointwiseFunctions/AnalyticData/GeneralRelativity/InterpolateFromSpec.hpp$' \
+                   'src/PointwiseFunctions/AnalyticData/GeneralRelativity/SpecInitialData.hpp$' \
+                   'src/PointwiseFunctions/AnalyticData/GeneralRelativity/SpecInitialData.cpp$' \
+                   'src/PointwiseFunctions/AnalyticData/GrMhd/SpecInitialData.hpp$' \
+                   'src/PointwiseFunctions/AnalyticData/GrMhd/SpecInitialData.cpp$' \
       && [ -f $cmakelists ] \
       && [ $(grep -L "^  $base" $cmakelists) ]
 }

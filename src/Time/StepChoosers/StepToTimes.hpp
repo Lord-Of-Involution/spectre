@@ -9,12 +9,12 @@
 #include <pup_stl.h>
 #include <utility>
 
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
 #include "Time/TimeSequence.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Time/Utilities.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -56,12 +56,11 @@ class StepToTimes : public StepChooser<StepChooserUse::Slab> {
 
   std::pair<double, bool> operator()(const TimeStepId& time_step_id,
                                      const double last_step_magnitude) const {
-    const auto& substep_time = time_step_id.substep_time();
-    const double now = substep_time.value();
+    const double now = time_step_id.substep_time();
     // Trying to step to a given time might not get us exactly there
     // because of rounding errors.  Avoid taking an extra tiny step if
     // we undershoot.
-    const double sloppiness = slab_rounding_error(substep_time);
+    const double sloppiness = slab_rounding_error(time_step_id.step_time());
 
     const auto goal_times = times_->times_near(now);
     if (not goal_times[1]) {

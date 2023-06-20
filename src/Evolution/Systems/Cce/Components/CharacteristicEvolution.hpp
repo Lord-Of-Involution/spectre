@@ -15,6 +15,7 @@
 #include "Evolution/Systems/Cce/Actions/InitializeCharacteristicEvolutionVariables.hpp"
 #include "Evolution/Systems/Cce/Actions/InitializeFirstHypersurface.hpp"
 #include "Evolution/Systems/Cce/Actions/InsertInterpolationScriData.hpp"
+#include "Evolution/Systems/Cce/Actions/Psi0Matching.hpp"
 #include "Evolution/Systems/Cce/Actions/RequestBoundaryData.hpp"
 #include "Evolution/Systems/Cce/Actions/ScriObserveInterpolated.hpp"
 #include "Evolution/Systems/Cce/Actions/TimeManagement.hpp"
@@ -98,6 +99,7 @@ template <class Metavariables>
 struct CharacteristicEvolution {
   using chare_type = Parallel::Algorithms::Singleton;
   using metavariables = Metavariables;
+  using cce_system = Cce::System<Metavariables::evolve_ccm>;
 
   using initialize_action_list = tmpl::list<
       Actions::InitializeCharacteristicEvolutionVariables<Metavariables>,
@@ -134,11 +136,10 @@ struct CharacteristicEvolution {
                   tt::is_a_v<AnalyticWorldtubeBoundary,
                              typename Metavariables::cce_boundary_component>,
                   tmpl::list<>,
-                  tmpl::conditional_t<
-                      Metavariables::uses_partially_flat_cartesian_coordinates,
-                      ::Actions::MutateApply<
-                          GaugeUpdateInertialTimeDerivatives>,
-                      tmpl::list<>>>,
+                  tmpl::conditional_t<Metavariables::evolve_ccm,
+                                      ::Actions::MutateApply<
+                                          GaugeUpdateInertialTimeDerivatives>,
+                                      tmpl::list<>>>,
               ::Actions::MutateApply<
                   GaugeAdjustedBoundaryValue<Tags::DuRDividedByR>>,
               ::Actions::MutateApply<PrecomputeCceDependencies<
@@ -161,16 +162,6 @@ struct CharacteristicEvolution {
           observers::ObserverWriter<Metavariables>,
           typename Metavariables::cce_boundary_component>>;
 
-  using record_time_stepper_data_and_step =
-      tmpl::list<::Actions::RecordTimeStepperData<
-                     typename Metavariables::evolved_coordinates_variables_tag>,
-                 ::Actions::RecordTimeStepperData<::Tags::Variables<
-                     tmpl::list<typename Metavariables::evolved_swsh_tag>>>,
-                 ::Actions::UpdateU<
-                     typename Metavariables::evolved_coordinates_variables_tag>,
-                 ::Actions::UpdateU<::Tags::Variables<
-                     tmpl::list<typename Metavariables::evolved_swsh_tag>>>>;
-
   using self_start_extract_action_list = tmpl::list<
       Actions::RequestBoundaryData<
           typename Metavariables::cce_boundary_component,
@@ -179,15 +170,17 @@ struct CharacteristicEvolution {
       // note that the initialization will only actually happen on the
       // iterations immediately following restarts
       Actions::InitializeFirstHypersurface<
-          Metavariables::uses_partially_flat_cartesian_coordinates,
+          Metavariables::evolve_ccm,
           typename Metavariables::cce_boundary_component>,
       tmpl::conditional_t<
           tt::is_a_v<AnalyticWorldtubeBoundary,
                      typename Metavariables::cce_boundary_component>,
           Actions::UpdateGauge<false>,
-          Actions::UpdateGauge<
-              Metavariables::uses_partially_flat_cartesian_coordinates>>,
+          Actions::UpdateGauge<Metavariables::evolve_ccm>>,
       Actions::PrecomputeGlobalCceDependencies,
+      tmpl::conditional_t<Metavariables::evolve_ccm,
+                          Actions::CalculatePsi0AndDerivAtInnerBoundary,
+                          tmpl::list<>>,
       tmpl::transform<bondi_hypersurface_step_tags,
                       tmpl::bind<hypersurface_computation, tmpl::_1>>,
       Actions::FilterSwshVolumeQuantity<Tags::BondiH>,
@@ -197,7 +190,8 @@ struct CharacteristicEvolution {
       tmpl::transform<typename metavariables::cce_scri_tags,
                       tmpl::bind<::Actions::MutateApply,
                                  tmpl::bind<CalculateScriPlusValue, tmpl::_1>>>,
-      record_time_stepper_data_and_step>;
+      ::Actions::RecordTimeStepperData<cce_system>,
+      ::Actions::UpdateU<cce_system>>;
 
   using extract_action_list = tmpl::list<
       Actions::RequestBoundaryData<
@@ -206,19 +200,23 @@ struct CharacteristicEvolution {
       ::Actions::Label<CceEvolutionLabelTag>,
       Actions::ReceiveWorldtubeData<Metavariables>,
       Actions::InitializeFirstHypersurface<
-          Metavariables::uses_partially_flat_cartesian_coordinates,
+          Metavariables::evolve_ccm,
           typename Metavariables::cce_boundary_component>,
       tmpl::conditional_t<
           tt::is_a_v<AnalyticWorldtubeBoundary,
                      typename Metavariables::cce_boundary_component>,
           Actions::UpdateGauge<false>,
-          Actions::UpdateGauge<
-              Metavariables::uses_partially_flat_cartesian_coordinates>>,
+          Actions::UpdateGauge<Metavariables::evolve_ccm>>,
       Actions::PrecomputeGlobalCceDependencies,
+      tmpl::conditional_t<Metavariables::evolve_ccm,
+                          Actions::CalculatePsi0AndDerivAtInnerBoundary,
+                          tmpl::list<>>,
       tmpl::transform<bondi_hypersurface_step_tags,
                       tmpl::bind<hypersurface_computation, tmpl::_1>>,
       Actions::FilterSwshVolumeQuantity<Tags::BondiH>,
-      compute_scri_quantities_and_observe, record_time_stepper_data_and_step,
+      compute_scri_quantities_and_observe,
+      ::Actions::RecordTimeStepperData<cce_system>,
+      ::Actions::UpdateU<cce_system>,
       ::Actions::ChangeStepSize<typename Metavariables::cce_step_choosers>,
       // We cannot know our next step for certain until after we've performed
       // step size selection, as we may need to reject a step.
@@ -231,12 +229,9 @@ struct CharacteristicEvolution {
   using phase_dependent_action_list = tmpl::list<
       Parallel::PhaseActions<Parallel::Phase::Initialization,
                              initialize_action_list>,
-      Parallel::PhaseActions<
-          Parallel::Phase::InitializeTimeStepperHistory,
-          SelfStart::self_start_procedure<
-              self_start_extract_action_list,
-              Cce::System<
-                  Metavariables::uses_partially_flat_cartesian_coordinates>>>,
+      Parallel::PhaseActions<Parallel::Phase::InitializeTimeStepperHistory,
+                             SelfStart::self_start_procedure<
+                                 self_start_extract_action_list, cce_system>>,
       Parallel::PhaseActions<Parallel::Phase::Evolve, extract_action_list>>;
 
   static void initialize(

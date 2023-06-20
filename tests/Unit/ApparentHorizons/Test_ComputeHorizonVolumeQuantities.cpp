@@ -40,6 +40,7 @@ namespace {
 template <typename IsTimeDependent, typename TargetFrame, typename SrcTags,
           typename DestTags>
 void test_compute_horizon_volume_quantities() {
+  CAPTURE(IsTimeDependent::value);
   const size_t number_of_grid_points = 8;
 
   // slab and temporal_id used only in the TimeDependent version.
@@ -64,7 +65,8 @@ void test_compute_horizon_volume_quantities() {
         std::array<double, 3>{3.1, 3.2, 3.3},
         std::array<double, 3>{4.1, 4.2, 4.3}, std::array<size_t, 3>{0, 0, 0},
         std::array<size_t, 3>{number_of_grid_points, number_of_grid_points,
-                              number_of_grid_points});
+                              number_of_grid_points},
+        std::array<bool, 3>{false, false, false});
   }
   const auto domain = domain_creator->create_domain();
   ASSERT(domain.blocks().size() == 1, "Expected a Domain with one block");
@@ -85,8 +87,13 @@ void test_compute_horizon_volume_quantities() {
       inv_jacobian_logical_to_inertial{};
   Jacobian<DataVector, 3, TargetFrame, Frame::Inertial>
       jacobian_target_to_inertial{};
+  InverseJacobian<DataVector, 3, TargetFrame, Frame::Inertial>
+      inv_jacobian_target_to_inertial{};
+  Jacobian<DataVector, 3, Frame::ElementLogical, TargetFrame>
+      jacobian_logical_to_target{};
   InverseJacobian<DataVector, 3, Frame::ElementLogical, TargetFrame>
       inv_jacobian_logical_to_target{};
+  tnsr::I<DataVector, 3, Frame::Inertial> inertial_mesh_velocity{};
   if constexpr (IsTimeDependent::value) {
     ElementMap<3, Frame::Grid> map_logical_to_grid{
         element_ids[0],
@@ -161,19 +168,19 @@ void test_compute_horizon_volume_quantities() {
   const auto& d_lapse = get<
       typename gr::Solutions::KerrSchild::DerivLapse<DataVector, TargetFrame>>(
       solution_vars_target_frame);
-  const auto& shift = get<gr::Tags::Shift<3, TargetFrame, DataVector>>(
+  const auto& shift = get<gr::Tags::Shift<DataVector, 3, TargetFrame>>(
       solution_vars_target_frame);
   const auto& d_shift = get<
       typename gr::Solutions::KerrSchild::DerivShift<DataVector, TargetFrame>>(
       solution_vars_target_frame);
   const auto& dt_shift =
-      get<Tags::dt<gr::Tags::Shift<3, TargetFrame, DataVector>>>(
+      get<Tags::dt<gr::Tags::Shift<DataVector, 3, TargetFrame>>>(
           solution_vars_target_frame);
   const auto& spatial_metric =
-      get<gr::Tags::SpatialMetric<3, TargetFrame, DataVector>>(
+      get<gr::Tags::SpatialMetric<DataVector, 3, TargetFrame>>(
           solution_vars_target_frame);
   const auto& dt_spatial_metric =
-      get<Tags::dt<gr::Tags::SpatialMetric<3, TargetFrame, DataVector>>>(
+      get<Tags::dt<gr::Tags::SpatialMetric<DataVector, 3, TargetFrame>>>(
           solution_vars_target_frame);
   const auto& d_spatial_metric =
       get<typename gr::Solutions::KerrSchild::DerivSpatialMetric<DataVector,
@@ -188,10 +195,9 @@ void test_compute_horizon_volume_quantities() {
   // Define them here, instead of inside the `if constexpr` below,
   // because we might want to use them in later tests.
   using inertial_metric_vars_tags =
-      tmpl::list<gr::Tags::Lapse<DataVector>,
-                 gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                 gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>;
+      tmpl::list<gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                 gr::Tags::SpatialMetric<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>>;
   Variables<inertial_metric_vars_tags> inertial_metric_vars([&mesh]() {
     if constexpr (std::is_same_v<TargetFrame, Frame::Inertial>) {
       return 0;
@@ -206,15 +212,13 @@ void test_compute_horizon_volume_quantities() {
     // Src vars are always in inertial frame. Here TargetFrame is inertial,
     // so no frame transformation is needed.
 
-    get<::gr::Tags::SpacetimeMetric<3, TargetFrame>>(src_vars) =
+    get<::gr::Tags::SpacetimeMetric<DataVector, 3, TargetFrame>>(src_vars) =
         gr::spacetime_metric(lapse, shift, spatial_metric);
-    get<::GeneralizedHarmonic::Tags::Phi<3, TargetFrame>>(src_vars) =
-        GeneralizedHarmonic::phi(lapse, d_lapse, shift, d_shift, spatial_metric,
-                                 d_spatial_metric);
-    get<::GeneralizedHarmonic::Tags::Pi<3, TargetFrame>>(src_vars) =
-        GeneralizedHarmonic::pi(
-            lapse, dt_lapse, shift, dt_shift, spatial_metric, dt_spatial_metric,
-            get<::GeneralizedHarmonic::Tags::Phi<3, TargetFrame>>(src_vars));
+    get<::gh::Tags::Phi<DataVector, 3, TargetFrame>>(src_vars) = gh::phi(
+        lapse, d_lapse, shift, d_shift, spatial_metric, d_spatial_metric);
+    get<::gh::Tags::Pi<DataVector, 3, TargetFrame>>(src_vars) = gh::pi(
+        lapse, dt_lapse, shift, dt_shift, spatial_metric, dt_spatial_metric,
+        get<::gh::Tags::Phi<DataVector, 3, TargetFrame>>(src_vars));
   } else {
     static_assert(std::is_same_v<TargetFrame, Frame::Grid>,
                   "TargetFrame must be the Grid frame");
@@ -246,7 +250,7 @@ void test_compute_horizon_volume_quantities() {
 
     // Transform shift
     auto& shift_inertial =
-        get<::gr::Tags::Shift<3, Frame::Inertial>>(inertial_metric_vars);
+        get<::gr::Tags::Shift<DataVector, 3>>(inertial_metric_vars);
     for (size_t k = 0; k < 3; ++k) {
       shift_inertial.get(k) = -frame_velocity_grid_to_inertial.get(k);
       for (size_t j = 0; j < 3; ++j) {
@@ -257,57 +261,49 @@ void test_compute_horizon_volume_quantities() {
 
     // Transform lower metric.
     auto& lower_metric_inertial =
-        get<::gr::Tags::SpatialMetric<3, Frame::Inertial>>(
-            inertial_metric_vars);
+        get<::gr::Tags::SpatialMetric<DataVector, 3>>(inertial_metric_vars);
     transform::to_different_frame(make_not_null(&lower_metric_inertial),
                                   spatial_metric,
                                   inv_jacobian_grid_to_inertial);
 
     // Transform extrinsic curvature.
     auto& extrinsic_curvature_inertial =
-        get<gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>(
-            inertial_metric_vars);
+        get<gr::Tags::ExtrinsicCurvature<DataVector, 3>>(inertial_metric_vars);
     transform::to_different_frame(
         make_not_null(&extrinsic_curvature_inertial),
-        get<gr::Tags::ExtrinsicCurvature<3, TargetFrame, DataVector>>(
+        get<gr::Tags::ExtrinsicCurvature<DataVector, 3, TargetFrame>>(
             solution_vars_target_frame),
         inv_jacobian_grid_to_inertial);
 
     // Now differentiate the inertial-frame lapse, shift, spatial metric
     // to get inertial derivatives.
     const auto deriv_inertial_metric_vars = partial_derivatives<
-        tmpl::list<gr::Tags::Lapse<DataVector>,
-                   gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                   gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>>(
+        tmpl::list<gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                   gr::Tags::SpatialMetric<DataVector, 3>>>(
         inertial_metric_vars, mesh, inv_jacobian_logical_to_inertial);
     const auto& inertial_d_spatial_metric =
-        get<Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(
-            deriv_inertial_metric_vars);
+        get<Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(deriv_inertial_metric_vars);
     const auto& inertial_d_shift =
-        get<Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                        tmpl::size_t<3>, Frame::Inertial>>(
-            deriv_inertial_metric_vars);
+        get<Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(deriv_inertial_metric_vars);
     const auto& inertial_d_lapse =
         get<Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
                         Frame::Inertial>>(deriv_inertial_metric_vars);
 
     // Now fill src_vars
-    get<::gr::Tags::SpacetimeMetric<3, Frame::Inertial>>(src_vars) =
+    get<::gr::Tags::SpacetimeMetric<DataVector, 3>>(src_vars) =
         gr::spacetime_metric(lapse, shift_inertial, lower_metric_inertial);
-    get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(src_vars) =
-        GeneralizedHarmonic::phi(lapse, inertial_d_lapse, shift_inertial,
-                                 inertial_d_shift, lower_metric_inertial,
-                                 inertial_d_spatial_metric);
+    get<::gh::Tags::Phi<DataVector, 3>>(src_vars) =
+        gh::phi(lapse, inertial_d_lapse, shift_inertial, inertial_d_shift,
+                lower_metric_inertial, inertial_d_spatial_metric);
 
     // Compute Pi from extrinsic curvature and Phi.  Fill in NaN
     // for zero components of Pi, since they won't be used at all.
     const auto spacetime_normal_vector =
         gr::spacetime_normal_vector(lapse, shift_inertial);
-    auto& Pi =
-        get<::GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>>(src_vars);
-    const auto& Phi =
-        get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(src_vars);
+    auto& Pi = get<::gh::Tags::Pi<DataVector, 3>>(src_vars);
+    const auto& Phi = get<::gh::Tags::Phi<DataVector, 3>>(src_vars);
     for (size_t i = 0; i < 3; ++i) {
       Pi.get(i + 1, 0) = std::numeric_limits<double>::signaling_NaN();
       for (size_t j = i; j < 3; ++j) {  // symmetry
@@ -322,8 +318,7 @@ void test_compute_horizon_volume_quantities() {
   }
 
   if constexpr (tmpl::list_contains_v<
-                    SrcTags, Tags::deriv<GeneralizedHarmonic::Tags::Phi<
-                                             3, Frame::Inertial>,
+                    SrcTags, Tags::deriv<gh::Tags::Phi<DataVector, 3>,
                                          tmpl::size_t<3>, Frame::Inertial>>) {
     // Need to compute numerical deriv of Phi.
     // The partial_derivatives function allows differentiating only a
@@ -333,24 +328,21 @@ void test_compute_horizon_volume_quantities() {
     // this is only a test, we just create new Variables and copy.
 
     // vars to be differentiated
-    using phi_tag_list =
-        tmpl::list<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>;
+    using phi_tag_list = tmpl::list<::gh::Tags::Phi<DataVector, 3>>;
     Variables<phi_tag_list> vars_before_differentiation(
         mesh.number_of_grid_points());
-    get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(
-        vars_before_differentiation) =
-        get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(src_vars);
+    get<::gh::Tags::Phi<DataVector, 3>>(vars_before_differentiation) =
+        get<::gh::Tags::Phi<DataVector, 3>>(src_vars);
 
     // differentiate
     const auto vars_after_differentiation = partial_derivatives<phi_tag_list>(
         vars_before_differentiation, mesh, inv_jacobian_logical_to_inertial);
 
     // copy to src_vars.
-    get<Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                    tmpl::size_t<3>, Frame::Inertial>>(src_vars) =
-        get<Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                        tmpl::size_t<3>, Frame::Inertial>>(
-            vars_after_differentiation);
+    get<Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                    Frame::Inertial>>(src_vars) =
+        get<Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                        Frame::Inertial>>(vars_after_differentiation);
   }
 
   // Compute dest_vars
@@ -358,7 +350,9 @@ void test_compute_horizon_volume_quantities() {
   if constexpr (IsTimeDependent::value) {
     ah::ComputeHorizonVolumeQuantities::apply(
         make_not_null(&dest_vars), src_vars, mesh, jacobian_target_to_inertial,
-        inv_jacobian_logical_to_target);
+        inv_jacobian_target_to_inertial, jacobian_logical_to_target,
+        inv_jacobian_logical_to_target, inertial_mesh_velocity,
+        tnsr::I<DataVector, 3, TargetFrame>{});
   } else {
     // time-independent.
     ah::ComputeHorizonVolumeQuantities::apply(make_not_null(&dest_vars),
@@ -371,7 +365,8 @@ void test_compute_horizon_volume_quantities() {
       gr::christoffel_first_kind(d_spatial_metric),
       determinant_and_inverse(spatial_metric).second);
   const auto& christoffel_second_kind =
-      get<gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>(dest_vars);
+      get<gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>(
+          dest_vars);
   if constexpr (not std::is_same_v<TargetFrame, Frame::Inertial>) {
     // Use a more forgiving local_approx because for the multi-frame case,
     // christoffel_second_kind is computed using numerical derivatives,
@@ -390,45 +385,52 @@ void test_compute_horizon_volume_quantities() {
       gr::extrinsic_curvature(lapse, shift, d_shift, spatial_metric,
                               dt_spatial_metric, d_spatial_metric);
   const auto& extrinsic_curvature =
-      get<gr::Tags::ExtrinsicCurvature<3, TargetFrame>>(dest_vars);
+      get<gr::Tags::ExtrinsicCurvature<DataVector, 3, TargetFrame>>(dest_vars);
   CHECK_ITERABLE_APPROX(expected_extrinsic_curvature, extrinsic_curvature);
 
   if constexpr (tmpl::list_contains_v<
-                    DestTags, gr::Tags::SpatialMetric<3, TargetFrame>>) {
+                    DestTags,
+                    gr::Tags::SpatialMetric<DataVector, 3, TargetFrame>>) {
     const auto& numerical_spatial_metric =
-        get<gr::Tags::SpatialMetric<3, TargetFrame>>(dest_vars);
+        get<gr::Tags::SpatialMetric<DataVector, 3, TargetFrame>>(dest_vars);
     CHECK_ITERABLE_APPROX(spatial_metric, numerical_spatial_metric);
   }
 
   if constexpr (tmpl::list_contains_v<
-                    DestTags, gr::Tags::InverseSpatialMetric<3, TargetFrame>>) {
+                    DestTags, gr::Tags::InverseSpatialMetric<DataVector, 3,
+                                                             TargetFrame>>) {
     const auto& inv_spatial_metric =
-        get<gr::Tags::InverseSpatialMetric<3, TargetFrame>>(dest_vars);
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3, TargetFrame>>(
+            dest_vars);
     CHECK_ITERABLE_APPROX(determinant_and_inverse(spatial_metric).second,
                           inv_spatial_metric);
   }
 
-  if constexpr (tmpl::list_contains_v<DestTags,
-                                      gr::Tags::SpatialRicci<3, TargetFrame>>) {
+  if constexpr (tmpl::list_contains_v<
+                    DestTags,
+                    gr::Tags::SpatialRicci<DataVector, 3, TargetFrame>>) {
     // Compute Ricci and check.
     // Compute derivative of christoffel_2nd_kind, which is different
     // from how Ricci is computed in ComputeHorizonVolumeQuantities, but
     // which should give the same result to numerical truncation error.
-    using christoffel_tags =
-        tmpl::list<gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>;
+    using christoffel_tags = tmpl::list<
+        gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>;
     Variables<christoffel_tags> vars_before_deriv(mesh.number_of_grid_points());
-    get<gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>(
+    get<gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>(
         vars_before_deriv) =
-        get<gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>(dest_vars);
+        get<gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>(
+            dest_vars);
 
     const auto vars_after_deriv = partial_derivatives<christoffel_tags>(
         vars_before_deriv, mesh, inv_jacobian_logical_to_target);
     const auto expected_ricci = gr::ricci_tensor(
-        get<gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>(dest_vars),
+        get<gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>(
+            dest_vars),
         get<::Tags::deriv<
-            gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>,
+            gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>,
             tmpl::size_t<3>, TargetFrame>>(vars_after_deriv));
-    const auto& ricci = get<gr::Tags::SpatialRicci<3, TargetFrame>>(dest_vars);
+    const auto& ricci =
+        get<gr::Tags::SpatialRicci<DataVector, 3, TargetFrame>>(dest_vars);
     // Use a more forgiving local_approx because this test should agree
     // to truncation error not roundoff, because it has numerical derivs.
     Approx local_approx = Approx::custom().epsilon(1.e-9).scale(1.);
@@ -440,66 +442,60 @@ void test_compute_horizon_volume_quantities() {
   // Test these here.
   if constexpr (not std::is_same_v<TargetFrame, Frame::Inertial>) {
     if constexpr (tmpl::list_contains_v<
-                      DestTags, gr::Tags::SpatialMetric<3, Frame::Inertial>>) {
+                      DestTags, gr::Tags::SpatialMetric<DataVector, 3>>) {
       const auto& expected_inertial_spatial_metric =
-          get<::gr::Tags::SpatialMetric<3, Frame::Inertial>>(
-              inertial_metric_vars);
+          get<::gr::Tags::SpatialMetric<DataVector, 3>>(inertial_metric_vars);
       const auto& inertial_spatial_metric =
-          get<gr::Tags::SpatialMetric<3, Frame::Inertial>>(dest_vars);
+          get<gr::Tags::SpatialMetric<DataVector, 3>>(dest_vars);
       CHECK_ITERABLE_APPROX(expected_inertial_spatial_metric,
                             inertial_spatial_metric);
     }
 
     if constexpr (tmpl::list_contains_v<
                       DestTags,
-                      gr::Tags::InverseSpatialMetric<3, Frame::Inertial>>) {
+                      gr::Tags::InverseSpatialMetric<DataVector, 3>>) {
       const auto expected_inertial_inverse_spatial_metric =
-          determinant_and_inverse(
-              get<::gr::Tags::SpatialMetric<3, Frame::Inertial>>(
-                  inertial_metric_vars))
+          determinant_and_inverse(get<::gr::Tags::SpatialMetric<DataVector, 3>>(
+                                      inertial_metric_vars))
               .second;
       const auto& inertial_inverse_spatial_metric =
-          get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial>>(dest_vars);
+          get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(dest_vars);
       CHECK_ITERABLE_APPROX(expected_inertial_inverse_spatial_metric,
                             inertial_inverse_spatial_metric);
     }
 
-    if constexpr (tmpl::list_contains_v<DestTags, gr::Tags::ExtrinsicCurvature<
-                                                      3, Frame::Inertial>>) {
+    if constexpr (tmpl::list_contains_v<
+                      DestTags, gr::Tags::ExtrinsicCurvature<DataVector, 3>>) {
       const auto& expected_inertial_extrinsic_curvature =
-          get<::gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>>(
+          get<::gr::Tags::ExtrinsicCurvature<DataVector, 3>>(
               inertial_metric_vars);
       const auto& inertial_extrinsic_curvature =
-          get<gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>>(dest_vars);
+          get<gr::Tags::ExtrinsicCurvature<DataVector, 3>>(dest_vars);
       CHECK_ITERABLE_APPROX(expected_inertial_extrinsic_curvature,
                             inertial_extrinsic_curvature);
     }
 
-    if constexpr (tmpl::list_contains_v<DestTags,
-                                        gr::Tags::SpatialChristoffelSecondKind<
-                                            3, Frame::Inertial>>) {
+    if constexpr (tmpl::list_contains_v<
+                      DestTags,
+                      gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>>) {
       const auto expected_inertial_christoffel_second_kind =
-          GeneralizedHarmonic::christoffel_second_kind(
-              get<::GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(
-                  src_vars),
-              get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial>>(
-                  dest_vars));
+          gh::christoffel_second_kind(
+              get<::gh::Tags::Phi<DataVector, 3>>(src_vars),
+              get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(dest_vars));
       const auto& inertial_christoffel_second_kind =
-          get<gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial>>(
-              dest_vars);
+          get<gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>>(dest_vars);
       CHECK_ITERABLE_APPROX(expected_inertial_christoffel_second_kind,
                             inertial_christoffel_second_kind);
     }
 
     if constexpr (tmpl::list_contains_v<
-                      DestTags, gr::Tags::SpatialRicci<3, Frame::Inertial>>) {
-      const auto expected_ricci = GeneralizedHarmonic::spatial_ricci_tensor(
-          get<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>(src_vars),
-          get<Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                          tmpl::size_t<3>, Frame::Inertial>>(src_vars),
-          get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial>>(dest_vars));
-      const auto& ricci =
-          get<gr::Tags::SpatialRicci<3, Frame::Inertial>>(dest_vars);
+                      DestTags, gr::Tags::SpatialRicci<DataVector, 3>>) {
+      const auto expected_ricci = gh::spatial_ricci_tensor(
+          get<gh::Tags::Phi<DataVector, 3>>(src_vars),
+          get<Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                          Frame::Inertial>>(src_vars),
+          get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(dest_vars));
+      const auto& ricci = get<gr::Tags::SpatialRicci<DataVector, 3>>(dest_vars);
       CHECK_ITERABLE_APPROX(expected_ricci, ricci);
     }
   }
@@ -514,61 +510,58 @@ SPECTRE_TEST_CASE("Unit.ApparentHorizons.ComputeHorizonVolumeQuantities",
   // All possible tags.
   test_compute_horizon_volume_quantities<
       std::false_type, Frame::Inertial,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                 Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                             tmpl::size_t<3>, Frame::Inertial>>,
-      tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial>,
-                 gr::Tags::InverseSpatialMetric<3, Frame::Inertial>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial>,
-                 gr::Tags::SpatialRicci<3, Frame::Inertial>>>();
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>,
+                 Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                             Frame::Inertial>>,
+      tmpl::list<gr::Tags::SpatialMetric<DataVector, 3>,
+                 gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>,
+                 gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>,
+                 gr::Tags::SpatialRicci<DataVector, 3>>>();
   // Leave out a few tags.
   test_compute_horizon_volume_quantities<
       std::false_type, Frame::Inertial,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>,
-      tmpl::list<gr::Tags::InverseSpatialMetric<3, Frame::Inertial>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial>>>();
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>,
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>,
+                 gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>>>();
   test_compute_horizon_volume_quantities<
       std::false_type, Frame::Inertial,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>,
-      tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial>>>();
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>,
+      tmpl::list<gr::Tags::SpatialMetric<DataVector, 3>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3>,
+                 gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>>>();
 
   // time-dependent.
   // All possible tags.
   test_compute_horizon_volume_quantities<
       std::true_type, Frame::Grid,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                 Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                             tmpl::size_t<3>, Frame::Inertial>>,
-      tmpl::list<gr::Tags::SpatialMetric<3, Frame::Grid>,
-                 gr::Tags::InverseSpatialMetric<3, Frame::Grid>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Grid>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Grid>,
-                 gr::Tags::SpatialRicci<3, Frame::Grid>,
-                 gr::Tags::InverseSpatialMetric<3, Frame::Inertial>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Inertial>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial>,
-                 gr::Tags::SpatialRicci<3, Frame::Inertial>,
-                 gr::Tags::SpatialMetric<3, Frame::Inertial>>>();
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>,
+                 Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                             Frame::Inertial>>,
+      tmpl::list<
+          gr::Tags::SpatialMetric<DataVector, 3, Frame::Grid>,
+          gr::Tags::InverseSpatialMetric<DataVector, 3, Frame::Grid>,
+          gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame::Grid>,
+          gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, Frame::Grid>,
+          gr::Tags::SpatialRicci<DataVector, 3, Frame::Grid>,
+          gr::Tags::InverseSpatialMetric<DataVector, 3>,
+          gr::Tags::ExtrinsicCurvature<DataVector, 3>,
+          gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>,
+          gr::Tags::SpatialRicci<DataVector, 3>,
+          gr::Tags::SpatialMetric<DataVector, 3>>>();
   // Leave out a few tags.
   test_compute_horizon_volume_quantities<
       std::true_type, Frame::Grid,
-      tmpl::list<gr::Tags::SpacetimeMetric<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>,
-      tmpl::list<gr::Tags::InverseSpatialMetric<3, Frame::Grid>,
-                 gr::Tags::ExtrinsicCurvature<3, Frame::Grid>,
-                 gr::Tags::SpatialChristoffelSecondKind<3, Frame::Grid>>>();
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>,
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataVector, 3, Frame::Grid>,
+                 gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame::Grid>,
+                 gr::Tags::SpatialChristoffelSecondKind<DataVector, 3,
+                                                        Frame::Grid>>>();
 }
 }  // namespace

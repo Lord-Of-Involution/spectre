@@ -30,7 +30,7 @@ template <typename X, typename Symm, typename IndexList>
 class Tensor;
 /// \endcond
 
-namespace GeneralizedHarmonic {
+namespace gh {
 /*!
  * \ingroup GeneralRelativityGroup
  * \brief Computes the spacetime derivative of the spacetime metric,
@@ -41,11 +41,11 @@ namespace GeneralizedHarmonic {
  * \partial_i g_{ab}&=\Phi_{iab}
  * \f}
  */
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 void spacetime_derivative_of_spacetime_metric(
     gsl::not_null<tnsr::abb<DataType, SpatialDim, Frame>*> da_spacetime_metric,
     const Scalar<DataType>& lapse,
     const tnsr::I<DataType, SpatialDim, Frame>& shift,
     const tnsr::aa<DataType, SpatialDim, Frame>& pi,
     const tnsr::iaa<DataType, SpatialDim, Frame>& phi);
-}  // namespace GeneralizedHarmonic
+}  // namespace gh

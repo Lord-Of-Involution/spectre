@@ -15,12 +15,12 @@
 #include "Evolution/Systems/Cce/WorldtubeBufferUpdater.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "NumericalAlgorithms/Interpolation/SpanInterpolator.hpp"
-#include "Parallel/CharmPupable.hpp"
-#include "Parallel/PupStlCpp11.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Time/TimeStepId.hpp"
 #include "Utilities/Algorithm.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/PupStlCpp11.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 namespace Cce::InterfaceManagers {
 
@@ -109,12 +109,10 @@ void GhLocalTimeStepping::insert_gh_data(
     const tnsr::aa<DataVector, 3>& spacetime_metric,
     const tnsr::iaa<DataVector, 3>& phi, const tnsr::aa<DataVector, 3>& pi) {
   gh_variables input_gh_variables{get<0, 0>(spacetime_metric).size()};
-  get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
-      input_gh_variables) = spacetime_metric;
-  get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(input_gh_variables) =
-      pi;
-  get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-      input_gh_variables) = phi;
+  get<gr::Tags::SpacetimeMetric<DataVector, 3>>(input_gh_variables) =
+      spacetime_metric;
+  get<gh::Tags::Pi<DataVector, 3>>(input_gh_variables) = pi;
+  get<gh::Tags::Phi<DataVector, 3>>(input_gh_variables) = phi;
   gh_data_.insert({time_and_previous, std::move(input_gh_variables)});
   clean_up_gh_data();
 }
@@ -131,7 +129,7 @@ auto GhLocalTimeStepping::retrieve_and_remove_first_ready_gh_data()
   if (requests_.empty()) {
     return std::nullopt;
   }
-  const double first_request = requests_.begin()->substep_time().value();
+  const double first_request = requests_.begin()->substep_time();
   if (gh_data_.size() >=
           interpolator_->required_number_of_points_before_and_after() * 2 and
       gh_data_.rbegin()->first.id > first_request) {
@@ -163,7 +161,7 @@ void GhLocalTimeStepping::clean_up_gh_data() {
   size_t number_of_points_before_first_request =
       static_cast<size_t>(std::distance(
           gh_data_.begin(),
-          gh_data_.upper_bound(requests_.begin()->substep_time().value())));
+          gh_data_.upper_bound(requests_.begin()->substep_time())));
   const size_t number_of_points_to_remove = std::min(
       max_to_remove, std::max(number_of_points_before_first_request, 1_st) - 1);
   for (size_t i = 0; i < number_of_points_to_remove; ++i) {

@@ -1,18 +1,21 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: SolvePoisson3D
-# Check: parse;execute_check_output
-# Timeout: 10
-# ExpectedOutput:
-#   PoissonProductOfSinusoids3DReductions.h5
-#   PoissonProductOfSinusoids3DVolume0.h5
-# OutputFileChecks:
-#   - Label: Discretization error
-#     Subfile: /ErrorNorms.dat
-#     FileGlob: PoissonProductOfSinusoids3DReductions.h5
-#     SkipColumns: [0, 1, 2]
-#     AbsoluteTolerance: 0.004
+Executable: SolvePoisson3D
+Testing:
+  Check: parse;execute_check_output
+  Timeout: 10
+ExpectedOutput:
+  - PoissonProductOfSinusoids3DReductions.h5
+  - PoissonProductOfSinusoids3DVolume0.h5
+OutputFileChecks:
+  - Label: Discretization error
+    Subfile: /ErrorNorms.dat
+    FileGlob: PoissonProductOfSinusoids3DReductions.h5
+    SkipColumns: [0, 1, 2]
+    AbsoluteTolerance: 0.004
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -34,7 +37,13 @@ DomainCreator:
     InitialRefinement: [1, 0, 0]
     InitialGridPoints: [4, 3, 5]
     TimeDependence: None
-    BoundaryCondition:
+    BoundaryConditionInX:
+      AnalyticSolution:
+        Field: Dirichlet
+    BoundaryConditionInY:
+      AnalyticSolution:
+        Field: Dirichlet
+    BoundaryConditionInZ:
       AnalyticSolution:
         Field: Dirichlet
 
@@ -69,9 +78,12 @@ LinearSolver:
     SubdomainSolver: ExplicitInverse
     ObservePerCoreReductions: False
 
+RadiallyCompressedCoordinates: None
+
 EventsAndTriggers:
-  - - HasConverged
-    - - ObserveNorms:
+  - Trigger: HasConverged
+    Events:
+      - ObserveNorms:
           SubfileName: ErrorNorms
           TensorsToObserve:
             - Name: Error(Field)
@@ -83,3 +95,4 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+          OverrideObservationValue: None

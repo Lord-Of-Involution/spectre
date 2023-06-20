@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
@@ -31,8 +32,8 @@
 #include "Evolution/DgSubcell/Projection.hpp"
 #include "Evolution/DgSubcell/Reconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/Burgers/BoundaryCorrections/BoundaryCorrection.hpp"
@@ -102,8 +103,8 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.NeighborPackagedData",
                             make_not_null(&dist));
     return vars;
   };
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>::type
-      neighbor_data = TestHelpers::Burgers::fd::compute_neighbor_data(
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<1>::type
+      ghost_data = TestHelpers::Burgers::fd::compute_ghost_data(
           subcell_mesh, logical_coords_subcell, element.neighbors(),
           reconstructor.ghost_zone_size(), compute_random_variable);
 
@@ -146,7 +147,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.NeighborPackagedData",
   auto box = db::create<db::AddSimpleTags<
       domain::Tags::Element<1>, domain::Tags::Mesh<1>,
       evolution::dg::subcell::Tags::Mesh<1>, typename System::variables_tag,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<1>,
       fd::Tags::Reconstructor, evolution::Tags::BoundaryCorrection<System>,
       domain::Tags::ElementMap<1, Frame::Grid>,
       domain::CoordinateMaps::Tags::CoordinateMap<1, Frame::Grid,
@@ -154,7 +155,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.NeighborPackagedData",
       evolution::dg::subcell::Tags::Coordinates<1, Frame::ElementLogical>,
       domain::Tags::MeshVelocity<1>,
       evolution::dg::Tags::NormalCovectorAndMagnitude<1>>>(
-      element, dg_mesh, subcell_mesh, volume_vars_dg, neighbor_data,
+      element, dg_mesh, subcell_mesh, volume_vars_dg, ghost_data,
       std::unique_ptr<fd::Reconstructor>{
           std::make_unique<ReconstructorUsedForTest>()},
       std::unique_ptr<BoundaryCorrections::BoundaryCorrection>{
@@ -199,7 +200,7 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.NeighborPackagedData",
     // reconstruct U on the mortar
     dynamic_cast<const ReconstructorUsedForTest&>(reconstructor)
         .reconstruct_fd_neighbor(make_not_null(&vars_on_mortar_face),
-                                 volume_vars_subcell, element, neighbor_data,
+                                 volume_vars_subcell, element, ghost_data,
                                  subcell_mesh, direction);
 
     // compute fluxes
@@ -221,10 +222,9 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.NeighborPackagedData",
         typename BoundaryCorrectionUsedForTest::dg_package_data_volume_tags{},
         dg_package_data_argument_tags{});
 
-    std::vector<double> vector_to_check{
+    const DataVector vector_to_check{
         expected_fd_packaged_data_on_mortar.data(),
-        expected_fd_packaged_data_on_mortar.data() +
-            expected_fd_packaged_data_on_mortar.size()};
+        expected_fd_packaged_data_on_mortar.size()};
 
     CHECK_ITERABLE_APPROX(vector_to_check, packaged_data.at(mortar_id));
   }

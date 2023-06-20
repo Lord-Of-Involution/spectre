@@ -8,6 +8,9 @@
 #include <sstream>
 #include <string>
 
+#include "Domain/Structure/Direction.hpp"
+#include "Domain/Structure/ElementId.hpp"
+#include "Domain/Structure/Side.hpp"
 #include "Evolution/DiscontinuousGalerkin/Messages/BoundaryMessage.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "Helpers/DataStructures/MakeWithRandomValues.hpp"
@@ -29,18 +32,16 @@ void test_boundary_message(const gsl::not_null<Generator*> generator,
   CAPTURE(subcell_size);
   CAPTURE(dg_size);
 
-  const size_t total_size_without_data =
-      BoundaryMessage<Dim>::total_bytes_without_data();
-  // Mesh<0> == 8, Mesh<1> == 16, Mesh<2> == 32, Mesh<3> == 48
-  CHECK(total_size_without_data == (Dim == 1 ? 256 : (Dim == 2 ? 280 : 312)));
   const size_t total_size_with_data =
       BoundaryMessage<Dim>::total_bytes_with_data(subcell_size, dg_size);
-  CHECK(total_size_with_data ==
-        total_size_without_data + (subcell_size + dg_size) * sizeof(double));
+  CHECK(total_size_with_data == sizeof(BoundaryMessage<Dim>) +
+                                    (subcell_size + dg_size) * sizeof(double));
 
-  const bool sent_across_nodes = true;
+  const bool owning = false;
+  const bool enable_if_disabled = false;
   const size_t sender_node = 2;
   const size_t sender_core = 15;
+  const int tci_status = -3;
 
   const Slab current_slab{0.1, 0.5};
   const Time current_time{current_slab, {0, 1}};
@@ -48,6 +49,8 @@ void test_boundary_message(const gsl::not_null<Generator*> generator,
   const Slab next_slab{0.5, 0.9};
   const Time next_time{next_slab, {0, 1}};
   const TimeStepId next_time_id{true, 0, next_time};
+  const Direction<Dim> neighbor_direction{0, Side::Upper};
+  const ElementId<Dim> element_id{0};
 
   const size_t extents = 4;
   const Mesh<Dim> volume_mesh{extents, Spectral::Basis::Legendre,
@@ -65,35 +68,53 @@ void test_boundary_message(const gsl::not_null<Generator*> generator,
   DataVector copied_dg_data = dg_data;
 
   BoundaryMessage<Dim>* boundary_message = new BoundaryMessage<Dim>(
-      subcell_size, dg_size, sent_across_nodes, sender_node, sender_core,
-      current_time_id, next_time_id, volume_mesh, interface_mesh,
+      subcell_size, dg_size, owning, enable_if_disabled, sender_node,
+      sender_core, tci_status, current_time_id, next_time_id,
+      neighbor_direction, element_id, volume_mesh, interface_mesh,
       subcell_size != 0 ? subcell_data.data() : nullptr,
       dg_size != 0 ? dg_data.data() : nullptr);
+  // Since we expect the copied message to have owning = true because that's set
+  // in the pack() function, we set owning = true here
   BoundaryMessage<Dim>* copied_boundary_message = new BoundaryMessage<Dim>(
-      subcell_size, dg_size, sent_across_nodes, sender_node, sender_core,
-      current_time_id, next_time_id, volume_mesh, interface_mesh,
+      subcell_size, dg_size, true, enable_if_disabled, sender_node, sender_core,
+      tci_status, current_time_id, next_time_id, neighbor_direction, element_id,
+      volume_mesh, interface_mesh,
       subcell_size != 0 ? copied_subcell_data.data() : nullptr,
       dg_size != 0 ? copied_dg_data.data() : nullptr);
 
   CHECK(subcell_data.size() == subcell_size);
   CHECK(dg_data.size() == dg_size);
 
-  void* packed_message = boundary_message->pack(boundary_message);
+  void* packed_message = BoundaryMessage<Dim>::pack(boundary_message);
 
   BoundaryMessage<Dim>* unpacked_message =
-      boundary_message->unpack(packed_message);
+      BoundaryMessage<Dim>::unpack(packed_message);
 
+  CHECK(unpacked_message->owning);
   CHECK(*copied_boundary_message == *unpacked_message);
   CHECK_FALSE(*copied_boundary_message != *unpacked_message);
+
+  BoundaryMessage<Dim>* repacked_unpacked_message =
+      BoundaryMessage<Dim>::unpack(
+          BoundaryMessage<Dim>::pack(unpacked_message));
+
+  // Technically unpacked_message is now invalidated because we went through
+  // pack/unpack, but we are only concerned that the pointers are the same. We
+  // aren't using any data. These should be the same because packing an owning
+  // message doesn't do any new allocations, and the unpack function also
+  // doesn't do any new allocations, so the data shouldn't have moved
+  CHECK(unpacked_message == repacked_unpacked_message);
 }
 
 void test_output() {
   const size_t subcell_size = 4;
   const size_t dg_size = 3;
 
-  const bool sent_across_nodes = true;
+  const bool owning = true;
+  const bool enable_if_disabled = false;
   const size_t sender_node = 2;
   const size_t sender_core = 15;
+  const int tci_status = -3;
 
   const Slab current_slab{0.1, 0.5};
   const Time current_time{current_slab, {0, 1}};
@@ -101,6 +122,8 @@ void test_output() {
   const Slab next_slab{0.5, 0.9};
   const Time next_time{next_slab, {0, 1}};
   const TimeStepId next_time_id{true, 0, next_time};
+  const Direction<2> neighbor_direction{0, Side::Upper};
+  const ElementId<2> element_id{0};
 
   const size_t extents = 4;
   const Mesh<2> volume_mesh{extents, Spectral::Basis::Legendre,
@@ -110,24 +133,31 @@ void test_output() {
   DataVector subcell_data{0.1, 0.2, 0.3, 0.4};
   DataVector dg_data{-0.3, -0.2, -0.1};
 
-  BoundaryMessage<2> message{
-      subcell_size,        dg_size,       sent_across_nodes,
-      sender_node,         sender_core,   current_time_id,
-      next_time_id,        volume_mesh,   interface_mesh,
-      subcell_data.data(), dg_data.data()};
+  BoundaryMessage<2> message{subcell_size,   dg_size,
+                             owning,         enable_if_disabled,
+                             sender_node,    sender_core,
+                             tci_status,     current_time_id,
+                             next_time_id,   neighbor_direction,
+                             element_id,     volume_mesh,
+                             interface_mesh, subcell_data.data(),
+                             dg_data.data()};
 
   const std::string message_str = get_output(message);
 
   std::stringstream ss;
   ss << "subcell_ghost_data_size = 4\n"
      << "dg_flux_data_size = 3\n"
-     << "sent_across_nodes = true\n"
+     << "owning = true\n"
+     << "enable_if_disabled = false\n"
      << "sender_node = 2\n"
      << "sender_core = 15\n"
+     << "tci_status = -3\n"
      // TimeStepIds have complicated output so don't try and hard code it, just
      // use get_output
      << "current_time_ste_id = " << get_output(current_time_id) << "\n"
      << "next_time_ste_id = " << get_output(next_time_id) << "\n"
+     << "neighbor_direction = +0\n"
+     << "element_id = [B0,(L0I0,L0I0)]\n"
      << "volume_or_ghost_mesh = "
         "[(4,4),(Legendre,Legendre),(GaussLobatto,GaussLobatto)]\n"
      << "interface_mesh = [(4),(Legendre),(GaussLobatto)]\n"
@@ -137,27 +167,10 @@ void test_output() {
   CHECK(message_str == ss.str());
 }
 
-void test_offset() {
-  CHECK(detail::offset<size_t>() == 8);
-  CHECK(detail::offset<bool>() == 8);
-  CHECK(detail::offset<TimeStepId>() == 88);
-  CHECK(detail::offset<Mesh<0>>() == 8);
-  CHECK(detail::offset<Mesh<1>>() == 16);
-  CHECK(detail::offset<Mesh<2>>() == 32);
-  CHECK(detail::offset<Mesh<3>>() == 48);
-  CHECK(detail::offset<double*>() == 8);
-
-  CHECK_THROWS_WITH(
-      detail::offset<int>(),
-      Catch::Contains(
-          "Cannot calculate offset for 'int' in a BoundaryMessage"));
-}
-
 SPECTRE_TEST_CASE("Unit.Evolution.DG.BoundaryMessage", "[Unit][Evolution]") {
   MAKE_GENERATOR(generator);
 
   test_output();
-  test_offset();
 
   std::uniform_int_distribution<size_t> size_dist{1, 10};
   tmpl::for_each<tmpl::integral_list<size_t, 1, 2, 3>>(

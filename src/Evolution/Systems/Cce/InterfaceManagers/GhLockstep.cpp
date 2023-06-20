@@ -10,9 +10,9 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Time/TimeStepId.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 
 namespace Cce::InterfaceManagers {
 
@@ -25,12 +25,10 @@ void GhLockstep::insert_gh_data(TimeStepId time_id,
                                 const tnsr::iaa<DataVector, 3>& phi,
                                 const tnsr::aa<DataVector, 3>& pi) {
   gh_variables input_gh_variables{get<0, 0>(spacetime_metric).size()};
-  get<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>>(
-      input_gh_variables) = spacetime_metric;
-  get<GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(input_gh_variables) =
-      pi;
-  get<GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-      input_gh_variables) = phi;
+  get<gr::Tags::SpacetimeMetric<DataVector, 3>>(input_gh_variables) =
+      spacetime_metric;
+  get<gh::Tags::Pi<DataVector, 3>>(input_gh_variables) = pi;
+  get<gh::Tags::Phi<DataVector, 3>>(input_gh_variables) = phi;
   // NOLINTNEXTLINE(performance-move-const-arg)
   provided_data_.insert({std::move(time_id), std::move(input_gh_variables)});
 }

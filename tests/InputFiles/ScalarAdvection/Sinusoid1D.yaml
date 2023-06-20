@@ -1,10 +1,13 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: EvolveScalarAdvection1D
-# Check: parse;execute
-# ExpectedOutput:
-#   ScalarAdvectionSinusoid1DVolume0.h5
+Executable: EvolveScalarAdvection1D
+Testing:
+  Check: parse;execute
+ExpectedOutput:
+  - ScalarAdvectionSinusoid1DVolume0.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -20,6 +23,8 @@ DomainCreator:
   Interval:
     LowerBound: [-1.0]
     UpperBound: [1.0]
+    Distribution: Linear
+    Singularity: None
     InitialRefinement: [2]
     InitialGridPoints: [5]
     TimeDependence: None
@@ -43,6 +48,9 @@ SpatialDiscretization:
         PerssonExponent: 4.0
       AlwaysUseSubcells: false
       SubcellToDgReconstructionMethod: DimByDim
+      UseHalo: false
+      OnlyDgBlocksAndGroups: None
+      FiniteDifferenceDerivativeOrder: 2
     TciOptions:
       UCutoff: 1.0e-10
   SubcellSolver:
@@ -53,20 +61,25 @@ InitialData:
   Sinusoid:
 
 EventsAndTriggers:
-  - - Slabs:
+  - Trigger:
+      Slabs:
         Specified:
           Values: [10]
-    - - Completion
-  - - Slabs:
+    Events:
+      - Completion
+  - Trigger:
+      Slabs:
         EvenlySpaced:
           Interval: 10
           Offset: 0
-    - - ObserveFields:
+    Events:
+      - ObserveFields:
           SubfileName: VolumeData
           VariablesToObserve: [U, TciStatus]
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Float, Float]
+          OverrideObservationValue: None
 
 EventsAndDenseTriggers:
 

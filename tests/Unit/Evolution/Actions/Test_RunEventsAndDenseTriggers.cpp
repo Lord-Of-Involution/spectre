@@ -31,10 +31,8 @@
 #include "Evolution/EventsAndDenseTriggers/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/CharmPupable.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/EventsAndTriggers/Event.hpp"
 #include "Time/History.hpp"
 #include "Time/Slab.hpp"
@@ -48,6 +46,8 @@
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -110,11 +110,13 @@ class TestTrigger : public DenseTrigger {
       Parallel::GlobalCache<Metavariables>& /*cache*/,
       const ArrayIndex& /*array_index*/, const Component* /*component*/,
       const double time) const {
-    if (time == init_time_) {
+    if (time == trigger_time_) {
+      return is_triggered_;
+    } else {
+      // First initialization call.
+      CHECK(time == init_time_);
       return false;
     }
-    CHECK(time == trigger_time_);
-    return is_triggered_;
   }
 
   using next_check_time_argument_tags = tmpl::list<Tags::Time>;
@@ -123,11 +125,13 @@ class TestTrigger : public DenseTrigger {
       Parallel::GlobalCache<Metavariables>& /*cache*/,
       const ArrayIndex& /*array_index*/, const Component* /*component*/,
       const double time) const {
-    if (time == init_time_) {
+    if (time == trigger_time_) {
+      return next_trigger_;
+    } else {
+      // First initialization call.
+      CHECK(time == init_time_);
       return trigger_time_;
     }
-    CHECK(time == trigger_time_);
-    return next_trigger_;
   }
 
   // NOLINTNEXTLINE(google-runtime-references)
@@ -310,7 +314,7 @@ void test(const bool time_runs_forward) {
   using VarsType = typename variables_tag::type;
   using DtVarsType =
       typename db::add_tag_prefix<::Tags::dt, variables_tag>::type;
-  using History = TimeSteppers::History<DtVarsType>;
+  using History = TimeSteppers::History<VarsType>;
 
   const Slab slab(0.0, 4.0);
   const TimeStepId time_step_id(time_runs_forward, 0,
@@ -323,36 +327,37 @@ void test(const bool time_runs_forward) {
   const double done_time = (time_runs_forward ? 1.0 : -1.0) *
                            std::numeric_limits<double>::infinity();
   const VarsType initial_vars{1, 8.0};
+  const VarsType stored_vars{1, 123.0};
   const DtVarsType deriv_vars{1, 1.0};
   const VarsType center_vars = initial_vars + 0.5 * step_size * deriv_vars;
 
   const auto set_up_component =
-      [&deriv_vars, &exact_step_size, &initial_vars, &start_time,
+      [&deriv_vars, &exact_step_size, &initial_vars, &start_time, &stored_vars,
        &time_step_id](
           const gsl::not_null<MockRuntimeSystem*> runner,
           const std::vector<std::tuple<double, std::optional<bool>,
                                        std::optional<double>, bool>>&
               triggers) {
         History history(1);
-        history.insert(time_step_id, deriv_vars);
+        history.insert(time_step_id, initial_vars, deriv_vars);
 
         evolution::EventsAndDenseTriggers::ConstructionType
             events_and_dense_triggers{};
         events_and_dense_triggers.reserve(triggers.size());
         for (auto [trigger_time, is_triggered, next_trigger,
                    needs_evolved_variables] : triggers) {
-          events_and_dense_triggers.emplace_back(
-              std::make_unique<TestTrigger>(start_time, trigger_time,
-                                            is_triggered, next_trigger),
-              make_vector<std::unique_ptr<Event>>(
-                  std::make_unique<TestEvent>(needs_evolved_variables)));
+          events_and_dense_triggers.push_back(
+              {std::make_unique<TestTrigger>(start_time, trigger_time,
+                                             is_triggered, next_trigger),
+               make_vector<std::unique_ptr<Event>>(
+                   std::make_unique<TestEvent>(needs_evolved_variables))});
         }
 
         tmpl::as_pack<extra_data>([&](auto... tags_v) {
           ActionTesting::emplace_array_component<component>(
               runner, ActionTesting::NodeId{0}, ActionTesting::LocalCoreId{0},
               0, time_step_id, exact_step_size, start_time,
-              std::optional<double>{}, initial_vars, std::move(history),
+              std::optional<double>{}, stored_vars, std::move(history),
               evolution::EventsAndDenseTriggers(
                   std::move(events_and_dense_triggers)),
               typename evolution::dg::Tags::NeighborMesh<1>::type{},
@@ -379,9 +384,10 @@ void test(const bool time_runs_forward) {
       auto& box =
           ActionTesting::get_databox<component>(make_not_null(&runner), 0);
       db::mutate<Tags::TimeStepId>(
-          make_not_null(&box), [](const gsl::not_null<TimeStepId*> id) {
+          [](const gsl::not_null<TimeStepId*> id) {
             *id = TimeStepId(id->time_runs_forward(), -1, id->step_time());
-          });
+          },
+          make_not_null(&box));
     }
     CHECK(run_if_ready(make_not_null(&runner)));
     TestEvent::check_calls({});
@@ -427,10 +433,23 @@ void test(const bool time_runs_forward) {
         reschedule ? std::optional{done_time} : std::nullopt;
     set_up_component(&runner, {{step_center, true, next_check, false}});
     CHECK(run_if_ready(make_not_null(&runner)) == reschedule);
-    TestEvent::check_calls({{step_center, initial_vars}});
+    TestEvent::check_calls({{step_center, stored_vars}});
   };
   check_not_needed(true);
   check_not_needed(false);
+
+  // Variables not needed at initial time
+  const auto check_not_needed_initial = [&](const bool reschedule) {
+    MockRuntimeSystem runner{
+        {std::make_unique<TimeSteppers::AdamsBashforth>(1)}};
+    const auto next_check =
+        reschedule ? std::optional{done_time} : std::nullopt;
+    set_up_component(&runner, {{start_time, true, next_check, false}});
+    CHECK(run_if_ready(make_not_null(&runner)) == reschedule);
+    TestEvent::check_calls({{start_time, stored_vars}});
+  };
+  check_not_needed_initial(true);
+  check_not_needed_initial(false);
 
   // Variables needed
   const auto check_needed = [&](const bool reschedule) {
@@ -444,6 +463,18 @@ void test(const bool time_runs_forward) {
   check_needed(true);
   check_needed(false);
 
+  // Variables needed at initial time
+  const auto check_needed_initial = [&](const bool reschedule) {
+    MockRuntimeSystem runner{
+        {std::make_unique<TimeSteppers::AdamsBashforth>(1)}};
+    const auto next_check =
+        reschedule ? std::optional{done_time} : std::nullopt;
+    set_up_component(&runner, {{start_time, true, next_check, true}});
+    TestCase::check_dense(&runner, reschedule, {{start_time, initial_vars}});
+  };
+  check_needed_initial(true);
+  check_needed_initial(false);
+
   // Missing dense output data
   const auto check_missing_dense_data = [&](const bool data_needed) {
     MockRuntimeSystem runner{
@@ -453,21 +484,26 @@ void test(const bool time_runs_forward) {
       auto& box =
           ActionTesting::get_databox<component>(make_not_null(&runner), 0);
       db::mutate<Tags::HistoryEvolvedVariables<variables_tag>>(
-          make_not_null(&box),
-          [&time_step_id](const gsl::not_null<History*> history) {
+          [&deriv_vars, &initial_vars, &time_step_id](
+              const gsl::not_null<History*> history,
+              const TimeStepper& time_stepper) {
             *history = History(3);
-            history->insert(TimeStepId(time_step_id.time_runs_forward(), 0,
-                                       time_step_id.step_time(), 1,
-                                       time_step_id.step_time()),
-                            {1, 1.0});
-          });
+            history->insert(time_step_id, initial_vars, deriv_vars);
+            history->insert(
+                time_stepper.next_time_id(
+                    time_step_id,
+                    (time_step_id.time_runs_forward() ? 1 : -1) *
+                        time_step_id.step_time().slab().duration() / 4),
+                initial_vars, deriv_vars);
+          },
+          make_not_null(&box), db::get<Tags::TimeStepper<>>(box));
     }
     if (data_needed) {
       TestCase::check_dense(&runner, true, {});
     } else {
       // If we don't need the data, it shouldn't matter whether it is missing.
       CHECK(run_if_ready(make_not_null(&runner)));
-      TestEvent::check_calls({{step_center, initial_vars}});
+      TestEvent::check_calls({{step_center, stored_vars}});
     }
   };
   check_missing_dense_data(true);
@@ -661,9 +697,9 @@ struct PostprocessEvolved {
 
 SPECTRE_TEST_CASE("Unit.Evolution.RunEventsAndDenseTriggers",
                   "[Unit][Evolution][Actions]") {
-  Parallel::register_classes_with_charm<TimeSteppers::AdamsBashforth,
-                                        TimeSteppers::Rk3HesthavenSsp>();
-  Parallel::register_factory_classes_with_charm<Metavariables<tmpl::list<>>>();
+  register_classes_with_charm<TimeSteppers::AdamsBashforth,
+                              TimeSteppers::Rk3HesthavenSsp>();
+  register_factory_classes_with_charm<Metavariables<tmpl::list<>>>();
 
   for (const auto time_runs_forward : {true, false}) {
     test<test_cases::NoPostprocessors>(time_runs_forward);

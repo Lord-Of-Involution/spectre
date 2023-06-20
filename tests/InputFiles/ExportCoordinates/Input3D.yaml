@@ -1,11 +1,14 @@
 # Distributed under the MIT License.
 # See LICENSE.txt for details.
 
-# Executable: ExportCoordinates3D
-# Check: parse;execute
-# ExpectedOutput:
-#   ExportCoordinates3DVolume0.h5
-#   ExportCoordinates3DReductions.h5
+Executable: ExportCoordinates3D
+Testing:
+  Check: parse;execute
+ExpectedOutput:
+  - ExportCoordinates3DVolume0.h5
+  - ExportCoordinates3DReductions.h5
+
+---
 
 ResourceInfo:
   AvoidGlobalProc0: false
@@ -23,6 +26,7 @@ DomainCreator:
         Velocity: [0.5, 0.0, 0.0]
 
 SpatialDiscretization:
+  ActiveGrid: Dg
   DiscontinuousGalerkin:
     Quadrature: GaussLobatto
 
@@ -34,10 +38,12 @@ Evolution:
       Order: 1
 
 EventsAndTriggers:
-  - - TimeCompares:
+  - Trigger:
+      TimeCompares:
         Comparison: GreaterThanOrEqualTo
         Value: 1.0
-    - - Completion
+    Events:
+      - Completion
 
 Observers:
   VolumeFileName: "ExportCoordinates3DVolume"

@@ -8,8 +8,8 @@
 #include <deque>
 #include <iterator>
 #include <memory>
+#include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
@@ -26,22 +26,25 @@
 #include "Domain/Tags.hpp"
 #include "Evolution/DgSubcell/Actions/ReconstructionCommunication.hpp"
 #include "Evolution/DgSubcell/ActiveGrid.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "Evolution/DgSubcell/RdmpTciData.hpp"
 #include "Evolution/DgSubcell/Reconstruction.hpp"
+#include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/ActiveGrid.hpp"
+#include "Evolution/DgSubcell/Tags/CellCenteredFlux.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/TciGridHistory.hpp"
+#include "Evolution/DgSubcell/Tags/TciStatus.hpp"
 #include "Evolution/DiscontinuousGalerkin/Tags/NeighborMesh.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/Slab.hpp"
 #include "Time/Tags.hpp"
 #include "Time/Time.hpp"
@@ -49,6 +52,7 @@
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Numeric.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 #include "Utilities/TaggedTuple.hpp"
 
@@ -61,6 +65,7 @@ template <size_t Dim>
 struct System {
   static constexpr size_t volume_dim = Dim;
   using variables_tag = Tags::Variables<tmpl::list<Var1>>;
+  using flux_variables = tmpl::list<Var1>;
 };
 
 template <size_t Dim, typename Metavariables>
@@ -73,11 +78,14 @@ struct component {
       Tags::TimeStepId, Tags::Next<Tags::TimeStepId>, domain::Tags::Mesh<Dim>,
       evolution::dg::subcell::Tags::Mesh<Dim>,
       evolution::dg::subcell::Tags::ActiveGrid, domain::Tags::Element<Dim>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>,
       evolution::dg::subcell::Tags::DataForRdmpTci,
+      evolution::dg::subcell::Tags::TciDecision,
+      evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>,
       Tags::Variables<tmpl::list<Var1>>, evolution::dg::Tags::MortarData<Dim>,
       evolution::dg::Tags::MortarNextTemporalId<Dim>,
-      evolution::dg::Tags::NeighborMesh<Dim>>;
+      evolution::dg::Tags::NeighborMesh<Dim>,
+      evolution::dg::subcell::Tags::CellCenteredFlux<tmpl::list<Var1>, Dim>>;
 
   using phase_dependent_action_list = tmpl::list<Parallel::PhaseActions<
       Parallel::Phase::Initialization,
@@ -116,13 +124,19 @@ struct Metavariables {
   struct GhostDataMutator {
     using return_tags = tmpl::list<>;
     using argument_tags = tmpl::list<Tags::Variables<tmpl::list<Var1>>>;
-    static Variables<tmpl::list<Var1>> apply(
-        const Variables<tmpl::list<Var1>>& vars) {
+    static DataVector apply(const Variables<tmpl::list<Var1>>& vars,
+                            const size_t rdmp_size) {
+      CAPTURE(rdmp_size);
+      CAPTURE(Dim);
+      CAPTURE(vars.number_of_grid_points());
+      CHECK(
+          (rdmp_size == 0 or rdmp_size == Dim * vars.number_of_grid_points()));
+      DataVector buffer{vars.size() + rdmp_size};
       ghost_data_mutator_invoked = true;
       // make some trivial but testable modification
-      auto result = vars;
-      get(get<Var1>(result)) *= 2.0;
-      return result;
+      DataVector view{buffer.data(), vars.size()};
+      view = 2.0 * get(get<Var1>(vars));
+      return buffer;
     }
   };
 };
@@ -135,8 +149,9 @@ template <size_t Dim>
 bool Metavariables<Dim>::ghost_data_mutator_invoked = false;
 
 template <size_t Dim>
-void test() {
+void test(const bool use_cell_centered_flux) {
   CAPTURE(Dim);
+  CAPTURE(use_cell_centered_flux);
 
   using metavars = Metavariables<Dim>;
   metavars::ghost_zone_size_invoked = false;
@@ -205,7 +220,7 @@ void test() {
   using NeighborDataMap =
       FixedHashMap<maximum_number_of_neighbors(Dim),
                    std::pair<Direction<Dim>, ElementId<Dim>>,
-                   std::vector<double>,
+                   evolution::dg::subcell::GhostData,
                    boost::hash<std::pair<Direction<Dim>, ElementId<Dim>>>>;
   NeighborDataMap neighbor_data{};
   const std::pair east_neighbor_id{Direction<Dim>::upper_xi(), east_id};
@@ -218,6 +233,20 @@ void test() {
       subcell_mesh.number_of_grid_points()};
   // Set Var1 to the logical coords, just need some data
   get(get<Var1>(evolved_vars)) = get<0>(logical_coordinates(subcell_mesh));
+
+  using CellCenteredFluxTag =
+      evolution::dg::subcell::Tags::CellCenteredFlux<tmpl::list<Var1>, Dim>;
+  typename CellCenteredFluxTag::type cell_centered_flux{};
+  if (use_cell_centered_flux) {
+    cell_centered_flux = typename CellCenteredFluxTag::type{
+        subcell_mesh.number_of_grid_points()};
+    const auto logical_coords = logical_coordinates(subcell_mesh);
+    for (size_t i = 0; i < Dim; ++i) {
+      get<::Tags::Flux<Var1, tmpl::size_t<Dim>, Frame::Inertial>>(
+          cell_centered_flux.value())
+          .get(i) = logical_coords.get(i) + (static_cast<double>(i) + 1.0);
+    }
+  }
 
   using MortarData = typename evolution::dg::Tags::MortarData<Dim>::type;
   using MortarNextId =
@@ -232,18 +261,13 @@ void test() {
     mortar_next_id[south_neighbor_id] = {};
   }
 
-  ActionTesting::emplace_array_component_and_initialize<comp>(
-      &runner, ActionTesting::NodeId{0}, ActionTesting::LocalCoreId{0}, self_id,
-      {time_step_id, next_time_step_id, dg_mesh, subcell_mesh, active_grid,
-       element, neighbor_data,
-       // Explicitly set RDMP data since this would be set previously by the TCI
-       evolution::dg::subcell::RdmpTciData{{max(get(get<Var1>(evolved_vars)))},
-                                           {min(get(get<Var1>(evolved_vars)))}},
-       evolved_vars, mortar_data, mortar_next_id,
-       typename evolution::dg::Tags::NeighborMesh<Dim>::type{}});
+  size_t neighbor_tci_decision = 0;
+  typename evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>::type
+      neighbor_decision{};
   for (const auto& [direction, neighbor_ids] : neighbors) {
     (void)direction;
     for (const auto& neighbor_id : neighbor_ids) {
+      neighbor_decision.insert(std::pair{std::pair{direction, neighbor_id}, 0});
       // Initialize neighbors with garbage data. We won't ever run any actions
       // on them, we just need to insert them to make sure things are sent to
       // the right places. We'll check their inboxes directly.
@@ -252,24 +276,39 @@ void test() {
           neighbor_id,
           {time_step_id, next_time_step_id, Mesh<Dim>{}, Mesh<Dim>{},
            active_grid, Element<Dim>{}, NeighborDataMap{},
-           evolution::dg::subcell::RdmpTciData{},
+           evolution::dg::subcell::RdmpTciData{}, neighbor_tci_decision,
+           typename evolution::dg::subcell::Tags::NeighborTciDecisions<
+               Dim>::type{},
            Variables<evolved_vars_tags>{}, MortarData{}, MortarNextId{},
-           typename evolution::dg::Tags::NeighborMesh<Dim>::type{}});
+           typename evolution::dg::Tags::NeighborMesh<Dim>::type{},
+           cell_centered_flux});
+      ++neighbor_tci_decision;
     }
   }
+  const int self_tci_decision = 100;
+  ActionTesting::emplace_array_component_and_initialize<comp>(
+      &runner, ActionTesting::NodeId{0}, ActionTesting::LocalCoreId{0}, self_id,
+      {time_step_id, next_time_step_id, dg_mesh, subcell_mesh, active_grid,
+       element, neighbor_data,
+       // Explicitly set RDMP data since this would be set previously by the TCI
+       evolution::dg::subcell::RdmpTciData{{max(get(get<Var1>(evolved_vars)))},
+                                           {min(get(get<Var1>(evolved_vars)))}},
+       self_tci_decision, neighbor_decision, evolved_vars, mortar_data,
+       mortar_next_id, typename evolution::dg::Tags::NeighborMesh<Dim>::type{},
+       cell_centered_flux});
 
-  using neighbor_data_tag =
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<Dim>;
+  using ghost_data_tag =
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<Dim>;
   using rdmp_tci_data_tag = evolution::dg::subcell::Tags::DataForRdmpTci;
   using ActionTesting::get_databox_tag;
-  CHECK(get_databox_tag<comp, neighbor_data_tag>(runner, self_id).size() == 1);
-  CHECK(get_databox_tag<comp, neighbor_data_tag>(runner, self_id)
+  CHECK(get_databox_tag<comp, ghost_data_tag>(runner, self_id).size() == 1);
+  CHECK(get_databox_tag<comp, ghost_data_tag>(runner, self_id)
             .count(east_neighbor_id) == 1);
 
   // Run the SendDataForReconstruction action on self_id
   ActionTesting::next_action<comp>(make_not_null(&runner), self_id);
 
-  CHECK(get_databox_tag<comp, neighbor_data_tag>(runner, self_id).empty());
+  CHECK(get_databox_tag<comp, ghost_data_tag>(runner, self_id).empty());
 
   // Check local RDMP data
   const evolution::dg::subcell::RdmpTciData& rdmp_tci_data =
@@ -281,31 +320,58 @@ void test() {
   CHECK(rdmp_tci_data.min_variables_values[0] ==
         min(get(get<Var1>(evolved_vars))));
   // Check data sent to neighbors
-  DirectionMap<Dim, bool> directions_to_slice{};
-  for (const auto& direction_neighbors : element.neighbors()) {
-    if (direction_neighbors.second.size() == 0) {
-      directions_to_slice[direction_neighbors.first] = false;
-    } else {
-      directions_to_slice[direction_neighbors.first] = true;
-    }
-  }
+  const auto& directions_to_slice = element.internal_boundaries();
   const size_t ghost_zone_size = 2;
-  const DirectionMap<Dim, std::vector<double>> all_sliced_data =
-      evolution::dg::subcell::slice_data(evolved_vars, subcell_mesh.extents(),
-                                         ghost_zone_size, directions_to_slice,
-                                         0);
+  const size_t rdmp_size = rdmp_tci_data.max_variables_values.size() +
+                           rdmp_tci_data.min_variables_values.size();
+  const DirectionMap<Dim, DataVector> all_sliced_data =
+      [&evolved_vars, &subcell_mesh, ghost_zone_size, &directions_to_slice,
+       &cell_centered_flux]() {
+        (void)ghost_zone_size;
+        if (cell_centered_flux.has_value()) {
+          DataVector buffer{evolved_vars.size() +
+                            cell_centered_flux.value().size()};
+          std::copy(evolved_vars.data(),
+                    std::next(evolved_vars.data(),
+                              static_cast<std::ptrdiff_t>(evolved_vars.size())),
+                    buffer.data());
+          std::copy(cell_centered_flux.value().data(),
+                    std::next(cell_centered_flux.value().data(),
+                              static_cast<std::ptrdiff_t>(
+                                  cell_centered_flux.value().size())),
+                    std::next(buffer.data(), static_cast<std::ptrdiff_t>(
+                                                 evolved_vars.size())));
+          return evolution::dg::subcell::slice_data(
+              buffer, subcell_mesh.extents(), ghost_zone_size,
+              directions_to_slice, 0);
+        } else {
+          return evolution::dg::subcell::slice_data(
+              evolved_vars, subcell_mesh.extents(), ghost_zone_size,
+              directions_to_slice, 0);
+        }
+      }();
   {
-    std::vector<double> expected_east_data =
+    const auto& east_sliced_neighbor_data =
         all_sliced_data.at(east_neighbor_id.first);
-    for (double& value : expected_east_data) {
-      value *= 2.0;
+    DataVector expected_east_data{east_sliced_neighbor_data.size() + rdmp_size};
+    std::copy(east_sliced_neighbor_data.begin(),
+              east_sliced_neighbor_data.end(), expected_east_data.begin());
+    // We only multiple Var1 by 2, not the fluxes.
+    const size_t bound_for_vars_to_multiply =
+        east_sliced_neighbor_data.size() /
+        (cell_centered_flux.has_value() ? (1 + Dim) : 1_st);
+    for (size_t i = 0; i < bound_for_vars_to_multiply; i++) {
+      expected_east_data[i] *= 2.0;
     }
-    expected_east_data.insert(expected_east_data.end(),
-                              rdmp_tci_data.max_variables_values.cbegin(),
-                              rdmp_tci_data.max_variables_values.cend());
-    expected_east_data.insert(expected_east_data.end(),
-                              rdmp_tci_data.min_variables_values.cbegin(),
-                              rdmp_tci_data.min_variables_values.cend());
+    std::copy(rdmp_tci_data.max_variables_values.cbegin(),
+              rdmp_tci_data.max_variables_values.cend(),
+              std::prev(expected_east_data.end(), static_cast<int>(rdmp_size)));
+    std::copy(
+        rdmp_tci_data.min_variables_values.cbegin(),
+        rdmp_tci_data.min_variables_values.cend(),
+        std::prev(expected_east_data.end(),
+                  static_cast<int>(rdmp_tci_data.min_variables_values.size())));
+
     const auto& east_data = ActionTesting::get_inbox_tag<
         comp, evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<Dim>>(
         runner, east_id);
@@ -313,6 +379,9 @@ void test() {
         expected_east_data,
         *std::get<2>(east_data.at(time_step_id)
                          .at(std::pair{Direction<Dim>::lower_xi(), self_id})));
+    CHECK(std::get<5>(east_data.at(time_step_id)
+                          .at(std::pair{Direction<Dim>::lower_xi(),
+                                        self_id})) == self_tci_decision);
   }
   if constexpr (Dim > 1) {
     const auto direction = Direction<Dim>::lower_eta();
@@ -323,17 +392,30 @@ void test() {
     }
     gsl::at(slice_extents, direction.dimension()) = ghost_zone_size;
 
-    std::vector<double> expected_south_data = orient_variables(
-        all_sliced_data.at(direction), Index<Dim>{slice_extents}, orientation);
-    for (double& value : expected_south_data) {
-      value *= 2.0;
+    const auto& south_sliced_neighbor_data = all_sliced_data.at(direction);
+
+    DataVector expected_south_data{south_sliced_neighbor_data.size() +
+                                   rdmp_size};
+    DataVector expected_south_data_view{expected_south_data.data(),
+                                        south_sliced_neighbor_data.size()};
+    orient_variables(make_not_null(&expected_south_data_view),
+                     all_sliced_data.at(direction), Index<Dim>{slice_extents},
+                     orientation);
+    const size_t bound_for_vars_to_multiply =
+        expected_south_data_view.size() /
+        (cell_centered_flux.has_value() ? (1 + Dim) : 1_st);
+    for (size_t i = 0; i < bound_for_vars_to_multiply; i++) {
+      expected_south_data_view[i] *= 2.0;
     }
-    expected_south_data.insert(expected_south_data.end(),
-                               rdmp_tci_data.max_variables_values.cbegin(),
-                               rdmp_tci_data.max_variables_values.cend());
-    expected_south_data.insert(expected_south_data.end(),
-                               rdmp_tci_data.min_variables_values.cbegin(),
-                               rdmp_tci_data.min_variables_values.cend());
+    std::copy(
+        rdmp_tci_data.max_variables_values.cbegin(),
+        rdmp_tci_data.max_variables_values.cend(),
+        std::prev(expected_south_data.end(), static_cast<int>(rdmp_size)));
+    std::copy(
+        rdmp_tci_data.min_variables_values.cbegin(),
+        rdmp_tci_data.min_variables_values.cend(),
+        std::prev(expected_south_data.end(),
+                  static_cast<int>(rdmp_tci_data.min_variables_values.size())));
 
     const auto& south_data = ActionTesting::get_inbox_tag<
         comp, evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<Dim>>(
@@ -342,6 +424,9 @@ void test() {
           *std::get<2>(
               south_data.at(time_step_id)
                   .at(std::pair{orientation(direction.opposite()), self_id})));
+    CHECK(std::get<5>(south_data.at(time_step_id)
+                          .at(std::pair{orientation(direction.opposite()),
+                                        self_id})) == self_tci_decision);
   }
 
   // Set the inbox data on self_id and then check that it gets processed
@@ -353,17 +438,15 @@ void test() {
   REQUIRE_FALSE(ActionTesting::next_action_if_ready<comp>(
       make_not_null(&runner), self_id));
 
-  const size_t rdmp_max_min_total_number = 2;
   // Send data from east neighbor
-  std::vector<double> east_ghost_cells_and_rdmp{};
+  DataVector east_ghost_cells_and_rdmp{};
   {
     const auto face_mesh = dg_mesh.slice_away(0);
-    east_ghost_cells_and_rdmp.resize(
+    east_ghost_cells_and_rdmp = DataVector{
         subcell_mesh.slice_away(0).number_of_grid_points() * ghost_zone_size +
-        rdmp_max_min_total_number);
+        rdmp_size};
     alg::iota(east_ghost_cells_and_rdmp, 0.0);
-    std::vector<double> boundary_data(face_mesh.number_of_grid_points() *
-                                      (2 + Dim));
+    DataVector boundary_data{face_mesh.number_of_grid_points() * (2 + Dim)};
     alg::iota(boundary_data, 1000.0);
     evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<Dim>::
         insert_into_inbox(
@@ -373,17 +456,17 @@ void test() {
                 std::tuple{// subcell_mesh because we are sending the projected
                            // data right now.
                            subcell_mesh, face_mesh, east_ghost_cells_and_rdmp,
-                           boundary_data, next_time_step_id}});
+                           boundary_data, next_time_step_id, -10}});
   }
-  [[maybe_unused]] std::vector<double> south_ghost_cells_and_rdmp{};
+  [[maybe_unused]] DataVector south_ghost_cells_and_rdmp{};
   if constexpr (Dim > 1) {
     REQUIRE_FALSE(ActionTesting::next_action_if_ready<comp>(
         make_not_null(&runner), self_id));
 
     const auto face_mesh = subcell_mesh.slice_away(1);
-    south_ghost_cells_and_rdmp.resize(
+    south_ghost_cells_and_rdmp = DataVector{
         subcell_mesh.slice_away(0).number_of_grid_points() * ghost_zone_size +
-        rdmp_max_min_total_number);
+        rdmp_size};
     alg::iota(south_ghost_cells_and_rdmp, 10000.0);
     *std::prev(south_ghost_cells_and_rdmp.end()) = -10.0;
     evolution::dg::Tags::BoundaryCorrectionAndGhostCellsInbox<Dim>::
@@ -394,15 +477,15 @@ void test() {
                 std::tuple{// subcell_mesh because we are sending the projected
                            // data right now.
                            subcell_mesh, face_mesh, south_ghost_cells_and_rdmp,
-                           std::nullopt, next_time_step_id}});
+                           std::nullopt, next_time_step_id, -15}});
   }
 
   // Run the ReceiveDataForReconstruction action on self_id
   ActionTesting::next_action<comp>(make_not_null(&runner), self_id);
 
   // Check the received data was stored correctly
-  const auto& neighbor_data_from_box =
-      get_databox_tag<comp, neighbor_data_tag>(runner, self_id);
+  const auto& ghost_data_from_box =
+      get_databox_tag<comp, ghost_data_tag>(runner, self_id);
   CHECK(rdmp_tci_data.max_variables_values.size() == 1);
   CHECK(approx(rdmp_tci_data.max_variables_values[0]) ==
         (Dim > 1 ? static_cast<double>(
@@ -414,20 +497,33 @@ void test() {
   CHECK(approx(rdmp_tci_data.min_variables_values[0]) ==
         (Dim > 1 ? -10.0 : min(get<0>(logical_coordinates(subcell_mesh)))));
 
-  REQUIRE(neighbor_data_from_box.find(east_neighbor_id) !=
-          neighbor_data_from_box.end());
-  east_ghost_cells_and_rdmp.pop_back();
-  east_ghost_cells_and_rdmp.pop_back();
-  CHECK(neighbor_data_from_box.find(east_neighbor_id)->second ==
-        east_ghost_cells_and_rdmp);
+  REQUIRE(ghost_data_from_box.find(east_neighbor_id) !=
+          ghost_data_from_box.end());
+  const DataVector east_ghost_cells_and_rdmp_view{
+      east_ghost_cells_and_rdmp.data(),
+      east_ghost_cells_and_rdmp.size() - rdmp_size};
+  CHECK(ghost_data_from_box.find(east_neighbor_id)
+            ->second.neighbor_ghost_data_for_reconstruction() ==
+        east_ghost_cells_and_rdmp_view);
+  CHECK(
+      get_databox_tag<comp,
+                      evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>>(
+          runner, self_id)
+          .at(east_neighbor_id) == -10);
   if constexpr (Dim > 1) {
     const std::pair south_neighbor_id{Direction<Dim>::lower_eta(), south_id};
-    REQUIRE(neighbor_data_from_box.find(south_neighbor_id) !=
-            neighbor_data_from_box.end());
-    south_ghost_cells_and_rdmp.pop_back();
-    south_ghost_cells_and_rdmp.pop_back();
-    CHECK(neighbor_data_from_box.find(south_neighbor_id)->second ==
-          south_ghost_cells_and_rdmp);
+    REQUIRE(ghost_data_from_box.find(south_neighbor_id) !=
+            ghost_data_from_box.end());
+    const DataVector south_ghost_cells_and_rdmp_view{
+        south_ghost_cells_and_rdmp.data(),
+        south_ghost_cells_and_rdmp.size() - rdmp_size};
+    CHECK(ghost_data_from_box.find(south_neighbor_id)
+              ->second.neighbor_ghost_data_for_reconstruction() ==
+          south_ghost_cells_and_rdmp_view);
+    CHECK(get_databox_tag<
+              comp, evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>>(
+              runner, self_id)
+              .at(south_neighbor_id) == -15);
   }
 
   // Check that we got a neighbor mesh from all neighbors.
@@ -450,8 +546,10 @@ void test() {
 
 SPECTRE_TEST_CASE("Unit.Evolution.Subcell.Actions.ReconstructionCommunication",
                   "[Evolution][Unit]") {
-  test<1>();
-  test<2>();
-  test<3>();
+  for (const bool use_cell_centered_flux : {false, true}) {
+    test<1>(use_cell_centered_flux);
+    test<2>(use_cell_centered_flux);
+    test<3>(use_cell_centered_flux);
+  }
 }
 }  // namespace

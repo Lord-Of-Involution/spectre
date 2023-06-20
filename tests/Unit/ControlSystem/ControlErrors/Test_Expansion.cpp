@@ -6,8 +6,9 @@
 #include <cstddef>
 #include <string>
 
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
@@ -75,12 +76,17 @@ void test_expansion_control_error() {
   const std::string expansion_name =
       system_helper.template name<expansion_system>();
 
+  auto grid_center_A = domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B = domain.excision_spheres().at("ExcisionSphereB").center();
+
   // Setup runner and element component because it's the easiest way to get the
   // global cache
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
-  MockRuntimeSystem runner{{"DummyFileName", std::move(domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  MockRuntimeSystem runner{
+      {"DummyFileName", std::move(domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_array_component<element_component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, 0);
@@ -89,8 +95,8 @@ void test_expansion_control_error() {
       Parallel::get<domain::Tags::FunctionsOfTime>(cache);
 
   using QueueTuple = tuples::TaggedTuple<
-      control_system::QueueTags::Center<::ah::ObjectLabel::A>,
-      control_system::QueueTags::Center<::ah::ObjectLabel::B>>;
+      control_system::QueueTags::Center<::domain::ObjectLabel::A>,
+      control_system::QueueTags::Center<::domain::ObjectLabel::B>>;
 
   // Create fake measurements. For expansion we only care about the x component
   // because that's all that is used. A is on the positive x-axis, B is on the
@@ -118,7 +124,7 @@ void test_expansion_control_error() {
   const DataVector expected_control_error{exp_factor *
                                           (pos_diff / grid_diff - 1.0)};
 
-  CHECK(control_error == expected_control_error);
+  CHECK_ITERABLE_APPROX(control_error, expected_control_error);
 }
 
 SPECTRE_TEST_CASE("Unit.ControlSystem.ControlErrors.Expansion",

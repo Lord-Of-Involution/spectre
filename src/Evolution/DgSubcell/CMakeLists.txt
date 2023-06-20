@@ -11,14 +11,18 @@ spectre_target_headers(
   HEADERS
   ActiveGrid.hpp
   CartesianFluxDivergence.hpp
+  CellCenteredFlux.hpp
   ComputeBoundaryTerms.hpp
   CorrectPackagedData.hpp
   DgSubcell.hpp
+  GetTciDecision.hpp
+  GhostData.hpp
   GhostZoneLogicalCoordinates.hpp
   Matrices.hpp
   Mesh.hpp
   NeighborRdmpAndVolumeData.hpp
   NeighborReconstructedFaceSolution.hpp
+  NeighborTciDecision.hpp
   PerssonTci.hpp
   PrepareNeighborData.hpp
   Projection.hpp
@@ -26,6 +30,7 @@ spectre_target_headers(
   RdmpTciData.hpp
   Reconstruction.hpp
   ReconstructionMethod.hpp
+  ReconstructionOrder.hpp
   SliceData.hpp
   SliceTensor.hpp
   SliceVariable.hpp
@@ -38,6 +43,7 @@ spectre_target_sources(
   PRIVATE
   ActiveGrid.cpp
   CartesianFluxDivergence.cpp
+  GhostData.cpp
   GhostZoneLogicalCoordinates.cpp
   Matrices.cpp
   Mesh.cpp
@@ -57,17 +63,19 @@ target_link_libraries(
   PUBLIC
   DataStructures
   Domain
+  Parallel
   Spectral
 
   INTERFACE
+  Boost::boost
   Events
   FunctionsOfTime
-  Parallel
   Time
 
   PRIVATE
   Blas
   ErrorHandling
+  Serialization
   Utilities
   )
 

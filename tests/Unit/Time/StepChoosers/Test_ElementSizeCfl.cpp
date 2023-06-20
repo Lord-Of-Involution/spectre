@@ -19,18 +19,19 @@
 #include "Domain/CoordinateMaps/Identity.hpp"
 #include "Domain/CoordinateMaps/ProductMaps.hpp"
 #include "Domain/CoordinateMaps/ProductMaps.tpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/SizeOfElement.hpp"
 #include "Domain/Tags.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "NumericalAlgorithms/Spectral/Spectral.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "Time/StepChoosers/ElementSizeCfl.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/TimeStepper.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace {
@@ -120,9 +121,9 @@ std::pair<double, bool> get_suggestion(
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.Time.StepChoosers.ElementSizeCfl", "[Unit][Time]") {
-  Parallel::register_factory_classes_with_charm<Metavariables<1>>();
-  Parallel::register_factory_classes_with_charm<Metavariables<2>>();
-  Parallel::register_factory_classes_with_charm<Metavariables<3>>();
+  register_factory_classes_with_charm<Metavariables<1>>();
+  register_factory_classes_with_charm<Metavariables<2>>();
+  register_factory_classes_with_charm<Metavariables<3>>();
 
   {
     INFO("Test 1D element size CFL step chooser");

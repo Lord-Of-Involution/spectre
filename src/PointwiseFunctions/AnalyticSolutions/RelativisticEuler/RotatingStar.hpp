@@ -10,7 +10,7 @@
 
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/RelativisticEuler/Solutions.hpp"
 #include "PointwiseFunctions/Hydro/EquationsOfState/PolytropicFluid.hpp"
@@ -413,20 +413,22 @@ class RotatingStar : public virtual evolution::initial_data::InitialData,
     return equation_of_state_;
   }
 
+  double equatorial_radius() const {
+    return cst_solution_.equatorial_radius();
+  }
+
  protected:
   template <typename DataType>
   using DerivLapse = ::Tags::deriv<gr::Tags::Lapse<DataType>, tmpl::size_t<3>,
                                    Frame::Inertial>;
 
   template <typename DataType>
-  using DerivShift =
-      ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataType>,
-                    tmpl::size_t<3>, Frame::Inertial>;
+  using DerivShift = ::Tags::deriv<gr::Tags::Shift<DataType, 3>,
+                                   tmpl::size_t<3>, Frame::Inertial>;
 
   template <typename DataType>
-  using DerivSpatialMetric =
-      ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>,
-                    tmpl::size_t<3>, Frame::Inertial>;
+  using DerivSpatialMetric = ::Tags::deriv<gr::Tags::SpatialMetric<DataType, 3>,
+                                           tmpl::size_t<3>, Frame::Inertial>;
 
   template <typename DataType>
   void interpolate_vars_if_necessary(
@@ -527,19 +529,16 @@ class RotatingStar : public virtual evolution::initial_data::InitialData,
       -> tuples::TaggedTuple<gr::Tags::Lapse<DataType>>;
 
   template <typename DataType>
-  auto variables(
-      gsl::not_null<IntermediateVariables<DataType>*> vars,
-      const tnsr::I<DataType, 3>& x,
-      tmpl::list<gr::Tags::Shift<3, Frame::Inertial, DataType>> /*meta*/) const
-      -> tuples::TaggedTuple<gr::Tags::Shift<3, Frame::Inertial, DataType>>;
+  auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
+                 const tnsr::I<DataType, 3>& x,
+                 tmpl::list<gr::Tags::Shift<DataType, 3>> /*meta*/) const
+      -> tuples::TaggedTuple<gr::Tags::Shift<DataType, 3>>;
 
   template <typename DataType>
   auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
                  const tnsr::I<DataType, 3>& x,
-                 tmpl::list<gr::Tags::SpatialMetric<3, Frame::Inertial,
-                                                    DataType>> /*meta*/) const
-      -> tuples::TaggedTuple<
-          gr::Tags::SpatialMetric<3, Frame::Inertial, DataType>>;
+                 tmpl::list<gr::Tags::SpatialMetric<DataType, 3>> /*meta*/)
+      const -> tuples::TaggedTuple<gr::Tags::SpatialMetric<DataType, 3>>;
 
   template <typename DataType>
   auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
@@ -548,12 +547,11 @@ class RotatingStar : public virtual evolution::initial_data::InitialData,
       const -> tuples::TaggedTuple<gr::Tags::SqrtDetSpatialMetric<DataType>>;
 
   template <typename DataType>
-  auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
-                 const tnsr::I<DataType, 3>& x,
-                 tmpl::list<gr::Tags::InverseSpatialMetric<
-                     3, Frame::Inertial, DataType>> /*meta*/) const
-      -> tuples::TaggedTuple<
-          gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataType>>;
+  auto variables(
+      gsl::not_null<IntermediateVariables<DataType>*> vars,
+      const tnsr::I<DataType, 3>& x,
+      tmpl::list<gr::Tags::InverseSpatialMetric<DataType, 3>> /*meta*/) const
+      -> tuples::TaggedTuple<gr::Tags::InverseSpatialMetric<DataType, 3>>;
 
   template <typename DataType>
   auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
@@ -576,10 +574,8 @@ class RotatingStar : public virtual evolution::initial_data::InitialData,
   template <typename DataType>
   auto variables(gsl::not_null<IntermediateVariables<DataType>*> vars,
                  const tnsr::I<DataType, 3>& x,
-                 tmpl::list<gr::Tags::ExtrinsicCurvature<
-                     3, Frame::Inertial, DataType>> /*meta*/) const
-      -> tuples::TaggedTuple<
-          gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataType>>;
+                 tmpl::list<gr::Tags::ExtrinsicCurvature<DataType, 3>> /*meta*/)
+      const -> tuples::TaggedTuple<gr::Tags::ExtrinsicCurvature<DataType, 3>>;
 
   friend bool operator==(const RotatingStar& lhs, const RotatingStar& rhs);
 

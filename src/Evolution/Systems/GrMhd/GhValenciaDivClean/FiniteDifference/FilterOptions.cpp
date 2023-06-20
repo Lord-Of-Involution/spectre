@@ -5,7 +5,8 @@
 
 #include <pup.h>
 
-#include "Parallel/PupStlCpp17.hpp"
+#include "Options/ParseError.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 namespace grmhd::GhValenciaDivClean::fd {
 FilterOptions::FilterOptions(

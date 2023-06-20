@@ -4,22 +4,17 @@
 #pragma once
 
 #include <cstddef>
+#include <iosfwd>
 #include <optional>
-#include <ostream>
 #include <pup.h>
 #include <utility>
-#include <vector>
 
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Parallel/PupStlCpp17.hpp"
 #include "Time/TimeStepId.hpp"
-#include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
-
-/// \cond
-class DataVector;
-/// \endcond
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 namespace evolution::dg {
 /*!
@@ -48,7 +43,11 @@ namespace evolution::dg {
  */
 template <size_t Dim>
 class MortarData {
+  using MortarType = std::optional<std::pair<Mesh<Dim - 1>, DataVector>>;
+
  public:
+  MortarData(size_t number_of_buffers = 1);
+
   /*!
    * \brief Insert data onto the mortar.
    *
@@ -69,10 +68,10 @@ class MortarData {
   /// @{
   void insert_local_mortar_data(TimeStepId time_step_id,
                                 Mesh<Dim - 1> local_interface_mesh,
-                                std::vector<double> local_mortar_vars);
+                                DataVector local_mortar_vars);
   void insert_neighbor_mortar_data(TimeStepId time_step_id,
                                    Mesh<Dim - 1> neighbor_interface_mesh,
-                                   std::vector<double> neighbor_mortar_vars);
+                                   DataVector neighbor_mortar_vars);
   /// @}
 
   /*!
@@ -145,19 +144,43 @@ class MortarData {
   ///
   /// The first element is the local data while the second element is the
   /// neighbor data.
-  auto extract() -> std::pair<std::pair<Mesh<Dim - 1>, std::vector<double>>,
-                              std::pair<Mesh<Dim - 1>, std::vector<double>>>;
+  auto extract() -> std::pair<std::pair<Mesh<Dim - 1>, DataVector>,
+                              std::pair<Mesh<Dim - 1>, DataVector>>;
 
-  const TimeStepId& time_step_id() const { return time_step_id_; }
+  /// Move to the next internal mortar buffer
+  void next_buffer();
+
+  /// Return the current internal mortar index
+  size_t current_buffer_index() const;
+
+  /// Return the total number of buffers that this MortarData was constructed
+  /// with
+  size_t total_number_of_buffers() const;
+
+  const TimeStepId& time_step_id() const {
+    return time_step_id_[mortar_index_];
+  }
+
+  TimeStepId& time_step_id() { return time_step_id_[mortar_index_]; }
 
   auto local_mortar_data() const
-      -> const std::optional<std::pair<Mesh<Dim - 1>, std::vector<double>>>& {
-    return local_mortar_data_;
+      -> const std::optional<std::pair<Mesh<Dim - 1>, DataVector>>& {
+    return local_mortar_data_[mortar_index_];
   }
 
   auto neighbor_mortar_data() const
-      -> const std::optional<std::pair<Mesh<Dim - 1>, std::vector<double>>>& {
-    return neighbor_mortar_data_;
+      -> const std::optional<std::pair<Mesh<Dim - 1>, DataVector>>& {
+    return neighbor_mortar_data_[mortar_index_];
+  }
+
+  auto local_mortar_data()
+      -> std::optional<std::pair<Mesh<Dim - 1>, DataVector>>& {
+    return local_mortar_data_[mortar_index_];
+  }
+
+  auto neighbor_mortar_data()
+      -> std::optional<std::pair<Mesh<Dim - 1>, DataVector>>& {
+    return neighbor_mortar_data_[mortar_index_];
   }
 
   // NOLINTNEXTLINE(google-runtime-references)
@@ -169,16 +192,19 @@ class MortarData {
   friend bool operator==(const MortarData<LocalDim>& lhs,
                          const MortarData<LocalDim>& rhs);
 
-  TimeStepId time_step_id_{};
-  std::optional<std::pair<Mesh<Dim - 1>, std::vector<double>>>
-      local_mortar_data_{};
-  std::optional<std::pair<Mesh<Dim - 1>, std::vector<double>>>
-      neighbor_mortar_data_{};
-  std::vector<double> local_geometric_quantities_{};
+  size_t number_of_buffers_{1};
+  std::vector<TimeStepId> time_step_id_{};
+  std::vector<MortarType> local_mortar_data_{};
+  std::vector<MortarType> neighbor_mortar_data_{};
+  size_t mortar_index_{0};
+  DataVector local_geometric_quantities_{};
   bool using_volume_and_face_jacobians_{false};
   bool using_only_face_normal_magnitude_{false};
 };
 
 template <size_t Dim>
 bool operator!=(const MortarData<Dim>& lhs, const MortarData<Dim>& rhs);
+
+template <size_t Dim>
+std::ostream& operator<<(std::ostream& os, const MortarData<Dim>& mortar_data);
 }  // namespace evolution::dg

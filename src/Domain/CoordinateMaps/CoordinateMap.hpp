@@ -21,7 +21,7 @@
 
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -440,7 +440,7 @@ class CoordinateMap
     p | version;
     // Remember to increment the version number when making changes to this
     // function. Retain support for unpacking data written by previous versions
-    // whenever possible.
+    // whenever possible. See `Domain` docs for details.
     if (version >= 0) {
       CoordinateMapBase<SourceFrame, TargetFrame, dim>::pup(p);
       p | maps_;

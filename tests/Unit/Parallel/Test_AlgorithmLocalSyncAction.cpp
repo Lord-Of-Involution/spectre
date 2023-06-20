@@ -29,6 +29,7 @@
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "Utilities/Blas.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
+#include "Utilities/ErrorHandling/SegfaultHandler.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MemoryHelpers.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
@@ -79,10 +80,10 @@ struct SyncGetPointerFromNodegroup {
       // of the box.
       node_lock->lock();
       db::mutate<StepNumber>(
-          make_not_null(&box),
           [&result](const gsl::not_null<size_t*> step_number) {
             result = step_number;
-          });
+          },
+          make_not_null(&box));
       node_lock->unlock();
       return result;
     } else {
@@ -129,8 +130,8 @@ struct IncrementNodegroupStep {
       // nodegroups can have multiple actions running in separate threads.
       node_lock->lock();
       db::mutate<StepNumber>(
-          make_not_null(&box),
-          [](const gsl::not_null<size_t*> step_number) { ++(*step_number); });
+          [](const gsl::not_null<size_t*> step_number) { ++(*step_number); },
+          make_not_null(&box));
       node_lock->unlock();
     } else {
       // avoid 'unused' warnings
@@ -254,7 +255,7 @@ static const std::vector<void (*)()> charm_init_node_funcs{
     &setup_error_handling, &setup_memory_allocation_failure_reporting,
     &disable_openblas_multithreading};
 static const std::vector<void (*)()> charm_init_proc_funcs{
-    &enable_floating_point_exceptions};
+    &enable_floating_point_exceptions, &enable_segfault_handler};
 
 using charmxx_main_component = Parallel::Main<TestMetavariables>;
 

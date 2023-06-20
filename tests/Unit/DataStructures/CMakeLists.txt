@@ -20,7 +20,6 @@ set(LIBRARY_SOURCES
   Test_DynamicBuffer.cpp
   Test_FixedHashMap.cpp
   Test_FloatingPointType.cpp
-  Test_GeneralIndexIterator.cpp
   Test_IdPair.cpp
   Test_Index.cpp
   Test_IndexIterator.cpp
@@ -37,6 +36,7 @@ set(LIBRARY_SOURCES
   Test_SliceTensorToVariables.cpp
   Test_SliceVariables.cpp
   Test_SpinWeighted.cpp
+  Test_StaticDeque.cpp
   Test_StripeIterator.cpp
   Test_TaggedContainers.cpp
   Test_Tags.cpp

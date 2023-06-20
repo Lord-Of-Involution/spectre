@@ -8,7 +8,6 @@
 #include <optional>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -24,8 +23,8 @@
 #include "Evolution/BoundaryCorrectionTags.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
 #include "Evolution/DgSubcell/Projection.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/PackageDataImpl.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
@@ -58,15 +57,15 @@ namespace Burgers::subcell {
  */
 struct NeighborPackagedData {
   template <typename DbTagsList>
-  static FixedHashMap<
-      maximum_number_of_neighbors(1), std::pair<Direction<1>, ElementId<1>>,
-      std::vector<double>, boost::hash<std::pair<Direction<1>, ElementId<1>>>>
+  static FixedHashMap<maximum_number_of_neighbors(1),
+                      std::pair<Direction<1>, ElementId<1>>, DataVector,
+                      boost::hash<std::pair<Direction<1>, ElementId<1>>>>
   apply(const db::DataBox<DbTagsList>& box,
         const std::vector<std::pair<Direction<1>, ElementId<1>>>&
             mortars_to_reconstruct_to) {
     // The object to return
     FixedHashMap<maximum_number_of_neighbors(1),
-                 std::pair<Direction<1>, ElementId<1>>, std::vector<double>,
+                 std::pair<Direction<1>, ElementId<1>>, DataVector,
                  boost::hash<std::pair<Direction<1>, ElementId<1>>>>
         neighbor_package_data{};
     if (mortars_to_reconstruct_to.empty()) {
@@ -91,8 +90,8 @@ struct NeighborPackagedData {
         db::get<typename System::variables_tag>(box), dg_mesh,
         subcell_mesh.extents());
 
-    const auto& neighbor_subcell_data =
-        db::get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>>(
+    const auto& ghost_subcell_data =
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<1>>(
             box);
 
     const Burgers::fd::Reconstructor& recons =
@@ -130,11 +129,11 @@ struct NeighborPackagedData {
           call_with_dynamic_type<
               void, typename Burgers::fd::Reconstructor::creatable_classes>(
               &recons,
-              [&element, &mortar_id, &neighbor_subcell_data, &subcell_mesh,
+              [&element, &mortar_id, &ghost_subcell_data, &subcell_mesh,
                &vars_on_face, &volume_vars_subcell](const auto& reconstructor) {
                 reconstructor->reconstruct_fd_neighbor(
                     make_not_null(&vars_on_face), volume_vars_subcell, element,
-                    neighbor_subcell_data, subcell_mesh, mortar_id.first);
+                    ghost_subcell_data, subcell_mesh, mortar_id.first);
               });
 
           // Compute fluxes
@@ -158,9 +157,12 @@ struct NeighborPackagedData {
               typename derived_correction::dg_package_data_volume_tags{},
               dg_package_data_argument_tags{});
 
-          neighbor_package_data[mortar_id] =
-              std::vector<double>{packaged_data.data(),
-                                  packaged_data.data() + packaged_data.size()};
+          // Make a view so we can use iterators with std::copy
+          DataVector packaged_data_view{packaged_data.data(),
+                                        packaged_data.size()};
+          neighbor_package_data[mortar_id] = DataVector{packaged_data.size()};
+          std::copy(packaged_data_view.begin(), packaged_data_view.end(),
+                    neighbor_package_data[mortar_id].begin());
         }
       }
     });

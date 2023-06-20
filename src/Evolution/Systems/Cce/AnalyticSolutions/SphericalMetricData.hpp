@@ -206,8 +206,7 @@ struct SphericalMetricData : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::aa<DataVector, 3>*> spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<
-          gr::Tags::SpacetimeMetric<3, ::Frame::Inertial, DataVector>> /*meta*/)
+      tmpl::type_<gr::Tags::SpacetimeMetric<DataVector, 3>> /*meta*/)
       const override;
 
   /*!
@@ -224,8 +223,9 @@ struct SphericalMetricData : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::aa<DataVector, 3>*> dt_spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<::Tags::dt<gr::Tags::SpacetimeMetric<
-          3, ::Frame::Inertial, DataVector>>> /*meta*/) const override;
+      tmpl::type_<
+          ::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>> /*meta*/)
+      const override;
 
   /*!
    * \brief Computes the spatial derivatives of the Cartesian spacetime metric
@@ -243,9 +243,7 @@ struct SphericalMetricData : public WorldtubeData {
   void variables_impl(
       gsl::not_null<tnsr::iaa<DataVector, 3>*> d_spacetime_metric, size_t l_max,
       double time,
-      tmpl::type_<
-          GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>> /*meta*/)
-      const override;
+      tmpl::type_<gh::Tags::Phi<DataVector, 3>> /*meta*/) const override;
 
   /// Must be overriden in the derived class; should compute the spacetime
   /// metric of the analytic solution in spherical coordinates.

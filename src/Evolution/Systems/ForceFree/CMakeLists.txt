@@ -9,9 +9,11 @@ spectre_target_sources(
   ${LIBRARY}
   PRIVATE
   Characteristics.cpp
+  ElectricCurrentDensity.cpp
   Fluxes.cpp
   Sources.cpp
   TimeDerivativeTerms.cpp
+  VolumeTermsInstantiation.cpp
   )
 
 spectre_target_headers(
@@ -19,8 +21,10 @@ spectre_target_headers(
   INCLUDE_DIRECTORY ${CMAKE_SOURCE_DIR}/src
   HEADERS
   Characteristics.hpp
+  ElectricCurrentDensity.hpp
   Fluxes.hpp
   Sources.hpp
+  System.hpp
   Tags.hpp
   TimeDerivativeTerms.hpp
   )
@@ -39,6 +43,8 @@ target_link_libraries(
   ErrorHandling
   Evolution
   FiniteDifference
+  ForceFreeAnalyticData
+  ForceFreeSolutions
   GeneralRelativity
   Options
   Parallel
@@ -48,3 +54,5 @@ target_link_libraries(
 
 add_subdirectory(BoundaryConditions)
 add_subdirectory(BoundaryCorrections)
+add_subdirectory(FiniteDifference)
+add_subdirectory(Subcell)

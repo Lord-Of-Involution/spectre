@@ -57,12 +57,16 @@ SPECTRE_TEST_CASE("Unit.Evolution.Systems.Burgers.Subcell.TciOnDgGrid",
         persson_exponent,
         persson_exponent,
         false,
-        evolution::dg::subcell::fd::ReconstructionMethod::DimByDim};
+        evolution::dg::subcell::fd::ReconstructionMethod::DimByDim,
+        false,
+        std::nullopt,
+        fd::DerivativeOrder::Two};
 
+    const bool element_stays_on_dg = false;
     const std::tuple<bool, evolution::dg::subcell::RdmpTciData> result =
-        Burgers::subcell::TciOnDgGrid::apply(u, dg_mesh, subcell_mesh,
-                                             past_rdmp_tci_data,
-                                             subcell_options, persson_exponent);
+        Burgers::subcell::TciOnDgGrid::apply(
+            u, dg_mesh, subcell_mesh, past_rdmp_tci_data, subcell_options,
+            persson_exponent, element_stays_on_dg);
 
     CHECK(std::get<1>(result) == expected_rdmp_data);
 

@@ -7,8 +7,8 @@
 
 #include <array>
 #include <cstddef>
+#include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
 #include "DataStructures/DataBox/Prefixes.hpp"
@@ -24,6 +24,7 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/MaxNumberOfNeighbors.hpp"
 #include "Domain/Structure/Neighbors.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
 #include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/ConservativeFromPrimitive.hpp"
@@ -44,19 +45,20 @@
 
 namespace TestHelpers::grmhd::ValenciaDivClean::fd {
 namespace detail {
+using GhostData = evolution::dg::subcell::GhostData;
 template <typename F>
 FixedHashMap<maximum_number_of_neighbors(3),
-             std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+             std::pair<Direction<3>, ElementId<3>>, GhostData,
              boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-compute_neighbor_data(
+compute_ghost_data(
     const Mesh<3>& subcell_mesh,
     const tnsr::I<DataVector, 3, Frame::ElementLogical>& volume_logical_coords,
     const DirectionMap<3, Neighbors<3>>& neighbors,
     const size_t ghost_zone_size, const F& compute_variables_of_neighbor_data) {
   FixedHashMap<maximum_number_of_neighbors(3),
-               std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+               std::pair<Direction<3>, ElementId<3>>, GhostData,
                boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-      neighbor_data{};
+      ghost_data{};
   for (const auto& [direction, neighbors_in_direction] : neighbors) {
     REQUIRE(neighbors_in_direction.size() == 1);
     const ElementId<3>& neighbor_id = *neighbors_in_direction.begin();
@@ -66,18 +68,19 @@ compute_neighbor_data(
     const auto neighbor_vars_for_reconstruction =
         compute_variables_of_neighbor_data(neighbor_logical_coords);
 
-    DirectionMap<3, bool> directions_to_slice{};
-    directions_to_slice[direction.opposite()] = true;
     const auto sliced_data = evolution::dg::subcell::detail::slice_data_impl(
         gsl::make_span(neighbor_vars_for_reconstruction.data(),
                        neighbor_vars_for_reconstruction.size()),
-        subcell_mesh.extents(), ghost_zone_size, directions_to_slice, 0);
+        subcell_mesh.extents(), ghost_zone_size,
+        std::unordered_set{direction.opposite()}, 0);
     REQUIRE(sliced_data.size() == 1);
     REQUIRE(sliced_data.contains(direction.opposite()));
-    neighbor_data[std::pair{direction, neighbor_id}] =
+    ghost_data[std::pair{direction, neighbor_id}] = GhostData{1};
+    ghost_data.at(std::pair{direction, neighbor_id})
+        .neighbor_ghost_data_for_reconstruction() =
         sliced_data.at(direction.opposite());
   }
-  return neighbor_data;
+  return ghost_data;
 }
 
 template <size_t ThermodynamicDim, typename Reconstructor>
@@ -153,11 +156,12 @@ void test_prim_reconstructor_impl(
   };
 
   const FixedHashMap<maximum_number_of_neighbors(3),
-                     std::pair<Direction<3>, ElementId<3>>, std::vector<double>,
+                     std::pair<Direction<3>, ElementId<3>>,
+                     evolution::dg::subcell::GhostData,
                      boost::hash<std::pair<Direction<3>, ElementId<3>>>>
-      neighbor_data = compute_neighbor_data(
-          subcell_mesh, logical_coords, element.neighbors(),
-          reconstructor.ghost_zone_size(), compute_solution);
+      ghost_data =
+          compute_ghost_data(subcell_mesh, logical_coords, element.neighbors(),
+                             reconstructor.ghost_zone_size(), compute_solution);
 
   const size_t reconstructed_num_pts =
       (subcell_mesh.extents(0) + 1) *
@@ -170,11 +174,10 @@ void test_prim_reconstructor_impl(
           hydro::Tags::LorentzFactorTimesSpatialVelocity<DataVector, 3>>,
       flux_tags,
       tmpl::remove_duplicates<tmpl::push_back<tmpl::list<
-          gr::Tags::Lapse<DataVector>,
-          gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-          gr::Tags::SpatialMetric<3>,
+          gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+          gr::Tags::SpatialMetric<DataVector, 3>,
           gr::Tags::SqrtDetSpatialMetric<DataVector>,
-          gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
+          gr::Tags::InverseSpatialMetric<DataVector, 3>,
           evolution::dg::Actions::detail::NormalVector<3>>>>>;
   tnsr::ii<DataVector, 3, Frame::Inertial> lower_face_spatial_metric{
       reconstructed_num_pts, 0.0};
@@ -201,10 +204,10 @@ void test_prim_reconstructor_impl(
     get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
         gsl::at(vars_on_upper_face, i)) = upper_face_sqrt_det_spatial_metric;
 
-    get<gr::Tags::SpatialMetric<3>>(gsl::at(vars_on_lower_face, i)) =
-        lower_face_spatial_metric;
-    get<gr::Tags::SpatialMetric<3>>(gsl::at(vars_on_upper_face, i)) =
-        upper_face_spatial_metric;
+    get<gr::Tags::SpatialMetric<DataVector, 3>>(
+        gsl::at(vars_on_lower_face, i)) = lower_face_spatial_metric;
+    get<gr::Tags::SpatialMetric<DataVector, 3>>(
+        gsl::at(vars_on_upper_face, i)) = upper_face_spatial_metric;
   }
 
   Variables<prims_tags> volume_prims{subcell_mesh.number_of_grid_points()};
@@ -227,10 +230,44 @@ void test_prim_reconstructor_impl(
   }
 
   // Now we have everything to call the reconstruction
-  dynamic_cast<const Reconstructor&>(reconstructor)
-      .reconstruct(make_not_null(&vars_on_lower_face),
-                   make_not_null(&vars_on_upper_face), volume_prims, eos,
-                   element, neighbor_data, subcell_mesh);
+  if constexpr (Reconstructor::use_adaptive_order) {
+    std::array<std::vector<std::uint8_t>, 3> reconstruction_order_storage{};
+    std::optional<std::array<gsl::span<std::uint8_t>, 3>>
+        reconstruction_order{};
+    reconstruction_order.emplace();
+    for (size_t i = 0; i < 3; ++i) {
+      auto order_extents = subcell_mesh.extents();
+      order_extents[i] += 2;
+      gsl::at(reconstruction_order_storage, i).resize(order_extents.product());
+      // Ensure we have reset the values to max so the min calls are fine.
+      std::fill_n(gsl::at(reconstruction_order_storage, i).begin(),
+                  order_extents.product(),
+                  std::numeric_limits<std::uint8_t>::max());
+      gsl::at(reconstruction_order.value(), i) = gsl::span<std::uint8_t>{
+          gsl::at(reconstruction_order_storage, i).data(),
+          gsl::at(reconstruction_order_storage, i).size()};
+    }
+
+    dynamic_cast<const Reconstructor&>(reconstructor)
+        .reconstruct(make_not_null(&vars_on_lower_face),
+                     make_not_null(&vars_on_upper_face),
+                     make_not_null(&reconstruction_order), volume_prims, eos,
+                     element, ghost_data, subcell_mesh);
+    for (size_t d = 0; d < 3; ++d) {
+      CAPTURE(d);
+      for (size_t i = 0; i < gsl::at(reconstruction_order_storage, d).size();
+           ++i) {
+        CAPTURE(i);
+        CHECK(gsl::at(reconstruction_order_storage, d)[i] >= 1);
+        CHECK(gsl::at(reconstruction_order_storage, d)[i] <= 9);
+      }
+    }
+  } else {
+    dynamic_cast<const Reconstructor&>(reconstructor)
+        .reconstruct(make_not_null(&vars_on_lower_face),
+                     make_not_null(&vars_on_upper_face), volume_prims, eos,
+                     element, ghost_data, subcell_mesh);
+  }
 
   for (size_t dim = 0; dim < 3; ++dim) {
     CAPTURE(dim);
@@ -286,11 +323,11 @@ void test_prim_reconstructor_impl(
 
     get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
         expected_lower_face_values) = lower_face_sqrt_det_spatial_metric;
-    get<gr::Tags::SpatialMetric<3>>(expected_lower_face_values) =
+    get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_lower_face_values) =
         lower_face_spatial_metric;
     get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
         expected_upper_face_values) = upper_face_sqrt_det_spatial_metric;
-    get<gr::Tags::SpatialMetric<3>>(expected_upper_face_values) =
+    get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_upper_face_values) =
         upper_face_spatial_metric;
 
     mhd::ConservativeFromPrimitive::apply(
@@ -303,14 +340,13 @@ void test_prim_reconstructor_impl(
         get<Rho>(expected_lower_face_values),
         get<ElectronFraction>(expected_lower_face_values),
         get<SpecificInternalEnergy>(expected_lower_face_values),
-        get<SpecificEnthalpy>(expected_lower_face_values),
         get<Pressure>(expected_lower_face_values),
         get<Velocity>(expected_lower_face_values),
         get<LorentzFactor>(expected_lower_face_values),
         get<MagField>(expected_lower_face_values),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
             expected_lower_face_values),
-        get<gr::Tags::SpatialMetric<3>>(expected_lower_face_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_lower_face_values),
         get<Phi>(expected_lower_face_values));
     mhd::ConservativeFromPrimitive::apply(
         make_not_null(&get<mhd::Tags::TildeD>(expected_upper_face_values)),
@@ -322,14 +358,13 @@ void test_prim_reconstructor_impl(
         get<Rho>(expected_upper_face_values),
         get<ElectronFraction>(expected_upper_face_values),
         get<SpecificInternalEnergy>(expected_upper_face_values),
-        get<SpecificEnthalpy>(expected_upper_face_values),
         get<Pressure>(expected_upper_face_values),
         get<Velocity>(expected_upper_face_values),
         get<LorentzFactor>(expected_upper_face_values),
         get<MagField>(expected_upper_face_values),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
             expected_upper_face_values),
-        get<gr::Tags::SpatialMetric<3>>(expected_upper_face_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_upper_face_values),
         get<Phi>(expected_upper_face_values));
 
     tmpl::for_each<tmpl::append<cons_tags, prims_tags>>(
@@ -358,14 +393,14 @@ void test_prim_reconstructor_impl(
             expected_upper_face_values),
         face_centered_mesh.extents(), dim, face_centered_mesh.extents(dim) - 1);
     data_on_slice(
-        make_not_null(
-            &get<gr::Tags::SpatialMetric<3>>(upper_side_vars_on_mortar)),
-        get<gr::Tags::SpatialMetric<3>>(expected_upper_face_values),
+        make_not_null(&get<gr::Tags::SpatialMetric<DataVector, 3>>(
+            upper_side_vars_on_mortar)),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_upper_face_values),
         face_centered_mesh.extents(), dim, face_centered_mesh.extents(dim) - 1);
 
     dynamic_cast<const Reconstructor&>(reconstructor)
         .reconstruct_fd_neighbor(make_not_null(&upper_side_vars_on_mortar),
-                                 volume_prims, eos, element, neighbor_data,
+                                 volume_prims, eos, element, ghost_data,
                                  subcell_mesh, Direction<3>{dim, Side::Upper});
 
     Variables<dg_package_data_argument_tags> lower_side_vars_on_mortar{
@@ -377,14 +412,15 @@ void test_prim_reconstructor_impl(
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(
             expected_lower_face_values),
         face_centered_mesh.extents(), dim, 0);
-    data_on_slice(make_not_null(&get<gr::Tags::SpatialMetric<3>>(
-                      lower_side_vars_on_mortar)),
-                  get<gr::Tags::SpatialMetric<3>>(expected_lower_face_values),
-                  face_centered_mesh.extents(), dim, 0);
+    data_on_slice(
+        make_not_null(&get<gr::Tags::SpatialMetric<DataVector, 3>>(
+            lower_side_vars_on_mortar)),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(expected_lower_face_values),
+        face_centered_mesh.extents(), dim, 0);
 
     dynamic_cast<const Reconstructor&>(reconstructor)
         .reconstruct_fd_neighbor(make_not_null(&lower_side_vars_on_mortar),
-                                 volume_prims, eos, element, neighbor_data,
+                                 volume_prims, eos, element, ghost_data,
                                  subcell_mesh, Direction<3>{dim, Side::Lower});
 
     tmpl::for_each<tmpl::append<cons_tags, prims_tags>>(

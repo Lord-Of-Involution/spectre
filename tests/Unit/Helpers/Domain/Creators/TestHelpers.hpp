@@ -12,10 +12,13 @@
 #include <unordered_map>
 #include <utility>
 
+#include "Domain/Creators/OptionTags.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
+#include "Framework/TestCreation.hpp"
 #include "Framework/TestHelpers.hpp"
+#include "Helpers/Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Helpers/Domain/DomainTestHelpers.hpp"
 #include "Utilities/Algorithm.hpp"
 #include "Utilities/Tuple.hpp"
@@ -25,7 +28,10 @@ namespace TestHelpers::domain::creators {
 template <size_t Dim>
 Domain<Dim> test_domain_creator(const DomainCreator<Dim>& domain_creator,
                                 const bool expect_boundary_conditions,
-                                const bool is_periodic = false) {
+                                const bool is_periodic = false,
+                                const std::vector<double>& times = {
+                                    // quiet NaN so CAPTURE(time) works
+                                    std::numeric_limits<double>::quiet_NaN()}) {
   INFO("Test domain creator consistency");
   CAPTURE(Dim);
   auto domain = domain_creator.create_domain();
@@ -43,6 +49,10 @@ Domain<Dim> test_domain_creator(const DomainCreator<Dim>& domain_creator,
   {
     CAPTURE(block_names);
     CHECK((block_names.empty() or (block_names.size() == blocks.size())));
+    for (size_t block_id = 0; block_id < block_names.size(); ++block_id) {
+      CHECK(blocks[block_id].name() == block_names[block_id]);
+    }
+    CHECK(domain.block_groups() == block_groups);
     {
       INFO("Test block names are unique");
       auto sorted_block_names = block_names;
@@ -61,6 +71,20 @@ Domain<Dim> test_domain_creator(const DomainCreator<Dim>& domain_creator,
         }
       }
     }
+    {
+      INFO(
+          "Test block neighbors are never in the same direction as external "
+          "boundaries")
+      for (size_t block_id = 0; block_id < block_names.size(); ++block_id) {
+        for (const auto& neighbor : blocks[block_id].neighbors()) {
+          // external and neighbor directions should never match
+          const auto& external_boundaries =
+              blocks[block_id].external_boundaries();
+          CHECK(external_boundaries.find(neighbor.first) ==
+                external_boundaries.end());
+        }
+      }
+    }
   }
 
   ::domain::creators::register_derived_with_charm();
@@ -68,13 +92,15 @@ Domain<Dim> test_domain_creator(const DomainCreator<Dim>& domain_creator,
   test_serialization(domain);
 
   test_initial_domain(domain, initial_refinement_levels);
-  if (not domain.is_time_dependent()) {
+  const auto functions_of_time = domain_creator.functions_of_time();
+  for (const double time : times) {
+    CAPTURE(time);
     if (not is_periodic) {
-      test_physical_separation(domain.blocks());
+      test_physical_separation(domain.blocks(), time, functions_of_time);
     }
     // The 1D RotatedIntervals domain creator violates this condition
     if constexpr (Dim != 1) {
-      test_det_jac_positive(domain.blocks());
+      test_det_jac_positive(domain.blocks(), time, functions_of_time);
     }
   }
 
@@ -105,7 +131,63 @@ Domain<Dim> test_domain_creator(const DomainCreator<Dim>& domain_creator,
     CHECK(all_boundary_conditions.empty());
   }
 
+  // Check that every direction in every excision_sphere is also an
+  // external boundary of the correct Block.
+  for (const auto& excision_sphere_map_element : domain.excision_spheres()) {
+    for (const auto& [block_index, direction] :
+         excision_sphere_map_element.second.abutting_directions()) {
+      const auto& external_boundaries =
+          domain.blocks()[block_index].external_boundaries();
+      CHECK(external_boundaries.find(direction) != external_boundaries.end());
+    }
+  }
+
   return domain;
+}
+
+/// Helper function to factory-create a domain creator in tests with or without
+/// boundary conditions
+template <typename Creator, size_t Dim = Creator::volume_dim>
+void test_creation(const std::string& option_string, const Creator& rhs,
+                   const bool with_boundary_conditions,
+                   const bool with_time_dependent_maps = false) {
+  INFO("Option-creation");
+  CAPTURE(option_string);
+  auto created = [&option_string, &with_boundary_conditions,
+                  &with_time_dependent_maps]() {
+    if (with_boundary_conditions) {
+      if (with_time_dependent_maps) {
+        using metavars = TestHelpers::domain::BoundaryConditions::
+            MetavariablesWithBoundaryConditions<Dim, Creator, true>;
+        return TestHelpers::test_option_tag<
+            ::domain::OptionTags::DomainCreator<Dim>, metavars>(option_string);
+      } else {
+        using metavars = TestHelpers::domain::BoundaryConditions::
+            MetavariablesWithBoundaryConditions<Dim, Creator, false>;
+        return TestHelpers::test_option_tag<
+            ::domain::OptionTags::DomainCreator<Dim>, metavars>(option_string);
+      }
+    } else {
+      if (with_time_dependent_maps) {
+        using metavars = TestHelpers::domain::BoundaryConditions::
+            MetavariablesWithoutBoundaryConditions<Dim, Creator, true>;
+        return TestHelpers::test_option_tag<
+            ::domain::OptionTags::DomainCreator<Dim>, metavars>(option_string);
+      } else {
+        using metavars = TestHelpers::domain::BoundaryConditions::
+            MetavariablesWithoutBoundaryConditions<Dim, Creator, false>;
+        return TestHelpers::test_option_tag<
+            ::domain::OptionTags::DomainCreator<Dim>, metavars>(option_string);
+      }
+    }
+  }();
+  REQUIRE(dynamic_cast<const Creator*>(created.get()) != nullptr);
+  // Check equality of domain creators by comparing the subset of properties
+  // that support comparison
+  const auto& lhs = *created;
+  CHECK(lhs.create_domain() == rhs.create_domain());
+  CHECK(lhs.initial_extents() == rhs.initial_extents());
+  CHECK(lhs.initial_refinement_levels() == rhs.initial_refinement_levels());
 }
 
 template <size_t Dim, typename... ExpectedFunctionsOfTime>

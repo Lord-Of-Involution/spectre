@@ -10,10 +10,10 @@
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/Tensor/TypeAliases.hpp"
 #include "DataStructures/Transpose.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Tags.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
-#include "Options/Options.hpp"
+#include "Options/String.hpp"
 #include "Parallel/GlobalCache.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "ParallelAlgorithms/Interpolation/Protocols/ComputeTargetPoints.hpp"
@@ -50,14 +50,14 @@ namespace OptionHolders {
 /// Kerr-Schild coordinates.
 ///
 /// \details In addition to the parameters for the Kerr black hole, this holder
-/// contains the `Lmax` which encodes the angular resolution of the spherical
+/// contains the `LMax` which encodes the angular resolution of the spherical
 /// harmonic basis and `AngularOrdering` which encodes the collocation
 /// ordering.
 struct KerrHorizon {
-  struct Lmax {
+  struct LMax {
     using type = size_t;
     static constexpr Options::String help = {
-        "KerrHorizon is expanded in Ylms up to l=Lmax"};
+        "KerrHorizon is expanded in Ylms up to l=LMax"};
   };
   struct Center {
     using type = std::array<double, 3>;
@@ -78,7 +78,7 @@ struct KerrHorizon {
         "Chooses theta,phi ordering in 2d array"};
   };
   using options =
-      tmpl::list<Lmax, Center, Mass, DimensionlessSpin, AngularOrdering>;
+      tmpl::list<LMax, Center, Mass, DimensionlessSpin, AngularOrdering>;
   static constexpr Options::String help = {
       "A Strahlkorper conforming to the horizon (in Kerr-Schild coordinates)"
       " of a Kerr black hole with a specified center, mass, and spin."};
@@ -145,8 +145,8 @@ namespace TargetPoints {
 /// \note The returned points are not actually on the horizon;
 /// instead, they are collocation points of a Strahlkorper whose
 /// spectral representation matches the horizon shape up to order
-/// Lmax, where Lmax is the spherical-harmonic order specified in the
-/// options.  As Lmax increases, the returned points converge to the
+/// LMax, where LMax is the spherical-harmonic order specified in the
+/// options.  As LMax increases, the returned points converge to the
 /// horizon.
 ///
 /// Conforms to the intrp::protocols::ComputeTargetPoints protocol
@@ -173,7 +173,7 @@ struct KerrHorizon : tt::ConformsTo<intrp::protocols::ComputeTargetPoints> {
     ::Strahlkorper<Frame> strahlkorper(
         kerr_horizon.l_max, kerr_horizon.l_max,
         get(gr::Solutions::kerr_horizon_radius(
-            ::YlmSpherepack(kerr_horizon.l_max, kerr_horizon.l_max)
+            ::ylm::Spherepack(kerr_horizon.l_max, kerr_horizon.l_max)
                 .theta_phi_points(),
             kerr_horizon.mass, kerr_horizon.dimensionless_spin)),
         kerr_horizon.center);

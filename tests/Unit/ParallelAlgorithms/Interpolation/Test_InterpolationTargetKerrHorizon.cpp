@@ -13,7 +13,7 @@
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
 #include "Domain/Domain.hpp"
 #include "Framework/TestCreation.hpp"
 #include "Helpers/DataStructures/DataBox/TestHelpers.hpp"
@@ -78,14 +78,14 @@ void test_interpolation_target_kerr_horizon(
       TestHelpers::test_creation<intrp::OptionHolders::KerrHorizon>(
           "Center: [0.05, 0.06, 0.07]\n"
           "DimensionlessSpin: [0.2, 0.3, 0.4]\n"
-          "Lmax: 18\n"
+          "LMax: 18\n"
           "Mass: 1.8\n"
           "AngularOrdering: " +
           std::string(MakeString{} << angular_ordering));
   CHECK(created_opts == kerr_horizon_opts);
 
-  const auto domain_creator =
-      domain::creators::Shell(0.9, 4.9, 1, {{5, 5}}, false);
+  const auto domain_creator = domain::creators::Sphere(
+      0.9, 4.9, domain::creators::Sphere::Excision{}, 1_st, 5_st, false);
 
   const auto expected_block_coord_holders = [&domain_creator, &mass, &center,
                                              &dimless_spin,

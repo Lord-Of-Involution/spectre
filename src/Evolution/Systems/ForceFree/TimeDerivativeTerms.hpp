@@ -31,36 +31,41 @@ struct TimeDerivativeTerms {
   struct LapseTimesMagneticFieldOneForm : db::SimpleTag {
     using type = tnsr::i<DataVector, 3, Frame::Inertial>;
   };
+  struct TildeJDrift : db::SimpleTag {
+    using type = tnsr::I<DataVector, 3, Frame::Inertial>;
+  };
 
   using temporary_tags = tmpl::list<
       // Flux terms
       LapseTimesElectricFieldOneForm, LapseTimesMagneticFieldOneForm,
 
       // Source terms
-      gr::Tags::SpatialChristoffelFirstKind<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpatialChristoffelSecondKind<3, Frame::Inertial, DataVector>,
-      gr::Tags::TraceSpatialChristoffelSecondKind<3, Frame::Inertial,
-                                                  DataVector>,
+      TildeJDrift, gr::Tags::SpatialChristoffelFirstKind<DataVector, 3>,
+      gr::Tags::SpatialChristoffelSecondKind<DataVector, 3>,
+      gr::Tags::TraceSpatialChristoffelSecondKind<DataVector, 3>,
 
       // Need lapse, shift, and inverse spatial metric to be projected to
       // the boundary for Riemann solvers.
-      gr::Tags::Lapse<>, gr::Tags::Shift<3>, gr::Tags::InverseSpatialMetric<3>>;
+      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>>;
 
   using argument_tags = tmpl::list<
       // EM tags
       Tags::TildeE, Tags::TildeB, Tags::TildePsi, Tags::TildePhi, Tags::TildeQ,
-      Tags::SpatialCurrentDensity, Tags::KappaPsi, Tags::KappaPhi,
+      Tags::TildeJ, Tags::KappaPsi, Tags::KappaPhi, Tags::ParallelConductivity,
 
       // GR-related tags
-      gr::Tags::Lapse<>, gr::Tags::Shift<3>, gr::Tags::SqrtDetSpatialMetric<>,
-      gr::Tags::SpatialMetric<3>, gr::Tags::InverseSpatialMetric<3>,
-      gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>,
+      gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+      gr::Tags::SqrtDetSpatialMetric<DataVector>,
+      gr::Tags::SpatialMetric<DataVector, 3>,
+      gr::Tags::InverseSpatialMetric<DataVector, 3>,
+      gr::Tags::ExtrinsicCurvature<DataVector, 3>,
       ::Tags::deriv<gr::Tags::Lapse<DataVector>, tmpl::size_t<3>,
                     Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>>;
+      ::Tags::deriv<gr::Tags::Shift<DataVector, 3>, tmpl::size_t<3>,
+                    Frame::Inertial>,
+      ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                    Frame::Inertial>>;
 
   static void apply(
       // Time derivatives returned by reference.
@@ -85,6 +90,7 @@ struct TimeDerivativeTerms {
           lapse_times_electric_field_one_form,
       gsl::not_null<tnsr::i<DataVector, 3, Frame::Inertial>*>
           lapse_times_magnetic_field_one_form,
+      gsl::not_null<tnsr::I<DataVector, 3, Frame::Inertial>*> tilde_j_drift,
       gsl::not_null<tnsr::ijj<DataVector, 3, Frame::Inertial>*>
           spatial_christoffel_first_kind,
       gsl::not_null<tnsr::Ijj<DataVector, 3, Frame::Inertial>*>
@@ -102,8 +108,9 @@ struct TimeDerivativeTerms {
       const tnsr::I<DataVector, 3, Frame::Inertial>& tilde_b,
       const Scalar<DataVector>& tilde_psi, const Scalar<DataVector>& tilde_phi,
       const Scalar<DataVector>& tilde_q,
-      const tnsr::I<DataVector, 3, Frame::Inertial>& spatial_current_density,
+      const tnsr::I<DataVector, 3, Frame::Inertial>& tilde_j,
       const double kappa_psi, const double kappa_phi,
+      const double parallel_conductivity,
 
       const Scalar<DataVector>& lapse,
       const tnsr::I<DataVector, 3, Frame::Inertial>& shift,

@@ -13,7 +13,7 @@
 #include "DataStructures/DataBox/Tag.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementLogicalCoordinates.hpp"
 #include "Domain/ElementMap.hpp"
@@ -210,7 +210,7 @@ make_volume_data_and_mesh(const DomainCreator& domain_creator, Runner& runner,
               element_id, block.moving_mesh_logical_to_grid_map().get_clone()};
           return block.moving_mesh_grid_to_inertial_map()(
               map_logical_to_grid(logical_coordinates(mesh)),
-              temporal_id.substep_time().value(), functions_of_time);
+              temporal_id.substep_time(), functions_of_time);
         } else {
           (void)runner;
           (void)temporal_id;
@@ -238,14 +238,16 @@ void test_interpolate_on_element(
 
   const auto domain_creator = []() {
     if constexpr (Metavariables::use_time_dependent_maps) {
-      return domain::creators::Shell(
-          0.9, 2.9, 2, {{7, 7}}, false, {}, {},
-          {domain::CoordinateMaps::Distribution::Linear}, ShellWedges::All,
+      return domain::creators::Sphere(
+          0.9, 2.9, domain::creators::Sphere::Excision{}, 2_st, 7_st, false,
+          std::nullopt, {}, {domain::CoordinateMaps::Distribution::Linear},
+          ShellWedges::All,
           std::make_unique<
               domain::creators::time_dependence::UniformTranslation<3>>(
               0.0, std::array<double, 3>({{0.1, 0.2, 0.3}})));
     } else {
-      return domain::creators::Shell(0.9, 2.9, 2, {{7, 7}}, false);
+      return domain::creators::Sphere(
+          0.9, 2.9, domain::creators::Sphere::Excision{}, 2_st, 7_st, false);
     }
   }();
   const auto domain = domain_creator.create_domain();
@@ -316,7 +318,7 @@ void test_interpolate_on_element(
                     double>) {
     initialize_elements_and_queue_simple_actions(
         domain_creator, domain, element_ids, interp_point_info, runner,
-        temporal_id.substep_time().value());
+        temporal_id.substep_time());
   } else if constexpr (std::is_same_v<typename metavars::InterpolationTargetA::
                                           temporal_id::type,
                                       TimeStepId>) {

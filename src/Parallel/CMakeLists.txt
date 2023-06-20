@@ -26,10 +26,10 @@ spectre_target_headers(
   ArrayIndex.hpp
   Callback.hpp
   CharmMain.tpp
-  CharmPupable.hpp
   CharmRegistration.hpp
   CreateFromOptions.hpp
   DistributedObject.hpp
+  ExitCode.hpp
   GetSection.hpp
   GlobalCache.hpp
   GlobalCacheDeclare.hpp
@@ -46,14 +46,10 @@ spectre_target_headers(
   PhaseControlReductionHelpers.hpp
   PhaseDependentActionList.hpp
   Printf.hpp
-  PupStlCpp11.hpp
-  PupStlCpp17.hpp
   Reduction.hpp
   ReductionDeclare.hpp
-  RegisterDerivedClassesWithCharm.hpp
   ResourceInfo.hpp
   Section.hpp
-  Serialize.hpp
   TypeTraits.hpp
   )
 
@@ -67,6 +63,7 @@ target_link_libraries(
   Charmxx::charmxx
   ErrorHandling
   Options
+  Serialization
   SystemUtilities
   Utilities
   )

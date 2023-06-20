@@ -24,8 +24,8 @@
 #include "Evolution/DgSubcell/ComputeBoundaryTerms.hpp"
 #include "Evolution/DgSubcell/CorrectPackagedData.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/OnSubcellFaces.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/PackageDataImpl.hpp"
@@ -93,21 +93,19 @@ struct ComputeTimeDerivImpl<
     // Note: GH+GRMHD tags are always GH,GRMHD
     using deriv_lapse = ::Tags::deriv<gr::Tags::Lapse<DataVector>,
                                       tmpl::size_t<3>, Frame::Inertial>;
-    using deriv_shift =
-        ::Tags::deriv<gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                      tmpl::size_t<3>, Frame::Inertial>;
+    using deriv_shift = ::Tags::deriv<gr::Tags::Shift<DataVector, 3>,
+                                      tmpl::size_t<3>, Frame::Inertial>;
     using deriv_spatial_metric =
-        ::Tags::deriv<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                      tmpl::size_t<3>, Frame::Inertial>;
-    using extra_tags_for_grmhd = tmpl::list<
-        deriv_lapse, deriv_shift, deriv_spatial_metric,
-        gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>;
+        ::Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>, tmpl::size_t<3>,
+                      Frame::Inertial>;
+    using extra_tags_for_grmhd =
+        tmpl::list<deriv_lapse, deriv_shift, deriv_spatial_metric,
+                   gr::Tags::ExtrinsicCurvature<DataVector, 3>>;
     using temporary_tags = tmpl::remove_duplicates<tmpl::append<
-        typename GeneralizedHarmonic::TimeDerivative<3_st>::temporary_tags,
-        tmpl::push_front<
-            typename grmhd::ValenciaDivClean::TimeDerivativeTerms::
-                temporary_tags,
-            ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma0>,
+        typename gh::TimeDerivative<3_st>::temporary_tags,
+        tmpl::push_front<typename grmhd::ValenciaDivClean::TimeDerivativeTerms::
+                             temporary_tags,
+                         ::gh::ConstraintDamping::Tags::ConstraintGamma0>,
         extra_tags_for_grmhd,
         tmpl::list<Tags::TraceReversedStressEnergy, Tags::FourVelocityOneForm,
                    Tags::ComovingMagneticFieldOneForm>>>;
@@ -121,28 +119,25 @@ struct ComputeTimeDerivImpl<
     const auto& grid_coords =
         db::get<evolution::dg::subcell::Tags::Coordinates<3, Frame::Grid>>(
             *box);
-    db::get<GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma0<
-        3, Frame::Grid>> (*box)(
-        get<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma0>(
-            temp_tags_ptr),
-        grid_coords, time, functions_of_time);
-    db::get<GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma1<
-        3, Frame::Grid>> (*box)(
-        get<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1>(
-            temp_tags_ptr),
-        grid_coords, time, functions_of_time);
-    db::get<GeneralizedHarmonic::ConstraintDamping::Tags::DampingFunctionGamma2<
-        3, Frame::Grid>> (*box)(
-        get<GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>(
-            temp_tags_ptr),
-        grid_coords, time, functions_of_time);
+    db::get<
+        gh::ConstraintDamping::Tags::DampingFunctionGamma0<3, Frame::Grid>> (
+        *box)(get<gh::ConstraintDamping::Tags::ConstraintGamma0>(temp_tags_ptr),
+              grid_coords, time, functions_of_time);
+    db::get<
+        gh::ConstraintDamping::Tags::DampingFunctionGamma1<3, Frame::Grid>> (
+        *box)(get<gh::ConstraintDamping::Tags::ConstraintGamma1>(temp_tags_ptr),
+              grid_coords, time, functions_of_time);
+    db::get<
+        gh::ConstraintDamping::Tags::DampingFunctionGamma2<3, Frame::Grid>> (
+        *box)(get<gh::ConstraintDamping::Tags::ConstraintGamma2>(temp_tags_ptr),
+              grid_coords, time, functions_of_time);
 
     using variables_tag = typename System::variables_tag;
     using dt_variables_tag = db::add_tag_prefix<::Tags::dt, variables_tag>;
     const gsl::not_null<typename dt_variables_tag::type*> dt_vars_ptr =
-        db::mutate<dt_variables_tag>(box, [](const auto local_dt_vars_ptr) {
-          return local_dt_vars_ptr;
-        });
+        db::mutate<dt_variables_tag>(
+            [](const auto local_dt_vars_ptr) { return local_dt_vars_ptr; },
+            box);
     dt_vars_ptr->initialize(subcell_mesh.number_of_grid_points());
 
     using primitives_tag = typename System::primitive_variables_tag;
@@ -152,14 +147,14 @@ struct ComputeTimeDerivImpl<
     const auto& primitive_vars = db::get<primitives_tag>(*box);
     const auto& evolved_vars = db::get<evolved_vars_tag>(*box);
 
-    GeneralizedHarmonic::TimeDerivative<3_st>::apply(
+    gh::TimeDerivative<3_st>::apply(
         get<::Tags::dt<GhDtTags>>(dt_vars_ptr)...,
         get<GhTemporaries>(temp_tags_ptr)...,
         get<::Tags::deriv<GhGradientTags, tmpl::size_t<3>, Frame::Inertial>>(
             gh_derivs)...,
         get<GhExtraTags>(evolved_vars, temp_tags)...,
 
-        db::get<::GeneralizedHarmonic::gauges::Tags::GaugeCondition>(*box),
+        db::get<::gh::gauges::Tags::GaugeCondition>(*box),
         db::get<evolution::dg::subcell::Tags::Mesh<3>>(*box), time,
         inertial_coords, cell_centered_logical_to_inertial_inv_jacobian,
         db::get<domain::Tags::MeshVelocity<3>>(*box));
@@ -170,14 +165,13 @@ struct ComputeTimeDerivImpl<
       // FLOPs.
       const auto& lapse = get<gr::Tags::Lapse<DataVector>>(temp_tags);
       const auto& half_phi_two_normals =
-          get<GeneralizedHarmonic::Tags::HalfPhiTwoNormals<3>>(temp_tags);
-      const auto& phi = get<GeneralizedHarmonic::Tags::Phi<3>>(evolved_vars);
-      const auto& phi_one_normal =
-          get<GeneralizedHarmonic::Tags::PhiOneNormal<3>>(temp_tags);
+          get<gh::Tags::HalfPhiTwoNormals<3>>(temp_tags);
+      const auto& phi = get<gh::Tags::Phi<DataVector, 3>>(evolved_vars);
+      const auto& phi_one_normal = get<gh::Tags::PhiOneNormal<3>>(temp_tags);
       const auto& spacetime_normal_vector =
-          get<gr::Tags::SpacetimeNormalVector<3>>(temp_tags);
+          get<gr::Tags::SpacetimeNormalVector<DataVector, 3>>(temp_tags);
       const auto& inverse_spacetime_metric =
-          get<gr::Tags::InverseSpacetimeMetric<3>>(temp_tags);
+          get<gr::Tags::InverseSpacetimeMetric<DataVector, 3>>(temp_tags);
 
       auto& spatial_deriv_lapse = get<deriv_lapse>(temp_tags);
       auto& spatial_deriv_shift = get<deriv_shift>(temp_tags);
@@ -214,12 +208,11 @@ struct ComputeTimeDerivImpl<
       }
 
       // Compute extrinsic curvature
-      const auto& pi = get<GeneralizedHarmonic::Tags::Pi<3>>(evolved_vars);
+      const auto& pi = get<gh::Tags::Pi<DataVector, 3>>(evolved_vars);
       for (size_t i = 0; i < 3; ++i) {
         for (size_t j = i; j < 3; ++j) {
-          get<gr::Tags::ExtrinsicCurvature<3, Frame::Inertial, DataVector>>(
-              temp_tags)
-              .get(i, j) =
+          get<gr::Tags::ExtrinsicCurvature<DataVector, 3>>(temp_tags).get(i,
+                                                                          j) =
               0.5 * (pi.get(i + 1, j + 1) + phi_one_normal.get(i, j + 1) +
                      phi_one_normal.get(j, i + 1));
         }
@@ -231,19 +224,19 @@ struct ComputeTimeDerivImpl<
         get<GrmhdArgumentSourceTags>(temp_tags, primitive_vars, evolved_vars,
                                      *box)...);
 
-    tenex::evaluate<ti::i>(
-        get<hydro::Tags::SpatialVelocityOneForm<DataVector, 3,
-                                                Frame::Inertial>>(
-            temp_tags_ptr),
-        get<hydro::Tags::SpatialVelocity<DataVector, 3>>(primitive_vars)(
-            ti::J) *
-            get<gr::Tags::SpatialMetric<3>>(temp_tags)(ti::i, ti::j));
+    tenex::evaluate<ti::i>(get<hydro::Tags::SpatialVelocityOneForm<
+                               DataVector, 3, Frame::Inertial>>(temp_tags_ptr),
+                           get<hydro::Tags::SpatialVelocity<DataVector, 3>>(
+                               primitive_vars)(ti::J) *
+                               get<gr::Tags::SpatialMetric<DataVector, 3>>(
+                                   temp_tags)(ti::i, ti::j));
 
     tenex::evaluate<ti::i>(
         get<hydro::Tags::MagneticFieldOneForm<DataVector, 3, Frame::Inertial>>(
             temp_tags_ptr),
         get<hydro::Tags::MagneticField<DataVector, 3>>(primitive_vars)(ti::J) *
-            get<gr::Tags::SpatialMetric<3>>(temp_tags)(ti::i, ti::j));
+            get<gr::Tags::SpatialMetric<DataVector, 3>>(temp_tags)(ti::i,
+                                                                   ti::j));
 
     tenex::evaluate(
         get<hydro::Tags::MagneticFieldSquared<DataVector>>(temp_tags_ptr),
@@ -292,15 +285,17 @@ struct ComputeTimeDerivImpl<
                                              primitive_vars),
         get<hydro::Tags::Pressure<DataVector>>(evolved_vars, temp_tags,
                                                primitive_vars),
-        get<gr::Tags::SpacetimeMetric<3>>(evolved_vars, temp_tags,
-                                          primitive_vars),
-        get<gr::Tags::Shift<3>>(evolved_vars, temp_tags, primitive_vars),
-        get<gr::Tags::Lapse<>>(evolved_vars, temp_tags, primitive_vars));
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(evolved_vars, temp_tags,
+                                                      primitive_vars),
+        get<gr::Tags::Shift<DataVector, 3>>(evolved_vars, temp_tags,
+                                            primitive_vars),
+        get<gr::Tags::Lapse<DataVector>>(evolved_vars, temp_tags,
+                                         primitive_vars));
 
     add_stress_energy_term_to_dt_pi(
-        get<::Tags::dt<GeneralizedHarmonic::Tags::Pi<3>>>(dt_vars_ptr),
+        get<::Tags::dt<gh::Tags::Pi<DataVector, 3>>>(dt_vars_ptr),
         get<Tags::TraceReversedStressEnergy>(temp_tags),
-        get<gr::Tags::Lapse<>>(temp_tags));
+        get<gr::Tags::Lapse<DataVector>>(temp_tags));
 
     for (size_t dim = 0; dim < 3; ++dim) {
       const auto& boundary_correction_in_axis =
@@ -317,8 +312,14 @@ struct ComputeTimeDerivImpl<
         for (size_t i = 0; i < dt_var.size(); ++i) {
           if constexpr (not tmpl::list_contains_v<
                             tmpl::list<GrmhdSourceTags...>, GrmhdDtTags>) {
-            // Zero GRMHD tags that don't have sources.
-            dt_var[i] = 0.0;
+            // On the first iteration of the loop over `dim`, zero the GRMHD
+            // dt(u) for variables that do not have a source term . This is
+            // necessary to avoid `+=` to a `NaN` (debug mode) or random garbage
+            // (release mode). `add_cartesian_flux_divergence` does a `+=`
+            // internally.
+            if (dim == 0) {
+              dt_var[i] = 0.0;
+            }
           }
 
           evolution::dg::subcell::add_cartesian_flux_divergence(
@@ -436,20 +437,19 @@ struct TimeDerivative {
             db::get<grmhd::GhValenciaDivClean::fd::Tags::FilterOptions>(*box);
         filter_options.spacetime_dissipation.has_value()) {
       db::mutate<evolved_vars_tag>(
-          box,
           [&filter_options, &recons, &subcell_mesh](const auto evolved_vars_ptr,
-                                                    const auto& neighbor_data) {
+                                                    const auto& ghost_data) {
             typename evolved_vars_tag::type filtered_vars = *evolved_vars_ptr;
             // $(recons.ghost_zone_size() - 1) * 2 + 1$ => always use highest
             // order dissipation filter possible.
             grmhd::GhValenciaDivClean::fd::spacetime_kreiss_oliger_filter(
-                make_not_null(&filtered_vars), *evolved_vars_ptr, neighbor_data,
+                make_not_null(&filtered_vars), *evolved_vars_ptr, ghost_data,
                 subcell_mesh, 2 * recons.ghost_zone_size(),
                 filter_options.spacetime_dissipation.value());
             *evolved_vars_ptr = filtered_vars;
           },
-          db::get<
-              evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
+          box,
+          db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(
               *box));
     }
 
@@ -468,7 +468,7 @@ struct TimeDerivative {
         cell_centered_gh_derivs{num_pts};
     grmhd::GhValenciaDivClean::fd::spacetime_derivatives(
         make_not_null(&cell_centered_gh_derivs), evolved_vars,
-        db::get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<3>>(
+        db::get<evolution::dg::subcell::Tags::GhostDataForReconstruction<3>>(
             *box),
         subcell_mesh, cell_centered_logical_to_inertial_inv_jacobian);
 
@@ -478,15 +478,14 @@ struct TimeDerivative {
     // This is reasonable since the systems are a tensor product system.
     const auto& base_boundary_correction =
         db::get<evolution::Tags::BoundaryCorrection<System>>(*box);
-    using derived_boundary_corrections = typename std::decay_t<
-        decltype(base_boundary_correction)>::creatable_classes;
+    using derived_boundary_corrections = typename std::decay_t<decltype(
+        base_boundary_correction)>::creatable_classes;
     std::array<Variables<grmhd_evolved_vars_tags>, 3> boundary_corrections{};
     call_with_dynamic_type<void, derived_boundary_corrections>(
         &base_boundary_correction, [&](const auto* gh_grmhd_correction) {
           // Need the GH packaged tags to avoid projecting them.
-          using gh_dg_package_field_tags = typename std::decay_t<
-              decltype(gh_grmhd_correction
-                           ->gh_correction())>::dg_package_field_tags;
+          using gh_dg_package_field_tags = typename std::decay_t<decltype(
+              gh_grmhd_correction->gh_correction())>::dg_package_field_tags;
           // Only apply correction to GRMHD variables.
           const auto& boundary_correction =
               gh_grmhd_correction->valencia_correction();
@@ -497,10 +496,10 @@ struct TimeDerivative {
           using dg_package_data_argument_tags = tmpl::append<
               evolved_vars_tags, recons_prim_tags, fluxes_tags,
               tmpl::remove_duplicates<tmpl::push_back<
-                  dg_package_data_temporary_tags, gr::Tags::SpatialMetric<3>,
+                  dg_package_data_temporary_tags,
+                  gr::Tags::SpatialMetric<DataVector, 3>,
                   gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                  gr::Tags::InverseSpatialMetric<3, Frame::Inertial,
-                                                 DataVector>,
+                  gr::Tags::InverseSpatialMetric<DataVector, 3>,
                   evolution::dg::Actions::detail::NormalVector<3>>>>;
 
           // Computed prims and cons on face via reconstruction
@@ -515,8 +514,8 @@ struct TimeDerivative {
               &recons,
               [&box, &package_data_argvars_lower_face,
                &package_data_argvars_upper_face](const auto& reconstructor) {
-                db::apply<typename std::decay_t<
-                    decltype(*reconstructor)>::reconstruction_argument_tags>(
+                db::apply<typename std::decay_t<decltype(
+                    *reconstructor)>::reconstruction_argument_tags>(
                     [&package_data_argvars_lower_face,
                      &package_data_argvars_upper_face,
                      &reconstructor](const auto&... args) {
@@ -555,10 +554,10 @@ struct TimeDerivative {
             // NormalCovectorAndMagnitude tag in the DataBox right now to avoid
             // conflicts with the DG solver. We can explore in the future if
             // it's possible to reuse that allocation.
-            const Scalar<DataVector> normalization{sqrt(
-                get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial,
-                                                   DataVector>>(vars_upper_face)
-                    .get(i, i))};
+            const Scalar<DataVector> normalization{
+                sqrt(get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(
+                         vars_upper_face)
+                         .get(i, i))};
 
             tnsr::i<DataVector, 3, Frame::Inertial> lower_outward_conormal{
                 reconstructed_num_pts, 0.0};
@@ -622,12 +621,12 @@ struct TimeDerivative {
         typename System::gh_system::variables_tag::tags_list;
     using gh_gradient_tags = typename TimeDerivativeTerms::gh_gradient_tags;
     using gh_temporary_tags = typename TimeDerivativeTerms::gh_temp_tags;
-    using gh_extra_tags = tmpl::list<
-        gr::Tags::SpacetimeMetric<3>, GeneralizedHarmonic::Tags::Pi<3>,
-        GeneralizedHarmonic::Tags::Phi<3>,
-        ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma0,
-        ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-        ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>;
+    using gh_extra_tags =
+        tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                   gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>,
+                   ::gh::ConstraintDamping::Tags::ConstraintGamma0,
+                   ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                   ::gh::ConstraintDamping::Tags::ConstraintGamma2>;
     using grmhd_source_tags =
         tmpl::transform<ValenciaDivClean::ComputeSources::return_tags,
                         tmpl::bind<db::remove_tag_prefix, tmpl::_1>>;

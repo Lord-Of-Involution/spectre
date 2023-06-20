@@ -37,8 +37,7 @@
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Fluxes.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/AnalyticData/AnalyticData.hpp"
 #include "PointwiseFunctions/AnalyticData/Tags.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/AnalyticSolution.hpp"
@@ -47,6 +46,7 @@
 #include "Time/Tags.hpp"
 #include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace grmhd::GhValenciaDivClean::BoundaryConditions {
@@ -86,10 +86,10 @@ class DirichletAnalytic final : public BoundaryCondition {
   void pup(PUP::er& p) override;
 
   using dg_interior_evolved_variables_tags = tmpl::list<>;
-  using dg_interior_temporary_tags = tmpl::list<
-      domain::Tags::Coordinates<3, Frame::Inertial>,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2>;
+  using dg_interior_temporary_tags =
+      tmpl::list<domain::Tags::Coordinates<3, Frame::Inertial>,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma2>;
   using dg_interior_primitive_variables_tags = tmpl::list<>;
   using dg_gridless_tags = tmpl::list<
       ::Tags::Time, ::Tags::AnalyticSolutionOrData>;
@@ -142,75 +142,67 @@ class DirichletAnalytic final : public BoundaryCondition {
       if constexpr (is_analytic_solution_v<AnalyticSolutionOrData>) {
         return analytic_solution_or_data.variables(
             coords, time,
-            tmpl::list<
-                hydro::Tags::RestMassDensity<DataVector>,
-                hydro::Tags::ElectronFraction<DataVector>,
-                hydro::Tags::SpecificInternalEnergy<DataVector>,
-                hydro::Tags::SpecificEnthalpy<DataVector>,
-                hydro::Tags::Pressure<DataVector>,
-                hydro::Tags::SpatialVelocity<DataVector, 3>,
-                hydro::Tags::LorentzFactor<DataVector>,
-                hydro::Tags::MagneticField<DataVector, 3>,
-                hydro::Tags::DivergenceCleaningField<DataVector>,
-                gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                gr::Tags::Lapse<DataVector>,
-                gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                       hydro::Tags::ElectronFraction<DataVector>,
+                       hydro::Tags::SpecificInternalEnergy<DataVector>,
+                       hydro::Tags::SpecificEnthalpy<DataVector>,
+                       hydro::Tags::Pressure<DataVector>,
+                       hydro::Tags::SpatialVelocity<DataVector, 3>,
+                       hydro::Tags::LorentzFactor<DataVector>,
+                       hydro::Tags::MagneticField<DataVector, 3>,
+                       hydro::Tags::DivergenceCleaningField<DataVector>,
+                       gr::Tags::SpatialMetric<DataVector, 3>,
+                       gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                       gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                       gr::Tags::Lapse<DataVector>,
+                       gr::Tags::Shift<DataVector, 3>,
+                       gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
 
       } else {
         (void)time;
         return analytic_solution_or_data.variables(
-            coords,
-            tmpl::list<
-                hydro::Tags::RestMassDensity<DataVector>,
-                hydro::Tags::ElectronFraction<DataVector>,
-                hydro::Tags::SpecificInternalEnergy<DataVector>,
-                hydro::Tags::SpecificEnthalpy<DataVector>,
-                hydro::Tags::Pressure<DataVector>,
-                hydro::Tags::SpatialVelocity<DataVector, 3>,
-                hydro::Tags::LorentzFactor<DataVector>,
-                hydro::Tags::MagneticField<DataVector, 3>,
-                hydro::Tags::DivergenceCleaningField<DataVector>,
-                gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-                gr::Tags::SqrtDetSpatialMetric<DataVector>,
-                gr::Tags::Lapse<DataVector>,
-                gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            coords, tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                               hydro::Tags::ElectronFraction<DataVector>,
+                               hydro::Tags::SpecificInternalEnergy<DataVector>,
+                               hydro::Tags::SpecificEnthalpy<DataVector>,
+                               hydro::Tags::Pressure<DataVector>,
+                               hydro::Tags::SpatialVelocity<DataVector, 3>,
+                               hydro::Tags::LorentzFactor<DataVector>,
+                               hydro::Tags::MagneticField<DataVector, 3>,
+                               hydro::Tags::DivergenceCleaningField<DataVector>,
+                               gr::Tags::SpatialMetric<DataVector, 3>,
+                               gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                               gr::Tags::SqrtDetSpatialMetric<DataVector>,
+                               gr::Tags::Lapse<DataVector>,
+                               gr::Tags::Shift<DataVector, 3>,
+                               gr::Tags::SpacetimeMetric<DataVector, 3>,
+                               ::gh::Tags::Pi<DataVector, 3>,
+                               ::gh::Tags::Phi<DataVector, 3>>{});
       }
     }();
 
     *spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
-    *pi = get<::GeneralizedHarmonic::Tags::Pi<3>>(boundary_values);
-    *phi = get<::GeneralizedHarmonic::Tags::Phi<3>>(boundary_values);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_values);
+    *pi = get<::gh::Tags::Pi<DataVector, 3>>(boundary_values);
+    *phi = get<::gh::Tags::Phi<DataVector, 3>>(boundary_values);
     *lapse = get<gr::Tags::Lapse<DataVector>>(boundary_values);
-    *shift =
-        get<gr::Tags::Shift<3, Frame::Inertial, DataVector>>(boundary_values);
+    *shift = get<gr::Tags::Shift<DataVector, 3>>(boundary_values);
     *inv_spatial_metric =
-        get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(boundary_values);
 
     grmhd::ValenciaDivClean::ConservativeFromPrimitive::apply(
         tilde_d, tilde_ye, tilde_tau, tilde_s, tilde_b, tilde_phi,
         get<hydro::Tags::RestMassDensity<DataVector>>(boundary_values),
         get<hydro::Tags::ElectronFraction<DataVector>>(boundary_values),
         get<hydro::Tags::SpecificInternalEnergy<DataVector>>(boundary_values),
-        get<hydro::Tags::SpecificEnthalpy<DataVector>>(boundary_values),
         get<hydro::Tags::Pressure<DataVector>>(boundary_values),
         get<hydro::Tags::SpatialVelocity<DataVector, 3>>(boundary_values),
         get<hydro::Tags::LorentzFactor<DataVector>>(boundary_values),
         get<hydro::Tags::MagneticField<DataVector, 3>>(boundary_values),
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(boundary_values),
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(boundary_values),
         get<hydro::Tags::DivergenceCleaningField<DataVector>>(boundary_values));
 
     grmhd::ValenciaDivClean::ComputeFluxes::apply(
@@ -218,10 +210,8 @@ class DirichletAnalytic final : public BoundaryCondition {
         tilde_phi_flux, *tilde_d, *tilde_ye, *tilde_tau, *tilde_s, *tilde_b,
         *tilde_phi, *lapse, *shift,
         get<gr::Tags::SqrtDetSpatialMetric<DataVector>>(boundary_values),
-        get<gr::Tags::SpatialMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values),
-        get<gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values),
+        get<gr::Tags::SpatialMetric<DataVector, 3>>(boundary_values),
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3>>(boundary_values),
         get<hydro::Tags::Pressure<DataVector>>(boundary_values),
         get<hydro::Tags::SpatialVelocity<DataVector, 3>>(boundary_values),
         get<hydro::Tags::LorentzFactor<DataVector>>(boundary_values),
@@ -288,39 +278,36 @@ class DirichletAnalytic final : public BoundaryCondition {
         (void)time;
         return analytic_solution_or_data.variables(
             ghost_inertial_coords,
-            tmpl::list<
-                hydro::Tags::RestMassDensity<DataVector>,
-                hydro::Tags::ElectronFraction<DataVector>,
-                hydro::Tags::Pressure<DataVector>,
-                hydro::Tags::SpatialVelocity<DataVector, 3>,
-                hydro::Tags::LorentzFactor<DataVector>,
-                hydro::Tags::MagneticField<DataVector, 3>,
-                hydro::Tags::DivergenceCleaningField<DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                       hydro::Tags::ElectronFraction<DataVector>,
+                       hydro::Tags::Pressure<DataVector>,
+                       hydro::Tags::SpatialVelocity<DataVector, 3>,
+                       hydro::Tags::LorentzFactor<DataVector>,
+                       hydro::Tags::MagneticField<DataVector, 3>,
+                       hydro::Tags::DivergenceCleaningField<DataVector>,
+                       gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
       } else {
         return analytic_solution_or_data.variables(
             ghost_inertial_coords, time,
-            tmpl::list<
-                hydro::Tags::RestMassDensity<DataVector>,
-                hydro::Tags::ElectronFraction<DataVector>,
-                hydro::Tags::Pressure<DataVector>,
-                hydro::Tags::SpatialVelocity<DataVector, 3>,
-                hydro::Tags::LorentzFactor<DataVector>,
-                hydro::Tags::MagneticField<DataVector, 3>,
-                hydro::Tags::DivergenceCleaningField<DataVector>,
-                gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                ::GeneralizedHarmonic::Tags::Pi<3>,
-                ::GeneralizedHarmonic::Tags::Phi<3>>{});
+            tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
+                       hydro::Tags::ElectronFraction<DataVector>,
+                       hydro::Tags::Pressure<DataVector>,
+                       hydro::Tags::SpatialVelocity<DataVector, 3>,
+                       hydro::Tags::LorentzFactor<DataVector>,
+                       hydro::Tags::MagneticField<DataVector, 3>,
+                       hydro::Tags::DivergenceCleaningField<DataVector>,
+                       gr::Tags::SpacetimeMetric<DataVector, 3>,
+                       ::gh::Tags::Pi<DataVector, 3>,
+                       ::gh::Tags::Phi<DataVector, 3>>{});
       }
     }();
 
     *spacetime_metric =
-        get<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>(
-            boundary_values);
-    *pi = get<::GeneralizedHarmonic::Tags::Pi<3>>(boundary_values);
-    *phi = get<::GeneralizedHarmonic::Tags::Phi<3>>(boundary_values);
+        get<gr::Tags::SpacetimeMetric<DataVector, 3>>(boundary_values);
+    *pi = get<::gh::Tags::Pi<DataVector, 3>>(boundary_values);
+    *phi = get<::gh::Tags::Phi<DataVector, 3>>(boundary_values);
     *rest_mass_density =
         get<hydro::Tags::RestMassDensity<DataVector>>(boundary_values);
     *electron_fraction =

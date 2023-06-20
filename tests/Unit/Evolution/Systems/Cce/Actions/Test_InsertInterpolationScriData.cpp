@@ -27,13 +27,10 @@
 #include "Options/Protocols/FactoryCreation.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
 #include "Parallel/Phase.hpp"
-#include "Parallel/RegisterDerivedClassesWithCharm.hpp"
 #include "ParallelAlgorithms/Actions/TerminatePhase.hpp"
 #include "PointwiseFunctions/AnalyticSolutions/GeneralRelativity/KerrSchild.hpp"
 #include "Time/Actions/AdvanceTime.hpp"
 #include "Time/StepChoosers/StepChooser.hpp"
-#include "Time/StepControllers/BinaryFraction.hpp"
-#include "Time/StepControllers/StepController.hpp"
 #include "Time/Tags.hpp"
 #include "Time/TimeSteppers/AdamsBashforth.hpp"
 #include "Time/TimeSteppers/LtsTimeStepper.hpp"
@@ -42,6 +39,7 @@
 #include "Utilities/MakeVector.hpp"
 #include "Utilities/NoSuchType.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/RegisterDerivedClassesWithCharm.hpp"
 
 namespace Cce {
 namespace {
@@ -97,23 +95,23 @@ struct SetRandomBoundaryValues {
         [&gen, &value_dist, &box](auto tag_v) {
           using tag = typename decltype(tag_v)::type;
           db::mutate<tag>(
-              make_not_null(&box),
               [&gen, &value_dist](
                   const gsl::not_null<typename tag::type*> scri_value) {
                 fill_with_random_values(make_not_null(&get(*scri_value).data()),
                                         make_not_null(&gen),
                                         make_not_null(&value_dist));
-              });
+              },
+              make_not_null(&box));
         });
 
     db::mutate<Tags::InertialRetardedTime>(
-        make_not_null(&box),
         [&gen,
          &value_dist](const gsl::not_null<Scalar<DataVector>*> scri_value) {
           fill_with_random_values(make_not_null(&get(*scri_value)),
                                   make_not_null(&gen),
                                   make_not_null(&value_dist));
-        });
+        },
+        make_not_null(&box));
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -243,6 +241,9 @@ struct test_metavariables {
   using observed_reduction_data_tags = tmpl::list<>;
   using cce_boundary_component =
       Cce::AnalyticWorldtubeBoundary<test_metavariables>;
+  using ccm_psi0 = tmpl::list<
+        Cce::Tags::BoundaryValue<Cce::Tags::Psi0Match>,
+        Cce::Tags::BoundaryValue<Cce::Tags::Dlambda<Cce::Tags::Psi0Match>>>;
 
   using component_list =
       tmpl::list<MockCharacteristicEvolution<test_metavariables>,
@@ -253,10 +254,8 @@ struct test_metavariables {
 SPECTRE_TEST_CASE(
     "Unit.Evolution.Systems.Cce.Actions.InsertInterpolationScriData",
     "[Unit][Cce]") {
-  Parallel::register_classes_with_charm<
-      Cce::Solutions::RotatingSchwarzschild>();
-  Parallel::register_classes_with_charm<
-      RotatingSchwarzschildWithNoninertialNews>();
+  register_classes_with_charm<Cce::Solutions::RotatingSchwarzschild>();
+  register_classes_with_charm<RotatingSchwarzschildWithNoninertialNews>();
   using evolution_component = MockCharacteristicEvolution<test_metavariables>;
   using observation_component = MockObserver<test_metavariables>;
   MAKE_GENERATOR(gen);
@@ -286,8 +285,6 @@ SPECTRE_TEST_CASE(
       static_cast<std::unique_ptr<LtsTimeStepper>>(
           std::make_unique<::TimeSteppers::AdamsBashforth>(3)),
       make_vector<std::unique_ptr<StepChooser<StepChooserUse::LtsStep>>>(),
-      static_cast<std::unique_ptr<StepController>>(
-          std::make_unique<StepControllers::BinaryFraction>()),
       target_step_size, buffer_size,
       serialize_and_deserialize(analytic_manager));
   ActionTesting::emplace_component<MockObserver<test_metavariables>>(&runner,

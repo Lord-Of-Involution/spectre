@@ -34,14 +34,16 @@ target_link_libraries(
   FiniteDifference
   GeneralRelativity
   GeneralizedHarmonic
+  Hydro
+  Serialization
   Utilities
   ValenciaDivClean
   INTERFACE
-  Hydro
   Options
   Parallel
   )
 
+add_subdirectory(Actions)
 add_subdirectory(BoundaryConditions)
 add_subdirectory(BoundaryCorrections)
 add_subdirectory(FiniteDifference)

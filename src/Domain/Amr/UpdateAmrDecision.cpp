@@ -15,7 +15,7 @@
 template <size_t VolumeDim>
 class OrientationMap;
 
-namespace amr::domain {
+namespace amr {
 
 template <size_t VolumeDim>
 bool update_amr_decision(
@@ -99,7 +99,12 @@ bool update_amr_decision(
     }
   }
   ASSERT(neighbor_found, "Could not find neighbor " << neighbor_id);
-  return my_amr_decision_changed;
+
+  // An element cannot join if it is splitting in another dimension
+  const bool flag_changed =
+      prevent_element_from_joining_while_splitting(my_current_amr_flags);
+
+  return my_amr_decision_changed or flag_changed;
 }
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
@@ -115,4 +120,4 @@ GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3))
 
 #undef DIM
 #undef INSTANTIATE
-}  // namespace amr::domain
+}  // namespace amr

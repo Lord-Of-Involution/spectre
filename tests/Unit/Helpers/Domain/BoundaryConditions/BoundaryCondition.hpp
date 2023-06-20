@@ -7,16 +7,19 @@
 #include <memory>
 #include <pup.h>
 #include <string>
+#include <vector>
 
 #include "Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Domain/BoundaryConditions/None.hpp"
 #include "Domain/BoundaryConditions/Periodic.hpp"
 #include "Domain/Creators/DomainCreator.hpp"
+#include "Domain/Protocols/Metavariables.hpp"
 #include "Domain/Structure/Direction.hpp"
-#include "Options/Options.hpp"
+#include "Domain/Structure/DirectionMap.hpp"
 #include "Options/Protocols/FactoryCreation.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "Utilities/ProtocolHelpers.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \ingroup TestingFrameworkGroup
@@ -128,9 +131,12 @@ template <size_t Dim>
 struct SystemWithoutBoundaryConditions {};
 
 /// Metavariables with a system that has boundary conditions
-template <size_t Dim, typename Creator>
+template <size_t Dim, typename Creator, bool EnableTimeDependentMaps = false>
 struct MetavariablesWithBoundaryConditions {
   using system = SystemWithBoundaryConditions<Dim>;
+  struct domain : tt::ConformsTo<::domain::protocols::Metavariables> {
+    static constexpr bool enable_time_dependent_maps = EnableTimeDependentMaps;
+  };
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
     using factory_classes =
@@ -139,15 +145,26 @@ struct MetavariablesWithBoundaryConditions {
 };
 
 /// Metavariables with a system that doesn't have boundary conditions
-template <size_t Dim, typename Creator>
+template <size_t Dim, typename Creator, bool EnableTimeDependentMaps = false>
 struct MetavariablesWithoutBoundaryConditions {
   using system = SystemWithoutBoundaryConditions<Dim>;
+  struct domain : tt::ConformsTo<::domain::protocols::Metavariables> {
+    static constexpr bool enable_time_dependent_maps = EnableTimeDependentMaps;
+  };
   struct factory_creation
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
     using factory_classes =
         tmpl::map<tmpl::pair<DomainCreator<Dim>, tmpl::list<Creator>>>;
   };
 };
+
+/// Assuming `all_boundary_conditions` are of type `TestBoundaryCondition`,
+/// check their direction and block ID
+template <size_t Dim>
+void test_boundary_conditions(
+    const std::vector<DirectionMap<
+        Dim, std::unique_ptr<::domain::BoundaryConditions::BoundaryCondition>>>&
+        all_boundary_conditions);
 
 void register_derived_with_charm();
 }  // namespace TestHelpers::domain::BoundaryConditions

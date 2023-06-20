@@ -16,14 +16,14 @@
 #include "DataStructures/DataBox/Tag.hpp"
 #include "DataStructures/LinkedMessageId.hpp"
 #include "Evolution/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/Serialize.hpp"
+#include "Options/String.hpp"
 #include "Time/BoundaryHistory.hpp"
 #include "Time/History.hpp"
-#include "Time/StepChoosers/StepChooser.hpp"        // IWYU pragma: keep
-#include "Time/StepControllers/StepController.hpp"  // IWYU pragma: keep
+#include "Time/StepChoosers/StepChooser.hpp"  // IWYU pragma: keep
 #include "Time/Time.hpp"
 #include "Time/TimeStepId.hpp"
+#include "Utilities/GetOutput.hpp"
+#include "Utilities/Serialization/Serialize.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// \cond
@@ -50,14 +50,6 @@ struct StepChoosers {
   using type =
       std::vector<std::unique_ptr<::StepChooser<StepChooserUse::LtsStep>>>;
   static size_t lower_bound_on_size() { return 1; }
-  using group = evolution::OptionTags::Group;
-};
-
-/// \ingroup OptionTagsGroup
-/// \ingroup TimeGroup
-struct StepController {
-  static constexpr Options::String help{"The LTS step controller"};
-  using type = std::unique_ptr<::StepController>;
   using group = evolution::OptionTags::Group;
 };
 
@@ -140,14 +132,20 @@ struct Time : db::SimpleTag {
 /// ::evolution::Tags::PreviousTriggerTime tag is set. Any Events that request
 /// this tag in their `argument_tags` type alias, must be triggered by a
 /// DenseTrigger.
+///
+/// \note The Index is just so we can have multiple of this tag in the same
+/// DataBox.
+template <size_t Index>
 struct TimeAndPrevious : db::SimpleTag {
   using type = LinkedMessageId<double>;
+  static std::string name() { return "TimeAndPrevious" + get_output(Index); }
 };
 
-struct TimeAndPreviousCompute : TimeAndPrevious, db::ComputeTag {
+template <size_t Index>
+struct TimeAndPreviousCompute : TimeAndPrevious<Index>, db::ComputeTag {
   using argument_tags =
       tmpl::list<::Tags::Time, ::evolution::Tags::PreviousTriggerTime>;
-  using base = TimeAndPrevious;
+  using base = TimeAndPrevious<Index>;
   using return_type = LinkedMessageId<double>;
 
   static void function(
@@ -175,8 +173,7 @@ struct HistoryEvolvedVariables<> : db::BaseTag {};
 
 template <typename Tag>
 struct HistoryEvolvedVariables : HistoryEvolvedVariables<>, db::SimpleTag {
-  using type =
-      TimeSteppers::History<typename db::add_tag_prefix<::Tags::dt, Tag>::type>;
+  using type = TimeSteppers::History<typename Tag::type>;
 };
 /// \endcond
 
@@ -186,13 +183,6 @@ struct HistoryEvolvedVariables : HistoryEvolvedVariables<>, db::SimpleTag {
 template <typename TagList>
 using get_all_history_tags =
     tmpl::filter<TagList, tt::is_a<::Tags::HistoryEvolvedVariables, tmpl::_1>>;
-
-/// \ingroup TimeGroup
-/// \brief Tag containing a previous value for time step rollback.
-template <typename VariablesTag>
-struct RollbackValue : db::SimpleTag {
-  using type = typename VariablesTag::type;
-};
 
 /// \ingroup DataBoxTagsGroup
 /// \ingroup TimeGroup
@@ -270,20 +260,6 @@ struct StepChoosers : db::SimpleTag {
   static constexpr bool pass_metavariables = false;
   static type create_from_options(const type& step_choosers) {
     return deserialize<type>(serialize<type>(step_choosers).data());
-  }
-};
-
-/// \ingroup DataBoxTagsGroup
-/// \ingroup TimeGroup
-/// \brief Tag for a ::StepController
-struct StepController : db::SimpleTag {
-  using type = std::unique_ptr<::StepController>;
-  using option_tags = tmpl::list<::OptionTags::StepController>;
-
-  static constexpr bool pass_metavariables = false;
-  static std::unique_ptr<::StepController> create_from_options(
-      const std::unique_ptr<::StepController>& step_controller) {
-    return deserialize<type>(serialize<type>(step_controller).data());
   }
 };
 

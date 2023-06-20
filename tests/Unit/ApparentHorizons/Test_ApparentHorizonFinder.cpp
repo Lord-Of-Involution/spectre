@@ -24,13 +24,18 @@
 #include "Domain/Block.hpp"
 #include "Domain/CoordinateMaps/CoordinateMap.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
-#include "Domain/Creators/Shell.hpp"
+#include "Domain/Creators/Sphere.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Creators/TimeDependence/RegisterDerivedWithCharm.hpp"
+#include "Domain/Creators/TimeDependence/Shape.hpp"
+#include "Domain/Creators/TimeDependence/UniformTranslation.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/InitialElementIds.hpp"
+#include "Domain/Structure/ObjectLabel.hpp"
 #include "Evolution/Systems/GeneralizedHarmonic/Tags.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Framework/TestHelpers.hpp"
@@ -41,8 +46,8 @@
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "NumericalAlgorithms/Spectral/Spectral.hpp"
+#include "NumericalAlgorithms/SphericalHarmonics/Spherepack.hpp"
 #include "NumericalAlgorithms/SphericalHarmonics/Strahlkorper.hpp"
-#include "NumericalAlgorithms/SphericalHarmonics/YlmSpherepack.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
 #include "Parallel/Phase.hpp"
 #include "Parallel/PhaseDependentActionList.hpp"  // IWYU pragma: keep
@@ -168,7 +173,8 @@ struct TestSchwarzschildHorizon {
     // DataBox and that its number of grid points is the same
     // as that of the strahlkorper.
     const auto& strahlkorper = get<StrahlkorperTags::Strahlkorper<Frame>>(box);
-    const auto& inv_metric = get<gr::Tags::InverseSpatialMetric<3, Frame>>(box);
+    const auto& inv_metric =
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>>(box);
     CHECK(strahlkorper.ylm_spherepack().physical_size() ==
           get<0, 0>(inv_metric).size());
 
@@ -203,7 +209,8 @@ struct TestKerrHorizon {
     // Test that InverseSpatialMetric can be retrieved from the
     // DataBox and that its number of grid points is the same
     // as that of the strahlkorper.
-    const auto& inv_metric = get<gr::Tags::InverseSpatialMetric<3, Frame>>(box);
+    const auto& inv_metric =
+        get<gr::Tags::InverseSpatialMetric<DataVector, 3, Frame>>(box);
     CHECK(strahlkorper.ylm_spherepack().physical_size() ==
           get<0, 0>(inv_metric).size());
 
@@ -226,9 +233,7 @@ struct mock_interpolation_target {
           typename InterpolationTargetTag::compute_target_points,
           typename InterpolationTargetTag::post_interpolation_callback>>;
   using mutable_global_cache_tags =
-      tmpl::conditional_t<metavariables::use_time_dependent_maps,
-                          tmpl::list<domain::Tags::FunctionsOfTimeInitialize>,
-                          tmpl::list<>>;
+      tmpl::list<domain::Tags::FunctionsOfTimeInitialize>;
   using phase_dependent_action_list = tmpl::list<Parallel::PhaseActions<
       Parallel::Phase::Initialization,
       tmpl::list<intrp::Actions::InitializeInterpolationTarget<
@@ -259,10 +264,10 @@ struct MockMetavariables {
   struct AhA : tt::ConformsTo<intrp::protocols::InterpolationTargetTag> {
     using temporal_id = ::Tags::Time;
     using compute_vars_to_interpolate = ah::ComputeHorizonVolumeQuantities;
-    using vars_to_interpolate_to_target =
-        tmpl::list<gr::Tags::InverseSpatialMetric<3, TargetFrame>,
-                   gr::Tags::ExtrinsicCurvature<3, TargetFrame>,
-                   gr::Tags::SpatialChristoffelSecondKind<3, TargetFrame>>;
+    using vars_to_interpolate_to_target = tmpl::list<
+        gr::Tags::InverseSpatialMetric<DataVector, 3, TargetFrame>,
+        gr::Tags::ExtrinsicCurvature<DataVector, 3, TargetFrame>,
+        gr::Tags::SpatialChristoffelSecondKind<DataVector, 3, TargetFrame>>;
     using compute_items_on_target = tmpl::list<>;
     using compute_target_points =
         intrp::TargetPoints::ApparentHorizon<AhA, TargetFrame>;
@@ -272,9 +277,8 @@ struct MockMetavariables {
     using horizon_find_failure_callback = TestHorizonFindFailureCallback;
   };
   using interpolator_source_vars =
-      tmpl::list<gr::Tags::SpacetimeMetric<3, ::Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>,
-                 GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>;
   using interpolation_target_tags = tmpl::list<AhA>;
   static constexpr size_t volume_dim = 3;
   using component_list =
@@ -284,7 +288,7 @@ struct MockMetavariables {
 };
 
 template <typename PostHorizonFindCallbacks, typename IsTimeDependent,
-          typename Frame = ::Frame::Inertial,
+          typename Frame = ::Frame::Inertial, bool UseShapeMap = false,
           bool MakeHorizonFinderFailOnPurpose = false>
 void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
                            const size_t l_max,
@@ -325,15 +329,27 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
     std::vector<domain::CoordinateMaps::Distribution> radial_distribution{
         domain::CoordinateMaps::Distribution::Linear};
 
-    domain_creator = std::make_unique<domain::creators::Shell>(
-        1.9, 2.9, 1,
-        std::array<size_t, 2>{grid_points_each_dimension,
-                              grid_points_each_dimension},
-        false, domain::creators::Shell::EquatorialCompressionOptions{1.0, 2},
-        radial_partitioning, radial_distribution, ShellWedges::All,
-        std::make_unique<
-            domain::creators::time_dependence::UniformTranslation<3>>(
-            0.0, std::array<double, 3>({{0.01, 0.02, 0.03}})));
+    std::unique_ptr<domain::creators::time_dependence::TimeDependence<3>>
+        time_dependence;
+
+    if constexpr (UseShapeMap) {
+      // Chose a non-unity mass and non-zero spin for the map parameters so the
+      // excision is still inside the horizon but isn't spherical
+      time_dependence = std::make_unique<
+          domain::creators::time_dependence::Shape<domain::ObjectLabel::None>>(
+          0.0, l_max, mass, dimensionless_spin, std::array{0.0, 0.0, 0.0}, 1.9,
+          2.9);
+    } else {
+      time_dependence = std::make_unique<
+          domain::creators::time_dependence::UniformTranslation<3>>(
+          0.0, std::array<double, 3>({{0.005, 0.01, 0.015}}),
+          std::array<double, 3>({{0.005, 0.01, 0.015}}));
+    }
+
+    domain_creator = std::make_unique<domain::creators::Sphere>(
+        1.9, 2.9, domain::creators::Sphere::Excision{}, 1_st,
+        grid_points_each_dimension, false, std::nullopt, radial_partitioning,
+        radial_distribution, ShellWedges::All, std::move(time_dependence));
     tuples::TaggedTuple<
         domain::Tags::Domain<3>,
         typename ::intrp::Tags::ApparentHorizon<typename metavars::AhA, Frame>>
@@ -343,11 +359,9 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
         std::move(tuple_of_opts), domain_creator->functions_of_time(),
         std::vector<size_t>{3, 2});
   } else {
-    domain_creator = std::make_unique<domain::creators::Shell>(
-        1.9, 2.9, 1,
-        std::array<size_t, 2>{grid_points_each_dimension,
-                              grid_points_each_dimension},
-        false);
+    domain_creator = std::make_unique<domain::creators::Sphere>(
+        1.9, 2.9, domain::creators::Sphere::Excision{}, 1_st,
+        grid_points_each_dimension, false);
 
     tuples::TaggedTuple<
         domain::Tags::Domain<3>,
@@ -356,7 +370,7 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
                       std::move(apparent_horizon_opts)};
 
     runner_ptr = std::make_unique<ActionTesting::MockRuntimeSystem<metavars>>(
-        std::move(tuple_of_opts), tuples::TaggedTuple<>{},
+        std::move(tuple_of_opts), domain_creator->functions_of_time(),
         std::vector<size_t>{3, 2});
   }
   auto& runner = *runner_ptr;
@@ -444,7 +458,12 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
                      Spectral::Basis::Legendre,
                      Spectral::Quadrature::GaussLobatto};
 
-      tnsr::I<DataVector, 3, Frame> analytic_solution_coords{};
+      // If the map is time-independent, we always compute
+      // analytic_solution_coords in the inertial frame.
+      tnsr::I<
+          DataVector, 3,
+          std::conditional_t<IsTimeDependent::value, Frame, ::Frame::Inertial>>
+          analytic_solution_coords{};
       if constexpr (std::is_same_v<Frame, ::Frame::Grid> and
                     IsTimeDependent::value) {
         ElementMap<3, ::Frame::Grid> map_logical_to_grid{
@@ -452,17 +471,24 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
         analytic_solution_coords =
             map_logical_to_grid(logical_coordinates(mesh));
       } else if constexpr (IsTimeDependent::value) {
-        // We don't have an Element ParallelComponent in this test, so
-        // get the cache from the target component.
         ElementMap<3, ::Frame::Grid> map_logical_to_grid{
             element_id, block.moving_mesh_logical_to_grid_map().get_clone()};
+        // We don't have an Element ParallelComponent in this test, so
+        // get the cache from the target component.
         const auto& cache =
             ActionTesting::cache<target_component>(runner, 0_st);
         const auto& functions_of_time =
             get<domain::Tags::FunctionsOfTime>(cache);
-        analytic_solution_coords = block.moving_mesh_grid_to_inertial_map()(
-            map_logical_to_grid(logical_coordinates(mesh)), temporal_id,
-            functions_of_time);
+        if constexpr (std::is_same_v<Frame, ::Frame::Distorted>) {
+          analytic_solution_coords = block.moving_mesh_grid_to_distorted_map()(
+              map_logical_to_grid(logical_coordinates(mesh)), temporal_id,
+              functions_of_time);
+        } else {
+          static_assert(std::is_same_v<Frame, ::Frame::Inertial>);
+          analytic_solution_coords = block.moving_mesh_grid_to_inertial_map()(
+              map_logical_to_grid(logical_coordinates(mesh)), temporal_id,
+              functions_of_time);
+        }
       } else {
         // Time-independent
         ElementMap<3, ::Frame::Inertial> map{
@@ -472,54 +498,54 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
 
       // Compute psi, pi, phi for KerrSchild.
       // Horizon is always at 0,0,0 in analytic_solution_coordinates.
+      // Note that we always use Inertial frame if the map is time-independent.
       gr::Solutions::KerrSchild solution(mass, dimensionless_spin,
                                          analytic_solution_center);
       const auto solution_vars = solution.variables(
           analytic_solution_coords, 0.0,
-          typename gr::Solutions::KerrSchild::tags<DataVector, Frame>{});
+          typename gr::Solutions::KerrSchild::tags<
+              DataVector, std::conditional_t<IsTimeDependent::value, Frame,
+                                             ::Frame::Inertial>>{});
 
       // Fill output variables with solution.
       typename ::Tags::Variables<typename metavars::interpolator_source_vars>::
           type output_vars(mesh.number_of_grid_points());
 
-      if constexpr (std::is_same_v<Frame, ::Frame::Inertial>) {
+      if constexpr (std::is_same_v<Frame, ::Frame::Inertial> or
+                    not IsTimeDependent::value) {
         // Easy case: Grid and Inertial frame are the same
 
         const auto& lapse = get<gr::Tags::Lapse<DataVector>>(solution_vars);
         const auto& dt_lapse =
             get<Tags::dt<gr::Tags::Lapse<DataVector>>>(solution_vars);
-        const auto& d_lapse = get<
-            typename gr::Solutions::KerrSchild ::DerivLapse<DataVector, Frame>>(
-            solution_vars);
-        const auto& shift =
-            get<gr::Tags::Shift<3, Frame, DataVector>>(solution_vars);
-        const auto& d_shift = get<
-            typename gr::Solutions::KerrSchild ::DerivShift<DataVector, Frame>>(
-            solution_vars);
+        const auto& d_lapse =
+            get<typename gr::Solutions::KerrSchild ::DerivLapse<
+                DataVector, ::Frame::Inertial>>(solution_vars);
+        const auto& shift = get<gr::Tags::Shift<DataVector, 3>>(solution_vars);
+        const auto& d_shift =
+            get<typename gr::Solutions::KerrSchild ::DerivShift<
+                DataVector, ::Frame::Inertial>>(solution_vars);
         const auto& dt_shift =
-            get<Tags::dt<gr::Tags::Shift<3, Frame, DataVector>>>(solution_vars);
+            get<Tags::dt<gr::Tags::Shift<DataVector, 3>>>(solution_vars);
         const auto& g =
-            get<gr::Tags::SpatialMetric<3, Frame, DataVector>>(solution_vars);
+            get<gr::Tags::SpatialMetric<DataVector, 3>>(solution_vars);
         const auto& dt_g =
-            get<Tags::dt<gr::Tags::SpatialMetric<3, Frame, DataVector>>>(
+            get<Tags::dt<gr::Tags::SpatialMetric<DataVector, 3>>>(
                 solution_vars);
         const auto& d_g =
             get<typename gr::Solutions::KerrSchild ::DerivSpatialMetric<
-                DataVector, Frame>>(solution_vars);
+                DataVector, ::Frame::Inertial>>(solution_vars);
 
-        get<::gr::Tags::SpacetimeMetric<3, ::Frame::Inertial>>(output_vars) =
+        get<::gr::Tags::SpacetimeMetric<DataVector, 3>>(output_vars) =
             gr::spacetime_metric(lapse, shift, g);
-        get<::GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-            output_vars) =
-            GeneralizedHarmonic::phi(lapse, d_lapse, shift, d_shift, g, d_g);
-        get<::GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(
-            output_vars) =
-            GeneralizedHarmonic::pi(
-                lapse, dt_lapse, shift, dt_shift, g, dt_g,
-                get<::GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-                    output_vars));
+        get<::gh::Tags::Phi<DataVector, 3>>(output_vars) =
+            gh::phi(lapse, d_lapse, shift, d_shift, g, d_g);
+        get<::gh::Tags::Pi<DataVector, 3>>(output_vars) =
+            gh::pi(lapse, dt_lapse, shift, dt_shift, g, dt_g,
+                   get<::gh::Tags::Phi<DataVector, 3>>(output_vars));
       } else {
-        // Frame is not Inertial, so need to transform tensors to
+        // Frame is not Inertial, and we are time-dependent,
+        // so need to transform tensors to
         // Inertial frame, since InterpolatorReceiveVolumeData always gets
         // its volume data in the Inertial frame.
 
@@ -533,36 +559,46 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
         // differentiation.
         const auto& lapse = get<gr::Tags::Lapse<DataVector>>(solution_vars);
         const auto& shift =
-            get<gr::Tags::Shift<3, Frame, DataVector>>(solution_vars);
+            get<gr::Tags::Shift<DataVector, 3, Frame>>(solution_vars);
         const auto& g =
-            get<gr::Tags::SpatialMetric<3, Frame, DataVector>>(solution_vars);
-        const auto& K = get<gr::Tags::ExtrinsicCurvature<3, Frame, DataVector>>(
+            get<gr::Tags::SpatialMetric<DataVector, 3, Frame>>(solution_vars);
+        const auto& K = get<gr::Tags::ExtrinsicCurvature<DataVector, 3, Frame>>(
             solution_vars);
 
         auto& cache = ActionTesting::cache<target_component>(runner, 0_st);
         const auto& functions_of_time =
             get<domain::Tags::FunctionsOfTime>(cache);
-        const auto coords_frame_velocity_jacobians =
-            block.moving_mesh_grid_to_inertial_map()
+        const auto coords_frame_velocity_jacobians = [&block,
+                                                      &analytic_solution_coords,
+                                                      &temporal_id,
+                                                      &functions_of_time]() {
+          if constexpr (std::is_same_v<Frame, ::Frame::Grid>) {
+            return block.moving_mesh_grid_to_inertial_map()
                 .coords_frame_velocity_jacobians(
                     analytic_solution_coords, temporal_id, functions_of_time);
+          } else {
+            static_assert(std::is_same_v<Frame, ::Frame::Distorted>);
+            return block.moving_mesh_distorted_to_inertial_map()
+                .coords_frame_velocity_jacobians(
+                    analytic_solution_coords, temporal_id, functions_of_time);
+          }
+        }();
         const auto& inv_jacobian = std::get<1>(coords_frame_velocity_jacobians);
         const auto& jacobian = std::get<2>(coords_frame_velocity_jacobians);
         const auto& frame_velocity =
             std::get<3>(coords_frame_velocity_jacobians);
 
-        using inertial_metric_vars_tags = tmpl::list<
-            gr::Tags::Lapse<DataVector>,
-            gr::Tags::Shift<3, ::Frame::Inertial, DataVector>,
-            gr::Tags::SpatialMetric<3, ::Frame::Inertial, DataVector>>;
+        using inertial_metric_vars_tags =
+            tmpl::list<gr::Tags::Lapse<DataVector>,
+                       gr::Tags::Shift<DataVector, 3>,
+                       gr::Tags::SpatialMetric<DataVector, 3>>;
         Variables<inertial_metric_vars_tags> inertial_metric_vars(
             mesh.number_of_grid_points());
 
         auto& shift_inertial =
-            get<::gr::Tags::Shift<3, ::Frame::Inertial>>(inertial_metric_vars);
+            get<::gr::Tags::Shift<DataVector, 3>>(inertial_metric_vars);
         auto& lower_metric_inertial =
-            get<::gr::Tags::SpatialMetric<3, ::Frame::Inertial>>(
-                inertial_metric_vars);
+            get<::gr::Tags::SpatialMetric<DataVector, 3>>(inertial_metric_vars);
         // Just copy lapse, since it doesn't transform. Need it for derivs.
         get<gr::Tags::Lapse<DataVector>>(inertial_metric_vars) = lapse;
 
@@ -613,8 +649,7 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
               for (size_t l = 0; l < 3; ++l) {
                 d_g.get(k, i, j) +=
                     inv_jacobian.get(l, k) *
-                    get<Tags::deriv<gr::Tags::SpatialMetric<
-                                        3, ::Frame::Inertial, DataVector>,
+                    get<Tags::deriv<gr::Tags::SpatialMetric<DataVector, 3>,
                                     tmpl::size_t<3>, ::Frame::Grid>>(
                         grid_deriv_inertial_metric_vars)
                         .get(l, i, j);
@@ -630,9 +665,8 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
             for (size_t l = 0; l < 3; ++l) {
               d_shift.get(k, i) +=
                   inv_jacobian.get(l, k) *
-                  get<Tags::deriv<
-                      gr::Tags::Shift<3, ::Frame::Inertial, DataVector>,
-                      tmpl::size_t<3>, ::Frame::Grid>>(
+                  get<Tags::deriv<gr::Tags::Shift<DataVector, 3>,
+                                  tmpl::size_t<3>, ::Frame::Grid>>(
                       grid_deriv_inertial_metric_vars)
                       .get(l, i);
             }
@@ -651,22 +685,18 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
           }
         }
 
-        get<::gr::Tags::SpacetimeMetric<3, ::Frame::Inertial>>(output_vars) =
+        get<::gr::Tags::SpacetimeMetric<DataVector, 3>>(output_vars) =
             gr::spacetime_metric(lapse, shift_inertial, lower_metric_inertial);
-        get<::GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-            output_vars) =
-            GeneralizedHarmonic::phi(lapse, d_lapse, shift_inertial, d_shift,
-                                     lower_metric_inertial, d_g);
+        get<::gh::Tags::Phi<DataVector, 3>>(output_vars) =
+            gh::phi(lapse, d_lapse, shift_inertial, d_shift,
+                    lower_metric_inertial, d_g);
         // Compute Pi from extrinsic curvature and Phi.  Fill in zero
         // for zero components of Pi, since they won't be used at all
         // (can't fill in NaNs, because they will still be interpolated).
         const auto spacetime_normal_vector =
             gr::spacetime_normal_vector(lapse, shift_inertial);
-        auto& Pi = get<::GeneralizedHarmonic::Tags::Pi<3, ::Frame::Inertial>>(
-            output_vars);
-        const auto& Phi =
-            get<::GeneralizedHarmonic::Tags::Phi<3, ::Frame::Inertial>>(
-                output_vars);
+        auto& Pi = get<::gh::Tags::Pi<DataVector, 3>>(output_vars);
+        const auto& Phi = get<::gh::Tags::Phi<DataVector, 3>>(output_vars);
         for (size_t i = 0; i < 3; ++i) {
           Pi.get(i + 1, 0) = 0.0;
           for (size_t j = i; j < 3; ++j) {  // symmetry
@@ -718,7 +748,7 @@ void test_apparent_horizon(const gsl::not_null<size_t*> test_horizon_called,
 // Already the resolution used for the tests is very low
 // (lmax=3, num_pts_per_dim=3 to 7) and the error
 // tolerance Approx::custom().epsilon() is pretty large (1e-2 and 1e-3).
-// [[TimeOut, 20]]
+// [[TimeOut, 30]]
 SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.ApparentHorizonFinder",
                   "[Unit]") {
   domain::creators::register_derived_with_charm();
@@ -738,6 +768,12 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.ApparentHorizonFinder",
   test_apparent_horizon<tmpl::list<TestKerrHorizon<Frame::Inertial>>,
                         std::false_type>(&test_kerr_horizon_called, 3, 5, 1.1,
                                          {{0.12, 0.23, 0.45}});
+
+  // Time-independent tests with different frame tags.
+  test_schwarzschild_horizon_called = 0;
+  test_apparent_horizon<tmpl::list<TestSchwarzschildHorizon<Frame::Grid>>,
+                        std::false_type, Frame::Grid>(
+      &test_schwarzschild_horizon_called, 3, 3, 1.0, {{0.0, 0.0, 0.0}});
 
   // Time-dependent tests.
   test_schwarzschild_horizon_called = 0;
@@ -759,20 +795,37 @@ SPECTRE_TEST_CASE("Unit.NumericalAlgorithms.Interpolator.ApparentHorizonFinder",
                         std::true_type, Frame::Grid>(
       &test_kerr_horizon_called, 3, 7, 1.1, {{0.12, 0.23, 0.45}});
 
+  // Time-dependent tests in distorted frame using both translation and shape
+  // maps.
+  tmpl::for_each<tmpl::list<std::true_type, std::false_type>>(
+      [](auto use_shape_map) {
+        constexpr bool UseShapeMap =
+            tmpl::type_from<std::decay_t<decltype(use_shape_map)>>::value;
+        test_schwarzschild_horizon_called = 0;
+        test_kerr_horizon_called = 0;
+        test_apparent_horizon<
+            tmpl::list<TestSchwarzschildHorizon<Frame::Distorted>>,
+            std::true_type, Frame::Distorted, UseShapeMap>(
+            &test_schwarzschild_horizon_called, 3, 6, 1.0, {{0.0, 0.0, 0.0}});
+        test_apparent_horizon<tmpl::list<TestKerrHorizon<Frame::Distorted>>,
+                              std::true_type, Frame::Distorted, UseShapeMap>(
+            &test_kerr_horizon_called, 3, 7, 1.1, {{0.12, 0.23, 0.45}});
+      });
+
   test_schwarzschild_horizon_called = 0;
   CHECK_THROWS_WITH(
       (test_apparent_horizon<
           tmpl::list<TestSchwarzschildHorizon<Frame::Inertial>>, std::true_type,
-          Frame::Inertial, true>(&test_schwarzschild_horizon_called, 3, 4, 1.0,
-                                 {{0.0, 0.0, 0.0}})),
+          Frame::Inertial, false, true>(&test_schwarzschild_horizon_called, 3,
+                                        4, 1.0, {{0.0, 0.0, 0.0}})),
       Catch::Contains("Cannot interpolate onto surface"));
 
   test_schwarzschild_horizon_called = 0;
   CHECK_THROWS_WITH(
       (test_apparent_horizon<
           tmpl::list<TestSchwarzschildHorizon<Frame::Inertial>>, std::true_type,
-          Frame::Inertial, true>(&test_schwarzschild_horizon_called, 3, 4, 1.0,
-                                 {{0.0, 0.0, 0.0}}, 1)),
+          Frame::Inertial, false, true>(&test_schwarzschild_horizon_called, 3,
+                                        4, 1.0, {{0.0, 0.0, 0.0}}, 1)),
       Catch::Contains("Cannot interpolate onto surface"));
 }
 }  // namespace

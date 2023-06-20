@@ -11,14 +11,18 @@
 #pragma once
 
 /// \cond
-namespace GeneralizedHarmonic {
+namespace evolution {
+struct NumericInitialData;
+}  // namespace evolution
+
+namespace gh {
 template <size_t Dim>
 struct System;
 namespace Solutions {
 template <typename GrSolution>
 struct WrappedGr;
 }  // namespace Solutions
-}  // namespace GeneralizedHarmonic
+}  // namespace gh
 
 namespace RelativisticEuler::Solutions {
 class TovStar;

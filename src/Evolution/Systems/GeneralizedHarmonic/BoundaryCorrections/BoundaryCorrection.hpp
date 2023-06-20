@@ -7,11 +7,11 @@
 #include <memory>
 #include <pup.h>
 
-#include "Parallel/CharmPupable.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 /// Boundary corrections/numerical fluxes
-namespace GeneralizedHarmonic::BoundaryCorrections {
+namespace gh::BoundaryCorrections {
 /// \cond
 template <size_t Dim>
 class UpwindPenalty;
@@ -40,4 +40,4 @@ class BoundaryCorrection : public PUP::able {
 
   virtual std::unique_ptr<BoundaryCorrection<Dim>> get_clone() const = 0;
 };
-}  // namespace GeneralizedHarmonic::BoundaryCorrections
+}  // namespace gh::BoundaryCorrections

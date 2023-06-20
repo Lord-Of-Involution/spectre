@@ -23,10 +23,10 @@
 #include "Evolution/Systems/GrMhd/GhValenciaDivClean/BoundaryConditions/BoundaryCondition.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/BoundaryConditions/HydroFreeOutflow.hpp"
 #include "Evolution/Systems/GrMhd/ValenciaDivClean/Tags.hpp"
-#include "Options/Options.hpp"
-#include "Parallel/CharmPupable.hpp"
+#include "Options/String.hpp"
 #include "PointwiseFunctions/Hydro/Tags.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/CharmPupable.hpp"
 #include "Utilities/TMPL.hpp"
 
 namespace grmhd::GhValenciaDivClean::BoundaryConditions {
@@ -40,16 +40,15 @@ namespace grmhd::GhValenciaDivClean::BoundaryConditions {
  */
 class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
  public:
-  using options = typename GeneralizedHarmonic::BoundaryConditions::
-      ConstraintPreservingBjorhus<3>::options;
+  using options =
+      typename gh::BoundaryConditions::ConstraintPreservingBjorhus<3>::options;
   static constexpr Options::String help{
       "ConstraintPreservingAnalytic boundary conditions  for GH variables and "
       "hydro free outflow for GRMHD."};
 
   ConstraintPreservingFreeOutflow() = default;
   explicit ConstraintPreservingFreeOutflow(
-      GeneralizedHarmonic::BoundaryConditions::detail::
-          ConstraintPreservingBjorhusType type);
+      gh::BoundaryConditions::detail::ConstraintPreservingBjorhusType type);
 
   ConstraintPreservingFreeOutflow(ConstraintPreservingFreeOutflow&&) = default;
   ConstraintPreservingFreeOutflow& operator=(
@@ -75,21 +74,20 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
   void pup(PUP::er& p) override;
 
   using dg_interior_evolved_variables_tags =
-      tmpl::list<gr::Tags::SpacetimeMetric<3>, GeneralizedHarmonic::Tags::Pi<3>,
-                 GeneralizedHarmonic::Tags::Phi<3>>;
-  using dg_interior_temporary_tags = tmpl::list<
-      domain::Tags::Coordinates<3, Frame::Inertial>,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma1,
-      ::GeneralizedHarmonic::ConstraintDamping::Tags::ConstraintGamma2,
-      gr::Tags::Lapse<DataVector>,
-      gr::Tags::Shift<3, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpatialMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::InverseSpacetimeMetric<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalVector<3, Frame::Inertial, DataVector>,
-      gr::Tags::SpacetimeNormalOneForm<3, Frame::Inertial, DataVector>,
-      GeneralizedHarmonic::Tags::ThreeIndexConstraint<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::GaugeH<3, Frame::Inertial>,
-      GeneralizedHarmonic::Tags::SpacetimeDerivGaugeH<3, Frame::Inertial>>;
+      tmpl::list<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                 gh::Tags::Pi<DataVector, 3>, gh::Tags::Phi<DataVector, 3>>;
+  using dg_interior_temporary_tags =
+      tmpl::list<domain::Tags::Coordinates<3, Frame::Inertial>,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma1,
+                 ::gh::ConstraintDamping::Tags::ConstraintGamma2,
+                 gr::Tags::Lapse<DataVector>, gr::Tags::Shift<DataVector, 3>,
+                 gr::Tags::InverseSpatialMetric<DataVector, 3>,
+                 gr::Tags::InverseSpacetimeMetric<DataVector, 3>,
+                 gr::Tags::SpacetimeNormalVector<DataVector, 3>,
+                 gr::Tags::SpacetimeNormalOneForm<DataVector, 3>,
+                 gh::Tags::ThreeIndexConstraint<DataVector, 3>,
+                 gh::Tags::GaugeH<DataVector, 3>,
+                 gh::Tags::SpacetimeDerivGaugeH<DataVector, 3>>;
   using dg_interior_primitive_variables_tags =
       tmpl::list<hydro::Tags::RestMassDensity<DataVector>,
                  hydro::Tags::ElectronFraction<DataVector>,
@@ -97,8 +95,7 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
                  hydro::Tags::SpatialVelocity<DataVector, 3>,
                  hydro::Tags::MagneticField<DataVector, 3>,
                  hydro::Tags::LorentzFactor<DataVector>,
-                 hydro::Tags::Pressure<DataVector>,
-                 hydro::Tags::SpecificEnthalpy<DataVector>>;
+                 hydro::Tags::Pressure<DataVector>>;
   using dg_gridless_tags = tmpl::list<>;
 
   static std::optional<std::string> dg_ghost(
@@ -142,7 +139,6 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
       const tnsr::I<DataVector, 3, Frame::Inertial>& interior_magnetic_field,
       const Scalar<DataVector>& interior_lorentz_factor,
       const Scalar<DataVector>& interior_pressure,
-      const Scalar<DataVector>& interior_specific_enthalpy,
 
       const tnsr::I<DataVector, 3, Frame::Inertial>& /*coords*/,
       const Scalar<DataVector>& interior_gamma1,
@@ -172,17 +168,17 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
       const tnsr::iaa<DataVector, 3, Frame::Inertial>& /*d_pi*/,
       const tnsr::ijaa<DataVector, 3, Frame::Inertial>& /*d_phi*/);
 
-  using dg_interior_dt_vars_tags = tmpl::list<
-      ::Tags::dt<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>>,
-      ::Tags::dt<GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>>,
-      ::Tags::dt<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>>>;
-  using dg_interior_deriv_vars_tags = tmpl::list<
-      ::Tags::deriv<gr::Tags::SpacetimeMetric<3, Frame::Inertial, DataVector>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      ::Tags::deriv<GeneralizedHarmonic::Tags::Pi<3, Frame::Inertial>,
-                    tmpl::size_t<3>, Frame::Inertial>,
-      ::Tags::deriv<GeneralizedHarmonic::Tags::Phi<3, Frame::Inertial>,
-                    tmpl::size_t<3>, Frame::Inertial>>;
+  using dg_interior_dt_vars_tags =
+      tmpl::list<::Tags::dt<gr::Tags::SpacetimeMetric<DataVector, 3>>,
+                 ::Tags::dt<gh::Tags::Pi<DataVector, 3>>,
+                 ::Tags::dt<gh::Tags::Phi<DataVector, 3>>>;
+  using dg_interior_deriv_vars_tags =
+      tmpl::list<::Tags::deriv<gr::Tags::SpacetimeMetric<DataVector, 3>,
+                               tmpl::size_t<3>, Frame::Inertial>,
+                 ::Tags::deriv<gh::Tags::Pi<DataVector, 3>, tmpl::size_t<3>,
+                               Frame::Inertial>,
+                 ::Tags::deriv<gh::Tags::Phi<DataVector, 3>, tmpl::size_t<3>,
+                               Frame::Inertial>>;
 
   std::optional<std::string> dg_time_derivative(
       gsl::not_null<tnsr::aa<DataVector, 3, Frame::Inertial>*>
@@ -215,7 +211,6 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
                     Frame::Inertial>& /*interior_magnetic_field*/,
       const Scalar<DataVector>& /*interior_lorentz_factor*/,
       const Scalar<DataVector>& /*interior_pressure*/,
-      const Scalar<DataVector>& /*interior_specific_enthalpy*/,
 
       // c.f. dg_interior_temporary_tags
       const tnsr::I<DataVector, 3, Frame::Inertial>& coords,
@@ -267,7 +262,7 @@ class ConstraintPreservingFreeOutflow final : public BoundaryCondition {
   }
 
  private:
-  GeneralizedHarmonic::BoundaryConditions::ConstraintPreservingBjorhus<3>
+  gh::BoundaryConditions::ConstraintPreservingBjorhus<3>
       constraint_preserving_{};
 };
 }  // namespace grmhd::GhValenciaDivClean::BoundaryConditions

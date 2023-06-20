@@ -12,7 +12,7 @@
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
-#include "Domain/Tags.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
 #include "Framework/ActionTesting.hpp"
 #include "Parallel/ParallelComponentHelpers.hpp"
 #include "Parallel/Phase.hpp"
@@ -103,7 +103,6 @@ struct MockReceivePoints {
                  tnsr::I<double, VolumeDim, typename Frame::BlockLogical>>>>&&
           block_coord_holders) {
     db::mutate<intrp::Tags::InterpolatedVarsHolders<Metavariables>>(
-        make_not_null(&box),
         [&temporal_id, &block_coord_holders](
             const gsl::not_null<typename intrp::Tags::InterpolatedVarsHolders<
                 Metavariables>::type*>
@@ -119,7 +118,8 @@ struct MockReceivePoints {
               intrp::Vars::Info<VolumeDim, typename InterpolationTargetTag::
                                                vars_to_interpolate_to_target>{
                   std::move(block_coord_holders)}));
-        });
+        },
+        make_not_null(&box));
   }
 };
 
@@ -194,7 +194,7 @@ void test_interpolation_target(
     ActionTesting::simple_action<target_component,
                                  intrp::Actions::SendPointsToInterpolator<
                                      typename metavars::InterpolationTargetA>>(
-        make_not_null(&runner), 0, temporal_id.substep_time().value());
+        make_not_null(&runner), 0, temporal_id.substep_time());
   } else if constexpr (std::is_same_v<temporal_id_type, TimeStepId>) {
     ActionTesting::simple_action<target_component,
                                  intrp::Actions::SendPointsToInterpolator<

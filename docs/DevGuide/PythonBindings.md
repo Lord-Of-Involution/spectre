@@ -4,6 +4,8 @@ See LICENSE.txt for details.
 \endcond
 # Writing Python Bindings {#spectre_writing_python_bindings}
 
+\tableofcontents
+
 ## CMake and Directory Layout
 
 To allow users to analyze output from simulations and take advantage of
@@ -94,7 +96,7 @@ namespace py_bindings {
 void bind_datavector(py::module& m);
 }  // namespace py_bindings
 
-PYBIND11_MODULE(_PyDataStructures, m) {
+PYBIND11_MODULE(_Pybindings, m) {
   py_bindings::bind_datavector(m);
 }
 \endcode
@@ -132,9 +134,6 @@ Below is an example of registering a python test file for bindings:
 Python code that does not use bindings must also be tested. You can register the
 test file using the `spectre_add_python_test` CMake function with the same
 signature as shown above.
-
-Please note that the tests must be formatted according to the `.style.yapf` file
-in the root of the repository.
 
 ## Using The Bindings
 

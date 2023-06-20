@@ -7,26 +7,27 @@
 #include <optional>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
+#include "DataStructures/DataVector.hpp"
 #include "DataStructures/Index.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
 #include "Domain/BoundaryConditions/BoundaryCondition.hpp"
 #include "Domain/BoundaryConditions/None.hpp"
 #include "Domain/BoundaryConditions/Periodic.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/Structure/Direction.hpp"
 #include "Domain/Structure/DirectionMap.hpp"
 #include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/BoundaryConditions/Type.hpp"
+#include "Evolution/DgSubcell/GhostData.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/Burgers/BoundaryConditions/BoundaryCondition.hpp"
 #include "Evolution/Systems/Burgers/FiniteDifference/Reconstructor.hpp"
@@ -192,15 +193,20 @@ void BoundaryConditionGhostData::apply(
 
     // Put the computed ghost data into neighbor data with {direction,
     // ElementId::external_boundary_id()} as the mortar_id key
-    std::vector<double> boundary_ghost_data{
-        ghost_data_vars.data(),
-        ghost_data_vars.data() + ghost_data_vars.size()};
     const std::pair mortar_id{direction, ElementId<1>::external_boundary_id()};
 
-    db::mutate<evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>>(
-        box, [&mortar_id, &boundary_ghost_data](auto neighbor_data) {
-          (*neighbor_data)[mortar_id] = boundary_ghost_data;
-        });
+    db::mutate<evolution::dg::subcell::Tags::GhostDataForReconstruction<1>>(
+        [&mortar_id, &ghost_data_vars](auto ghost_data_ptr) {
+          (*ghost_data_ptr)[mortar_id] = evolution::dg::subcell::GhostData{1};
+          DataVector& neighbor_data =
+              ghost_data_ptr->at(mortar_id)
+                  .neighbor_ghost_data_for_reconstruction();
+          neighbor_data.destructive_resize(ghost_data_vars.size());
+          std::copy(get(get<Burgers::Tags::U>(ghost_data_vars)).begin(),
+                    get(get<Burgers::Tags::U>(ghost_data_vars)).end(),
+                    neighbor_data.begin());
+        },
+        box);
   }
 }
 }  // namespace Burgers::fd

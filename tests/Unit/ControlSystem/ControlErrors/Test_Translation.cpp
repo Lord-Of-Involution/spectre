@@ -10,8 +10,9 @@
 #include "ControlSystem/ControlErrors/Expansion.hpp"
 #include "ControlSystem/ControlErrors/Rotation.hpp"
 #include "ControlSystem/DataVectorHelpers.hpp"
-#include "ControlSystem/Tags.hpp"
 #include "ControlSystem/Tags/MeasurementTimescales.hpp"
+#include "ControlSystem/Tags/QueueTags.hpp"
+#include "ControlSystem/Tags/SystemTags.hpp"
 #include "DataStructures/DataVector.hpp"
 #include "Domain/FunctionsOfTime/RegisterDerivedWithCharm.hpp"
 #include "Domain/FunctionsOfTime/Tags.hpp"
@@ -82,20 +83,25 @@ void test_translation_control_error() {
   const std::string translation_name =
       system_helper.template name<translation_system>();
 
+  auto grid_center_A = domain.excision_spheres().at("ExcisionSphereA").center();
+  auto grid_center_B = domain.excision_spheres().at("ExcisionSphereB").center();
+
   // Setup runner and element component because it's the easiest way to get the
   // global cache
   using MockRuntimeSystem = ActionTesting::MockRuntimeSystem<metavars>;
-  MockRuntimeSystem runner{{"DummyFileName", std::move(domain), 4},
-                           {std::move(initial_functions_of_time),
-                            std::move(initial_measurement_timescales)}};
+  MockRuntimeSystem runner{
+      {"DummyFileName", std::move(domain), 4, false, ::Verbosity::Silent,
+       std::move(grid_center_A), std::move(grid_center_B)},
+      {std::move(initial_functions_of_time),
+       std::move(initial_measurement_timescales)}};
   ActionTesting::emplace_array_component<element_component>(
       make_not_null(&runner), ActionTesting::NodeId{0},
       ActionTesting::LocalCoreId{0}, 0);
   const auto& cache = ActionTesting::cache<element_component>(runner, 0);
 
   using QueueTuple = tuples::TaggedTuple<
-      control_system::QueueTags::Center<::ah::ObjectLabel::A>,
-      control_system::QueueTags::Center<::ah::ObjectLabel::B>>;
+      control_system::QueueTags::Center<::domain::ObjectLabel::A>,
+      control_system::QueueTags::Center<::domain::ObjectLabel::B>>;
 
   // Create fake measurements.
   const DataVector pos_A{{2.0, 3.0, 6.0}};

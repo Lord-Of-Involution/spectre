@@ -24,6 +24,7 @@ spectre_target_headers(
   IntrpOptionHolders.hpp
   PointInfoTag.hpp
   Tags.hpp
+  TagsMetafunctions.hpp
   )
 
 add_dependencies(
@@ -45,6 +46,7 @@ target_link_libraries(
   Logging
   Options
   Parallel
+  Serialization
   Spectral
   SphericalHarmonics
   Time

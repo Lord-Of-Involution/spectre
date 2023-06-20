@@ -25,10 +25,11 @@
 #include "Evolution/DgSubcell/ReconstructionMethod.hpp"
 #include "Evolution/DgSubcell/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/ActiveGrid.hpp"
+#include "Evolution/DgSubcell/Tags/CellCenteredFlux.hpp"
 #include "Evolution/DgSubcell/Tags/DataForRdmpTci.hpp"
 #include "Evolution/DgSubcell/Tags/DidRollback.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DgSubcell/Tags/SubcellOptions.hpp"
 #include "Evolution/DgSubcell/Tags/TciGridHistory.hpp"
 #include "Evolution/DgSubcell/Tags/TciStatus.hpp"
@@ -126,9 +127,9 @@ namespace evolution::dg::subcell::Actions {
  *   - `Tags::HistoryEvolvedVariables` if the cell is not troubled
  *   - `subcell::Tags::ActiveGrid` if the cell is not troubled
  *   - `subcell::Tags::DidRollback` sets to `false`
- *   - `subcell::Tags::TciStatus` is set to an integer value according to the
+ *   - `subcell::Tags::TciDecision` is set to an integer value according to the
  *     return of TciMutator.
- *   - `subcell::Tags::NeighborDataForReconstruction<Dim>`
+ *   - `subcell::Tags::GhostDataForReconstruction<Dim>`
  *     if the cell is not troubled
  *   - `subcell::Tags::TciGridHistory` if the time stepper is a multistep method
  */
@@ -150,60 +151,86 @@ struct TciAndSwitchToDg {
         "Must have the TciAndSwitchToDg action exactly once in the action list "
         "of a phase.");
 
-    if (UNLIKELY(db::get<subcell::Tags::DidRollback>(box))) {
-      db::mutate<subcell::Tags::DidRollback>(
-          make_not_null(&box), [](const gsl::not_null<bool*> did_rollback) {
-            *did_rollback = false;
-          });
-      return {Parallel::AlgorithmExecution::Continue, std::nullopt};
-    }
-
-    const TimeStepId& time_step_id = db::get<::Tags::TimeStepId>(box);
-    const SubcellOptions& subcell_options = db::get<Tags::SubcellOptions>(box);
-    if (time_step_id.substep() != 0 or
-        UNLIKELY(time_step_id.slab_number() < 0) or
-        UNLIKELY(subcell_options.always_use_subcells())) {
-      // The first condition is that for substep time integrators we only allow
-      // switching back to DG on step boundaries. This is the easiest way to
-      // avoid having a shock in the time stepper history, since there is no
-      // history at step boundaries.
-      //
-      // The second condition is that if we are in the self-start procedure of
-      // the time stepper, and we don't want to switch from subcell back to DG
-      // during self-start since we integrate over the same temporal region at
-      // increasingly higher order.
-      //
-      // The third condition is that the user has requested we always do
-      // subcell, so effectively a finite difference/volume code.
-      return {Parallel::AlgorithmExecution::Continue, std::nullopt};
-    }
-
     using variables_tag = typename Metavariables::system::variables_tag;
+    using flux_variables = typename Metavariables::system::flux_variables;
 
     ASSERT(db::get<Tags::ActiveGrid>(box) == ActiveGrid::Subcell,
            "Must be using subcells when calling TciAndSwitchToDg action.");
     const Mesh<Dim>& dg_mesh = db::get<::domain::Tags::Mesh<Dim>>(box);
     const Mesh<Dim>& subcell_mesh = db::get<subcell::Tags::Mesh<Dim>>(box);
+    const SubcellOptions& subcell_options =
+        db::get<Tags::SubcellOptions<Dim>>(box);
+    const TimeStepId& time_step_id = db::get<::Tags::TimeStepId>(box);
+
+    // This should never be run if we are prohibited from using subcell on this
+    // element.
+    ASSERT(not std::binary_search(
+               subcell_options.only_dg_block_ids().begin(),
+               subcell_options.only_dg_block_ids().end(),
+               db::get<domain::Tags::Element<Dim>>(box).id().block_id()),
+           "Should never use subcell on element "
+               << db::get<domain::Tags::Element<Dim>>(box).id());
+
+    // The first condition is that for substep time integrators we only allow
+    // switching back to DG on step boundaries. This is the easiest way to
+    // avoid having a shock in the time stepper history, since there is no
+    // history at step boundaries.
+    //
+    // The second condition is that if we are in the self-start procedure of
+    // the time stepper, and we don't want to switch from subcell back to DG
+    // during self-start since we integrate over the same temporal region at
+    // increasingly higher order.
+    //
+    // The third condition is that the user has requested we always do
+    // subcell, so effectively a finite difference/volume code.
+    const bool only_need_rdmp_data =
+        db::get<subcell::Tags::DidRollback>(box) or
+        (time_step_id.substep() != 0 or time_step_id.slab_number() < 0);
+    if (UNLIKELY(db::get<subcell::Tags::DidRollback>(box))) {
+      db::mutate<subcell::Tags::DidRollback>(
+          [](const gsl::not_null<bool*> did_rollback) {
+            *did_rollback = false;
+          },
+          make_not_null(&box));
+    }
+
+    if (subcell_options.always_use_subcells()) {
+      return {Parallel::AlgorithmExecution::Continue, std::nullopt};
+    }
 
     std::tuple<int, evolution::dg::subcell::RdmpTciData> tci_result =
         db::mutate_apply<TciMutator>(make_not_null(&box),
-                                     subcell_options.persson_exponent() + 1.0);
-    const int tci_status = std::get<0>(tci_result);
-    const bool cell_is_troubled = static_cast<bool>(tci_status);
-
-    if (cell_is_troubled) {
-      db::mutate<Tags::TciStatus>(
-          make_not_null(&box),
-          [&tci_status](
-              const gsl::not_null<Scalar<DataVector>*> tci_status_ptr) {
-            get(*tci_status_ptr) = static_cast<double>(tci_status);
-          });
-    }
+                                     subcell_options.persson_exponent() + 1.0,
+                                     only_need_rdmp_data);
 
     db::mutate<evolution::dg::subcell::Tags::DataForRdmpTci>(
-        make_not_null(&box), [&tci_result](const auto rdmp_data_ptr) {
+        [&tci_result](const auto rdmp_data_ptr) {
           *rdmp_data_ptr = std::move(std::get<1>(std::move(tci_result)));
-        });
+        },
+        make_not_null(&box));
+
+    if (only_need_rdmp_data) {
+      return {Parallel::AlgorithmExecution::Continue, std::nullopt};
+    }
+
+    const int tci_decision = std::get<0>(tci_result);
+    const bool cell_is_troubled =
+        tci_decision != 0 or (subcell_options.use_halo() and [&box]() -> bool {
+          for (const auto& [_, neighbor_decision] :
+               db::get<evolution::dg::subcell::Tags::NeighborTciDecisions<Dim>>(
+                   box)) {
+            if (neighbor_decision != 0) {
+              return true;
+            }
+          }
+          return false;
+        }());
+
+    db::mutate<Tags::TciDecision>(
+        [&tci_decision](const gsl::not_null<int*> tci_decision_ptr) {
+          *tci_decision_ptr = tci_decision;
+        },
+        make_not_null(&box));
 
     // If the cell is not troubled, then we _might_ be able to switch back to
     // DG. This depends on the type of time stepper we are using:
@@ -224,22 +251,22 @@ struct TciAndSwitchToDg {
         not cell_is_troubled and
         (is_substep_method or
          (tci_history.size() == time_stepper.order() and
-          alg::all_of(tci_history, [](const ActiveGrid tci_decision) {
-            return tci_decision == ActiveGrid::Dg;
+          alg::all_of(tci_history, [](const ActiveGrid tci_grid_decision) {
+            return tci_grid_decision == ActiveGrid::Dg;
           })))) {
-      db::mutate<variables_tag, ::Tags::HistoryEvolvedVariables<variables_tag>,
-                 Tags::ActiveGrid,
-                 subcell::Tags::NeighborDataForReconstruction<Dim>,
-                 evolution::dg::subcell::Tags::TciGridHistory, Tags::TciStatus>(
-          make_not_null(&box),
-          [&dg_mesh, &subcell_mesh, &subcell_options, &tci_status](
+      db::mutate<
+          variables_tag, ::Tags::HistoryEvolvedVariables<variables_tag>,
+          Tags::ActiveGrid, subcell::Tags::GhostDataForReconstruction<Dim>,
+          evolution::dg::subcell::Tags::TciGridHistory,
+          evolution::dg::subcell::Tags::CellCenteredFlux<flux_variables, Dim>>(
+          [&dg_mesh, &subcell_mesh, &subcell_options](
               const auto active_vars_ptr, const auto active_history_ptr,
               const gsl::not_null<ActiveGrid*> active_grid_ptr,
-              const auto subcell_neighbor_data_ptr,
+              const auto subcell_ghost_data_ptr,
               const gsl::not_null<
                   std::deque<evolution::dg::subcell::ActiveGrid>*>
                   tci_grid_history_ptr,
-              const gsl::not_null<Scalar<DataVector>*> tci_status_ptr) {
+              const auto subcell_cell_centered_fluxes) {
             // Note: strictly speaking, to be conservative this should
             // reconstruct uJ instead of u.
             *active_vars_ptr = fd::reconstruct(
@@ -248,33 +275,26 @@ struct TciAndSwitchToDg {
 
             // Reconstruct the DG solution for each time in the time stepper
             // history
-            TimeSteppers::History<
-                typename db::add_tag_prefix<::Tags::dt, variables_tag>::type>
-                dg_history{active_history_ptr->integration_order()};
-            const auto end_it = active_history_ptr->derivatives_end();
-            for (auto it = active_history_ptr->derivatives_begin();
-                 it != end_it; ++it) {
-              dg_history.insert(
-                  it.time_step_id(),
-                  fd::reconstruct(*it, dg_mesh, subcell_mesh.extents(),
-                                  subcell_options.reconstruction_method()));
-            }
-            *active_history_ptr = std::move(dg_history);
+            active_history_ptr->map_entries(
+                [&dg_mesh, &subcell_mesh, &subcell_options](const auto entry) {
+                  *entry =
+                      fd::reconstruct(*entry, dg_mesh, subcell_mesh.extents(),
+                                      subcell_options.reconstruction_method());
+                });
             *active_grid_ptr = ActiveGrid::Dg;
 
             // Clear the neighbor data needed for subcell reconstruction since
             // we have now completed the time step.
-            subcell_neighbor_data_ptr->clear();
+            subcell_ghost_data_ptr->clear();
 
             // Clear the TCI grid history since we don't need to use it when on
             // the DG grid.
             tci_grid_history_ptr->clear();
 
-            // resize TciStatus datavector and assign the tci_status value
-            destructive_resize_components(tci_status_ptr,
-                                          dg_mesh.number_of_grid_points());
-            get(*tci_status_ptr) = static_cast<double>(tci_status);
-          });
+            // Clear the allocation for the cell-centered fluxes.
+            *subcell_cell_centered_fluxes = std::nullopt;
+          },
+          make_not_null(&box));
       return {Parallel::AlgorithmExecution::Continue, std::nullopt};
     }
 
@@ -284,7 +304,6 @@ struct TciAndSwitchToDg {
       // multistep methods we need the discontinuity to clear the entire
       // history before we can switch back to DG.
       db::mutate<evolution::dg::subcell::Tags::TciGridHistory>(
-          make_not_null(&box),
           [cell_is_troubled,
            &time_stepper](const gsl::not_null<
                           std::deque<evolution::dg::subcell::ActiveGrid>*>
@@ -294,7 +313,8 @@ struct TciAndSwitchToDg {
             if (tci_grid_history->size() > time_stepper.order()) {
               tci_grid_history->pop_back();
             }
-          });
+          },
+          make_not_null(&box));
     }
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }

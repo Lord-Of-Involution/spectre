@@ -12,8 +12,8 @@
 
 // IWYU pragma: no_forward_declare Tensor
 
-namespace GeneralizedHarmonic {
-template <size_t SpatialDim, typename Frame, typename DataType>
+namespace gh {
+template <typename DataType, size_t SpatialDim, typename Frame>
 void pi(const gsl::not_null<tnsr::aa<DataType, SpatialDim, Frame>*> pi,
         const Scalar<DataType>& lapse, const Scalar<DataType>& dt_lapse,
         const tnsr::I<DataType, SpatialDim, Frame>& shift,
@@ -58,7 +58,7 @@ void pi(const gsl::not_null<tnsr::aa<DataType, SpatialDim, Frame>*> pi,
   }
 }
 
-template <size_t SpatialDim, typename Frame, typename DataType>
+template <typename DataType, size_t SpatialDim, typename Frame>
 tnsr::aa<DataType, SpatialDim, Frame> pi(
     const Scalar<DataType>& lapse, const Scalar<DataType>& dt_lapse,
     const tnsr::I<DataType, SpatialDim, Frame>& shift,
@@ -67,19 +67,19 @@ tnsr::aa<DataType, SpatialDim, Frame> pi(
     const tnsr::ii<DataType, SpatialDim, Frame>& dt_spatial_metric,
     const tnsr::iaa<DataType, SpatialDim, Frame>& phi) {
   tnsr::aa<DataType, SpatialDim, Frame> pi{};
-  GeneralizedHarmonic::pi<SpatialDim, Frame, DataType>(
-      make_not_null(&pi), lapse, dt_lapse, shift, dt_shift, spatial_metric,
-      dt_spatial_metric, phi);
+  gh::pi<DataType, SpatialDim, Frame>(make_not_null(&pi), lapse, dt_lapse,
+                                      shift, dt_shift, spatial_metric,
+                                      dt_spatial_metric, phi);
   return pi;
 }
-}  // namespace GeneralizedHarmonic
+}  // namespace gh
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
 #define DTYPE(data) BOOST_PP_TUPLE_ELEM(1, data)
 #define FRAME(data) BOOST_PP_TUPLE_ELEM(2, data)
 
 #define INSTANTIATE(_, data)                                                  \
-  template void GeneralizedHarmonic::pi(                                      \
+  template void gh::pi(                                                       \
       const gsl::not_null<tnsr::aa<DTYPE(data), DIM(data), FRAME(data)>*>     \
           var_pi,                                                             \
       const Scalar<DTYPE(data)>& lapse, const Scalar<DTYPE(data)>& dt_lapse,  \
@@ -88,8 +88,7 @@ tnsr::aa<DataType, SpatialDim, Frame> pi(
       const tnsr::ii<DTYPE(data), DIM(data), FRAME(data)>& spatial_metric,    \
       const tnsr::ii<DTYPE(data), DIM(data), FRAME(data)>& dt_spatial_metric, \
       const tnsr::iaa<DTYPE(data), DIM(data), FRAME(data)>& phi);             \
-  template tnsr::aa<DTYPE(data), DIM(data), FRAME(data)>                      \
-  GeneralizedHarmonic::pi(                                                    \
+  template tnsr::aa<DTYPE(data), DIM(data), FRAME(data)> gh::pi(              \
       const Scalar<DTYPE(data)>& lapse, const Scalar<DTYPE(data)>& dt_lapse,  \
       const tnsr::I<DTYPE(data), DIM(data), FRAME(data)>& shift,              \
       const tnsr::I<DTYPE(data), DIM(data), FRAME(data)>& dt_shift,           \

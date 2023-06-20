@@ -25,7 +25,6 @@ spectre_target_headers(
   MetricIdentityJacobian.hpp
   MortarHelpers.hpp
   NormalDotFlux.hpp
-  Protocols.hpp
   SimpleBoundaryData.hpp
   SimpleMortarData.hpp
   Tags.hpp
@@ -39,11 +38,11 @@ target_link_libraries(
   DomainStructure
   ErrorHandling
   Options
+  Serialization
   Spectral
   Utilities
   INTERFACE
   Domain
   )
 
-add_subdirectory(NumericalFluxes)
 add_subdirectory(Tags)

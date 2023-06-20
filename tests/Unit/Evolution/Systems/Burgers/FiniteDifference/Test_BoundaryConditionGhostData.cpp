@@ -10,7 +10,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -22,6 +21,9 @@
 #include "Domain/CoordinateMaps/Tags.hpp"
 #include "Domain/CreateInitialElement.hpp"
 #include "Domain/Creators/Interval.hpp"
+#include "Domain/Creators/Tags/Domain.hpp"
+#include "Domain/Creators/Tags/ExternalBoundaryConditions.hpp"
+#include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/FunctionsOfTime/FunctionOfTime.hpp"
@@ -33,14 +35,12 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Structure/SegmentId.hpp"
 #include "Domain/Tags.hpp"
-#include "Domain/Tags/ExternalBoundaryConditions.hpp"
 #include "Domain/TagsTimeDependent.hpp"
 #include "Evolution/DgSubcell/GhostZoneLogicalCoordinates.hpp"
 #include "Evolution/DgSubcell/Mesh.hpp"
-#include "Evolution/DgSubcell/SliceData.hpp"
 #include "Evolution/DgSubcell/Tags/Coordinates.hpp"
+#include "Evolution/DgSubcell/Tags/GhostDataForReconstruction.hpp"
 #include "Evolution/DgSubcell/Tags/Mesh.hpp"
-#include "Evolution/DgSubcell/Tags/NeighborData.hpp"
 #include "Evolution/DiscontinuousGalerkin/Actions/NormalCovectorAndMagnitude.hpp"
 #include "Evolution/DiscontinuousGalerkin/NormalVectorTags.hpp"
 #include "Evolution/Systems/Burgers/BoundaryConditions/BoundaryCondition.hpp"
@@ -89,7 +89,7 @@ void test(const BoundaryConditionType& boundary_condition) {
   const auto interval = domain::creators::Interval(
       lower_x, upper_x, refinement_level_x, number_of_grid_points_in_x,
       std::make_unique<BoundaryConditionType>(boundary_condition),
-      std::make_unique<BoundaryConditionType>(boundary_condition), nullptr);
+      std::make_unique<BoundaryConditionType>(boundary_condition));
   auto domain = interval.create_domain();
   auto boundary_conditions = interval.external_boundary_conditions();
   const auto element = domain::Initialization::create_initial_element(
@@ -105,8 +105,8 @@ void test(const BoundaryConditionType& boundary_condition) {
   using ReconstructorForTest = Burgers::fd::MonotonisedCentral;
 
   // dummy neighbor data to put into DataBox
-  typename evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>::type
-      neighbor_data{};
+  typename evolution::dg::subcell::Tags::GhostDataForReconstruction<1>::type
+      ghost_data{};
 
   // Below are tags required by DirichletAnalytic boundary condition to compute
   // inertial coords of ghost FD cells:
@@ -186,7 +186,7 @@ void test(const BoundaryConditionType& boundary_condition) {
       domain::Tags::Domain<1>, domain::Tags::ExternalBoundaryConditions<1>,
       evolution::dg::subcell::Tags::Mesh<1>,
       evolution::dg::subcell::Tags::Coordinates<1, Frame::ElementLogical>,
-      evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>,
+      evolution::dg::subcell::Tags::GhostDataForReconstruction<1>,
       Burgers::fd::Tags::Reconstructor, domain::Tags::MeshVelocity<1>,
       evolution::dg::Tags::NormalCovectorAndMagnitude<1>, Tags::Time,
       domain::Tags::FunctionsOfTimeInitialize,
@@ -195,7 +195,7 @@ void test(const BoundaryConditionType& boundary_condition) {
                                                   Frame::Inertial>,
       Tags::AnalyticSolution<SolutionForTest>, Burgers::Tags::U>>(
       EvolutionMetaVars{}, std::move(domain), std::move(boundary_conditions),
-      subcell_mesh, subcell_logical_coords, neighbor_data,
+      subcell_mesh, subcell_logical_coords, ghost_data,
       std::unique_ptr<Burgers::fd::Reconstructor>{
           std::make_unique<ReconstructorForTest>()},
       volume_mesh_velocity, normal_vectors, time,
@@ -215,15 +215,16 @@ void test(const BoundaryConditionType& boundary_condition) {
     const auto direction = Direction<1>::upper_xi();
     const std::pair mortar_id = {direction,
                                  ElementId<1>::external_boundary_id()};
-    const std::vector<double>& fd_ghost_data =
-        get<evolution::dg::subcell::Tags::NeighborDataForReconstruction<1>>(box)
-            .at(mortar_id);
+    const DataVector& fd_ghost_data =
+        get<evolution::dg::subcell::Tags::GhostDataForReconstruction<1>>(box)
+            .at(mortar_id)
+            .neighbor_ghost_data_for_reconstruction();
 
     // now check values for each types of boundary conditions
 
     if (typeid(BoundaryConditionType) ==
         typeid(Burgers::BoundaryConditions::Dirichlet)) {
-      const std::vector<double> expected_ghost_u(fd_ghost_data.size(), 0.3);
+      const DataVector expected_ghost_u{fd_ghost_data.size(), 0.3};
       CHECK_ITERABLE_APPROX(expected_ghost_u, fd_ghost_data);
     }
 
@@ -240,9 +241,9 @@ void test(const BoundaryConditionType& boundary_condition) {
 
       const auto solution_py = pypp::call<Scalar<DataVector>>(
           "Linear", "u", ghost_inertial_coords, time);
-      std::vector<double> expected_ghost_u{
-          get(solution_py).data(),
-          get(solution_py).data() + get(solution_py).size()};
+      DataVector expected_ghost_u{get(solution_py).size()};
+      std::copy(get(solution_py).begin(), get(solution_py).end(),
+                expected_ghost_u.begin());
 
       CHECK_ITERABLE_APPROX(expected_ghost_u, fd_ghost_data);
     }
@@ -253,17 +254,16 @@ void test(const BoundaryConditionType& boundary_condition) {
       // will not throw any error. Here we just check if
       // `Burgers::fd::BoundaryConditionGhostData::apply()` has correctly filled
       // out `fd_ghost_data` with the outermost value.
-      const std::vector<double> expected_ghost_u(fd_ghost_data.size(),
-                                                 volume_u_val);
+      const DataVector expected_ghost_u{fd_ghost_data.size(), volume_u_val};
       CHECK_ITERABLE_APPROX(expected_ghost_u, fd_ghost_data);
 
       // Test when U=-1.0, which will raise ERROR by violating the
       // DemandOutgoingCharSpeeds condition.
       db::mutate<Burgers::Tags::U>(
-          make_not_null(&box),
           [](const gsl::not_null<Scalar<DataVector>*> volume_u) {
             get(*volume_u) = -1.0;
-          });
+          },
+          make_not_null(&box));
       // See if the code fails correctly.
       CHECK_THROWS_WITH(([&box, &element]() {
                           Burgers::fd::BoundaryConditionGhostData::apply(
@@ -275,14 +275,14 @@ void test(const BoundaryConditionType& boundary_condition) {
 
       // Test when the volume mesh velocity has value, which will raise ERROR.
       db::mutate<domain::Tags::MeshVelocity<1>>(
-          make_not_null(&box),
           [&subcell_mesh](
               const gsl::not_null<std::optional<tnsr::I<DataVector, 1>>*>
                   mesh_velocity) {
             tnsr::I<DataVector, 1> volume_mesh_velocity_tnsr(
                 subcell_mesh.number_of_grid_points(), 0.0);
             *mesh_velocity = volume_mesh_velocity_tnsr;
-          });
+          },
+          make_not_null(&box));
       // See if the code fails correctly.
       CHECK_THROWS_WITH(
           ([&box, &element]() {
