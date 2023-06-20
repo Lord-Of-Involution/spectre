@@ -37,6 +37,12 @@ struct BondiJ : db::SimpleTag {
   static std::string name() { return "J"; }
 };
 
+
+struct Psi : db::SimpleTag {
+  using type = Scalar<SpinWeighted<ComplexDataVector, 0>>;
+  static std::string name() { return "Psi"; }
+};
+
 }  // namespace Tags
 }  // namespace Cce
 
@@ -47,6 +53,12 @@ struct dt<Cce::Tags::BondiJ> : db::PrefixTag, db::SimpleTag {
   static std::string name() { return "H"; }
   using type = Scalar<::SpinWeighted<ComplexDataVector, 2>>;
   using tag = Cce::Tags::BondiJ;
+};
+template <>
+struct dt<Cce::Tags::Psi> : db::PrefixTag, db::SimpleTag {
+  static std::string name() { return "Psidt"; }
+  using type = Scalar<::SpinWeighted<ComplexDataVector, 0>>;
+  using tag = Cce::Tags::Psi;
 };
 /// \endcond
 }  // namespace Tags

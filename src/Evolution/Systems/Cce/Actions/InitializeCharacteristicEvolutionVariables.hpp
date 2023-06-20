@@ -97,6 +97,10 @@ struct InitializeCharacteristicEvolutionVariables {
   using evolved_swsh_dt_variables_tag =
       db::add_tag_prefix<::Tags::dt, evolved_swsh_variables_tag>;
   using ccm_tag = ::Tags::Variables<typename Metavariables::ccm_psi0>;
+  using tensor_scalar_tag =
+      ::Tags::Variables<tmpl::list<Tags::Psi,Tags::Dy<Tags::Psi>,
+        Tags::Du<Tags::Psi>, Spectral::Swsh::Tags::Derivative<Tags::Psi,
+       Spectral::Swsh::Tags::Eth>>>;
 
   using simple_tags_for_evolution = tmpl::list<
       boundary_value_variables_tag, coordinate_variables_tag,
@@ -107,7 +111,7 @@ struct InitializeCharacteristicEvolutionVariables {
       swsh_derivative_variables_tag,
       Spectral::Swsh::Tags::SwshInterpolator<Tags::CauchyAngularCoords>,
       Spectral::Swsh::Tags::SwshInterpolator<Tags::PartiallyFlatAngularCoords>,
-      ccm_tag>;
+      ccm_tag, tensor_scalar_tag>;
   using simple_tags =
       tmpl::append<StepChoosers::step_chooser_simple_tags<Metavariables, true>,
                    simple_tags_for_evolution>;
@@ -149,7 +153,8 @@ struct InitializeCharacteristicEvolutionVariables {
                                                       0.0},
         typename swsh_derivative_variables_tag::type{volume_size, 0.0},
         Spectral::Swsh::SwshInterpolator{}, Spectral::Swsh::SwshInterpolator{},
-        typename ccm_tag::type{boundary_size});
+        typename ccm_tag::type{boundary_size},
+        typename tensor_scalar_tag::type{volume_size, 0.0});
 
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
